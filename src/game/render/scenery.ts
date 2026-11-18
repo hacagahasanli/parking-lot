@@ -625,12 +625,12 @@ export const buildMarkings = (lot: Lot): THREE.Group => {
   }
   const paintMat = (color: number) => new THREE.MeshStandardMaterial({ color, roughness: 0.65, polygonOffset: true, polygonOffsetFactor: -2 });
   if (white.length) {
-    const m = new THREE.Mesh(merge(white), paintMat(0xeeeee6));
+    const m = new THREE.Mesh(merge(white), paintMat(0xffffff));
     m.receiveShadow = true;
     group.add(m);
   }
   if (yellow.length) {
-    const m = new THREE.Mesh(merge(yellow), paintMat(0xe3b92c));
+    const m = new THREE.Mesh(merge(yellow), paintMat(0xf5c71a));
     m.receiveShadow = true;
     group.add(m);
   }

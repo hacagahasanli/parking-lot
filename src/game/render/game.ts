@@ -331,8 +331,9 @@ export class Game {
     this.renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
     this.renderer.shadowMap.enabled = true;
     this.renderer.shadowMap.type = THREE.PCFShadowMap;
-    this.renderer.toneMapping = THREE.ACESFilmicToneMapping;
-    this.renderer.toneMappingExposure = 0.62;
+    // Neutral tone mapping keeps paint and foliage saturated (ACES at low exposure washed everything towards grey).
+    this.renderer.toneMapping = THREE.NeutralToneMapping;
+    this.renderer.toneMappingExposure = 0.92;
     this.camera = new THREE.PerspectiveCamera(62, 1, 0.1, 900);
 
     // Sky with a low autumn sun from the south-west; the same sky lights the car paint.
@@ -340,9 +341,9 @@ export class Game {
     sky.scale.setScalar(4000);
     const sunDir = new THREE.Vector3().setFromSphericalCoords(1, THREE.MathUtils.degToRad(90 - 15), THREE.MathUtils.degToRad(215));
     const u = sky.material.uniforms;
-    u.turbidity.value = 8;
-    u.rayleigh.value = 2.2;
-    u.mieCoefficient.value = 0.006;
+    u.turbidity.value = 4.5;
+    u.rayleigh.value = 2.8;
+    u.mieCoefficient.value = 0.004;
     u.mieDirectionalG.value = 0.85;
     u.sunPosition.value.copy(sunDir);
     this.scene.add(sky);
@@ -353,10 +354,10 @@ export class Game {
     for (const k of Object.keys(u)) (envSky.material.uniforms[k].value as unknown) = u[k].value;
     envScene.add(envSky);
     this.scene.environment = pmrem.fromScene(envScene, 0.02).texture;
-    this.scene.environmentIntensity = 0.75;
-    this.scene.fog = new THREE.Fog(0xe2cdb2, 140, 520);
+    this.scene.environmentIntensity = 0.6;
+    this.scene.fog = new THREE.Fog(0xe3bf92, 160, 620);
 
-    this.sun = new THREE.DirectionalLight(0xffc27d, 3.5);
+    this.sun = new THREE.DirectionalLight(0xffb560, 3.6);
     this.sun.position.copy(sunDir).multiplyScalar(80);
     this.sun.castShadow = true;
     this.sun.shadow.mapSize.set(2048, 2048);
@@ -368,7 +369,7 @@ export class Game {
     this.sun.shadow.bias = -0.0004;
     this.sun.shadow.normalBias = 0.03;
     this.scene.add(this.sun, this.sun.target);
-    this.scene.add(new THREE.HemisphereLight(0xffe6c8, 0x6a5238, 0.75));
+    this.scene.add(new THREE.HemisphereLight(0xffdca8, 0x5a4026, 0.55));
 
     this.lot = buildLot();
     this.worldView = buildWorld(this.lot);
@@ -846,15 +847,15 @@ export class Game {
     layer.height = H;
     const g = layer.getContext('2d')!;
     const { bounds, graph, aisles } = this.lot;
-    g.fillStyle = 'rgba(10,13,24,0.78)';
+    g.fillStyle = 'rgba(58,138,60,0.92)';
     g.fillRect(0, 0, W, H);
     // Tarmac.
-    g.fillStyle = 'rgba(112,120,132,0.38)';
+    g.fillStyle = 'rgba(52,56,68,0.97)';
     g.fillRect(px(bounds.x1), pz(bounds.z1), (bounds.x1 - bounds.x0) * sc, (bounds.z1 - bounds.z0) * sc);
     // Roads and aisles, at their real width.
     g.lineCap = 'butt';
     for (const a of aisles) {
-      g.strokeStyle = a.kind === 'aisle' ? 'rgba(150,158,170,0.38)' : 'rgba(176,184,196,0.5)';
+      g.strokeStyle = a.kind === 'aisle' ? 'rgba(98,106,122,1)' : 'rgba(128,138,156,1)';
       g.lineWidth = a.width * sc;
       g.beginPath();
       a.nodes.forEach((id, i) => {
@@ -865,7 +866,7 @@ export class Game {
       g.stroke();
     }
     // Bay rows as short ticks (every bay looks the same, so nothing is given away).
-    g.strokeStyle = 'rgba(235,235,225,0.28)';
+    g.strokeStyle = 'rgba(255,255,255,0.4)';
     g.lineWidth = 1;
     g.beginPath();
     for (const s of this.lot.stripes) {
@@ -875,18 +876,17 @@ export class Game {
     g.stroke();
     // Islands, lawns and the carport.
     for (const isl of this.lot.islands) {
-      g.fillStyle = isl.kind === 'lawn' || isl.kind === 'planter' || isl.kind === 'hedge' ? 'rgba(96,140,80,0.75)' : 'rgba(170,170,160,0.5)';
+      g.fillStyle = isl.kind === 'lawn' || isl.kind === 'planter' || isl.kind === 'hedge' ? 'rgb(64,160,64)' : isl.kind === 'chargers' ? 'rgb(40,200,120)' : 'rgb(190,184,170)';
       g.fillRect(px(isl.x1), pz(isl.z1), (isl.x1 - isl.x0) * sc, (isl.z1 - isl.z0) * sc);
     }
     for (const c of this.lot.canopies) {
-      g.strokeStyle = 'rgba(90,140,255,0.9)';
-      g.lineWidth = 1.5;
-      g.strokeRect(px(c.x1), pz(c.z1), (c.x1 - c.x0) * sc, (c.z1 - c.z0) * sc);
+      g.fillStyle = 'rgba(70,110,230,0.8)';
+      g.fillRect(px(c.x1), pz(c.z1), (c.x1 - c.x0) * sc, (c.z1 - c.z0) * sc);
     }
     // The shops along the top, the gates (the entry bottom centre) as short bars.
     for (const shop of this.lot.shops) {
-      g.fillStyle = 'rgba(214,200,176,0.8)';
-      g.fillRect(px(shop.x1), pz(bounds.z1) - 7, (shop.x1 - shop.x0) * sc, 6);
+      g.fillStyle = shop.name === 'MERGE MART' ? 'rgb(238,184,98)' : 'rgb(222,100,62)';
+      g.fillRect(px(shop.x1), pz(bounds.z1) - 8, (shop.x1 - shop.x0) * sc, 7);
     }
     g.fillStyle = 'rgba(255,210,63,0.95)';
     for (const gate of this.lot.gates) g.fillRect(px((gate.px + gate.tx) / 2) - 3, pz(gate.z) - 1, 6, 2);
@@ -912,7 +912,7 @@ export class Game {
     g.clearRect(0, 0, W, H);
     g.drawImage(this.mapLayer, 0, 0);
     // Shoppers as small pale dots; the free bay only once the round is over.
-    g.fillStyle = 'rgba(235,235,225,0.75)';
+    g.fillStyle = 'rgba(255,214,90,0.95)';
     for (const p of this.state.peds) g.fillRect(px(p.x) - 1, pz(p.z) - 1, 2, 2);
     if (this.state.phase === 'done') {
       const bay = this.lot.bays[this.state.winBay >= 0 ? this.state.winBay : this.state.target];

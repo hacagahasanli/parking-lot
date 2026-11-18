@@ -21,7 +21,7 @@ import type { Lot, Shop } from '../sim/lot';
 // ---------------------------------------------------------------------------
 
 /** Asphalt: fine grain, darker tar patches and sealed cracks. */
-const asphaltTexture = (seed: number, base = [62, 64, 68]) =>
+const asphaltTexture = (seed: number, base = [50, 51, 56]) =>
   canvasTexture(
     512,
     512,
@@ -65,11 +65,11 @@ const asphaltTexture = (seed: number, base = [62, 64, 68]) =>
 const grassTexture = (seed: number) =>
   canvasTexture(256, 256, (g) => {
     const r = rng(seed);
-    g.fillStyle = '#56713a';
+    g.fillStyle = '#4a8a2c';
     g.fillRect(0, 0, 256, 256);
     for (let i = 0; i < 2600; i++) {
       const v = r();
-      g.fillStyle = v < 0.3 ? '#47612f' : v < 0.6 ? '#62803f' : v < 0.95 ? '#6f8c48' : '#9a7a3a';
+      g.fillStyle = v < 0.3 ? '#3b7a22' : v < 0.6 ? '#58a034' : v < 0.95 ? '#68b03e' : '#c8a63a';
       g.fillRect(r() * 256, r() * 256, 2, 3 + r() * 3);
     }
   });
@@ -78,11 +78,11 @@ const grassTexture = (seed: number) =>
 const hedgeTexture = (seed: number) =>
   canvasTexture(128, 128, (g) => {
     const r = rng(seed);
-    g.fillStyle = '#2d4a24';
+    g.fillStyle = '#25601e';
     g.fillRect(0, 0, 128, 128);
     for (let i = 0; i < 900; i++) {
       const v = r();
-      g.fillStyle = v < 0.35 ? '#23391c' : v < 0.7 ? '#38592c' : v < 0.95 ? '#47703a' : '#6a8a3a';
+      g.fillStyle = v < 0.35 ? '#1d4d18' : v < 0.7 ? '#2f7a26' : v < 0.95 ? '#3f9a32' : '#8cc03c';
       g.beginPath();
       g.ellipse(r() * 128, r() * 128, 2 + r() * 3, 1.5 + r() * 2, r() * 3, 0, Math.PI * 2);
       g.fill();
@@ -142,7 +142,7 @@ const paintedWord = (text: string, w: number, h: number) =>
 // Trees: trunk plus a few leafy blobs, in late-autumn colours like a real car park in November.
 // ---------------------------------------------------------------------------
 
-const LEAVES = [0x4f7a35, 0x5d8a3a, 0x6f8f3d, 0xc8782c, 0xb5452a, 0xd6a13a, 0x3f6b30];
+const LEAVES = [0x3f9a30, 0x58b13a, 0x7bbf3a, 0xe0801f, 0xd0402a, 0xf0b52a, 0x2f8a3a];
 
 export interface Trees {
   group: THREE.Group;
@@ -269,7 +269,7 @@ export const buildWorld = (lot: Lot): WorldView => {
       roadGeos.push(scaleUV(g, horizontal ? len / 9 : a.width / 9, horizontal ? a.width / 9 : len / 9));
     }
   }
-  const roadTex2 = asphaltTexture(41, [52, 54, 58]);
+  const roadTex2 = asphaltTexture(41, [38, 39, 45]);
   const roadMesh = new THREE.Mesh(merge(roadGeos), new THREE.MeshStandardMaterial({ map: roadTex2, roughness: 0.9 }));
   roadMesh.receiveShadow = true;
   group.add(roadMesh);
@@ -291,7 +291,7 @@ export const buildWorld = (lot: Lot): WorldView => {
   group.add(red);
 
   // The street along the front, with a dashed centre line, and the entry and exit roads cut through the pavement (flush, so they read as the way in and out).
-  const roadTex = asphaltTexture(23, [48, 50, 54]);
+  const roadTex = asphaltTexture(23, [36, 37, 42]);
   roadTex.repeat.set(30, 2);
   const roadZ = bounds.z0 - 9;
   const road = new THREE.Mesh(new THREE.PlaneGeometry(400, 11), new THREE.MeshStandardMaterial({ map: roadTex, roughness: 0.95 }));
@@ -302,7 +302,7 @@ export const buildWorld = (lot: Lot): WorldView => {
   const roadLines: THREE.BufferGeometry[] = [];
   for (let x = -200; x < 200; x += 6) roadLines.push(flat(3, 0.15, x, roadZ, 0, 0.012));
   roadLines.push(flat(400, 0.15, 0, roadZ - 5, 0, 0.012), flat(400, 0.15, 0, roadZ + 5, 0, 0.012));
-  group.add(new THREE.Mesh(merge(roadLines), new THREE.MeshStandardMaterial({ color: 0xe8d36a, roughness: 0.7 })));
+  group.add(new THREE.Mesh(merge(roadLines), new THREE.MeshStandardMaterial({ color: 0xf5c71a, roughness: 0.7 })));
   for (const [x, w] of [
     [0, 11.4],
     [58, 4.8],
@@ -314,7 +314,7 @@ export const buildWorld = (lot: Lot): WorldView => {
   }
 
   // --- Paint: bay stripes, one-way arrows, centre lines, words.
-  const paint = new THREE.MeshStandardMaterial({ color: 0xeeeee6, roughness: 0.65, polygonOffset: true, polygonOffsetFactor: -2 });
+  const paint = new THREE.MeshStandardMaterial({ color: 0xffffff, roughness: 0.65, polygonOffset: true, polygonOffsetFactor: -2 });
   const lines: THREE.BufferGeometry[] = [];
   for (const s of lot.stripes) {
     const len = Math.hypot(s.b.x - s.a.x, s.b.z - s.a.z);
@@ -363,7 +363,7 @@ export const buildWorld = (lot: Lot): WorldView => {
   paintMesh.receiveShadow = true;
   group.add(paintMesh);
   if (dashes.length) {
-    const d = new THREE.Mesh(merge(dashes), new THREE.MeshStandardMaterial({ color: 0xe8d36a, roughness: 0.65, polygonOffset: true, polygonOffsetFactor: -2 }));
+    const d = new THREE.Mesh(merge(dashes), new THREE.MeshStandardMaterial({ color: 0xf5c71a, roughness: 0.65, polygonOffset: true, polygonOffsetFactor: -2 }));
     d.receiveShadow = true;
     group.add(d);
   }
@@ -441,7 +441,7 @@ export const buildWorld = (lot: Lot): WorldView => {
 
   // Low shrubs along the planters.
   const shrubGeo = new THREE.IcosahedronGeometry(0.45, 0);
-  const shrubMesh = new THREE.InstancedMesh(shrubGeo, new THREE.MeshStandardMaterial({ color: 0x3f6232, roughness: 0.9, flatShading: true }), shrubSpots.length);
+  const shrubMesh = new THREE.InstancedMesh(shrubGeo, new THREE.MeshStandardMaterial({ color: 0x2f8a2e, roughness: 0.9, flatShading: true }), shrubSpots.length);
   shrubSpots.forEach((p, i) => {
     const s = 0.6 + r() * 0.5;
     shrubMesh.setMatrixAt(i, new THREE.Matrix4().compose(new THREE.Vector3(p.x, 0.25, p.z), new THREE.Quaternion(), new THREE.Vector3(s, s * 0.7, s)));
@@ -503,16 +503,21 @@ export const buildWorld = (lot: Lot): WorldView => {
   group.add(buildSigns(lot.signs));
 
   // --- Buildings across the road (simple blocks with window bands) so the world doesn't end.
-  const far = new THREE.MeshStandardMaterial({ color: 0xa9a196, roughness: 0.9 });
+  const far = new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.9 });
   const farParts: THREE.BufferGeometry[] = [];
   const bands: THREE.BufferGeometry[] = [];
   const roofs: THREE.BufferGeometry[] = [];
+  const FAR = [0xd9a05b, 0x6fa6c9, 0xd9694f, 0x7fb58a, 0xe0c35a, 0xb48ad0, 0xe8d8b8];
   for (let i = 0; i < 12; i++) {
     const w = 14 + r() * 18;
     const h = 6 + r() * 10;
     const x = -170 + i * 32 + r() * 6;
     const z = bounds.z0 - 48 - r() * 12;
-    farParts.push(block(w, h, 12, x, 0, z));
+    const body = block(w, h, 12, x, 0, z);
+    const col = new THREE.Color(FAR[i % FAR.length]);
+    const n = body.attributes.position.count;
+    body.setAttribute('color', new THREE.BufferAttribute(new Float32Array(Array.from({ length: n }, () => [col.r, col.g, col.b]).flat()), 3));
+    farParts.push(body);
     for (let y = 1.6; y + 2.2 < h; y += 3.2) bands.push(block(w - 2.4, 1.5, 0.12, x, y, z + 6.04));
     roofs.push(block(w + 0.6, 0.5, 12.6, x, h, z));
   }
@@ -543,7 +548,7 @@ const buildStore = (group: THREE.Group, shop: Shop, index: number) => {
   const big = index === 0;
   const h = big ? 8.5 : 6;
 
-  const wall = new THREE.MeshStandardMaterial({ color: big ? 0xd9cdb8 : 0xb9856a, roughness: 0.92 });
+  const wall = new THREE.MeshStandardMaterial({ color: big ? 0xeeb862 : 0xc9573a, roughness: 0.92 });
   const dark = new THREE.MeshStandardMaterial({ color: 0x2c3036, roughness: 0.6, metalness: 0.3 });
   const accent = new THREE.MeshStandardMaterial({ color: shop.accent, roughness: 0.7 });
   const glass = new THREE.MeshPhysicalMaterial({ color: 0x1d2a33, roughness: 0.05, metalness: 0.2, clearcoat: 1, envMapIntensity: 1.4 });

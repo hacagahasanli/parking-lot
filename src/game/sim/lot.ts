@@ -183,7 +183,8 @@ export const rng = (seed: number) => {
   };
 };
 
-const PAINT = [0xf2f2ee, 0xc9ccd2, 0x1c1e22, 0x6d727a, 0x24324f, 0x7a1f24, 0x2f4a3a, 0xb7a58c, 0x9aa7b5, 0x404650, 0x5b6b84, 0xe9e6dc];
+// Mostly real colours: a car park is not a sea of white and grey (only white, silver and black are neutral).
+const PAINT = [0xd8222b, 0x2c6fd6, 0xe9801c, 0x1f9a73, 0xf2c230, 0x7b3fa0, 0xf2f2ee, 0x1c1e22, 0x9aa7b5, 0xc23a5b, 0x1f4ea0, 0x5bb04a];
 
 /** Footprint of what is parked in a bay, by body style. */
 export const VARIANT_SIZE = [
@@ -483,8 +484,8 @@ export const buildLot = (seed = 7): Lot => {
   // --- The shops and the service yard ------------------------------------------------------------
   const kerb = bounds.z1;
   const shops: Shop[] = [
-    { name: 'MERGE MART', x0: -46, x1: 20, z0: kerb + 5, z1: kerb + 38, doorX, accent: 0x1f6f4a },
-    { name: 'COMMIT COFFEE', x0: 31, x1: 58, z0: kerb + 5, z1: kerb + 24, doorX: 44.5, accent: 0x7a3b22 },
+    { name: 'MERGE MART', x0: -46, x1: 20, z0: kerb + 5, z1: kerb + 38, doorX, accent: 0x14915a },
+    { name: 'COMMIT COFFEE', x0: 31, x1: 58, z0: kerb + 5, z1: kerb + 24, doorX: 44.5, accent: 0xd9822b },
   ];
   const store = { ...shops[0], kerb };
   // Delivery yard (x -52..-30, z 32..44): a box truck, a van, pallets and roll cages.
