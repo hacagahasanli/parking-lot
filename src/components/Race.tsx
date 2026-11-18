@@ -73,6 +73,24 @@ const Meter = ({ hud }: { hud: HudState }) => {
   );
 };
 
+/** The opening card during the countdown, in the studio's style: what the round is about, then the conflict. */
+const Intro = () => (
+  <div
+    className="pointer-events-none absolute inset-x-0 top-0 z-[5] flex h-[62%] flex-col items-center justify-center gap-2 bg-[radial-gradient(ellipse_at_center,rgba(10,13,24,0.7),rgba(10,13,24,0.25)_70%,transparent)] px-6 text-center sm:gap-3"
+    style={{ animation: 'fadeIn 0.3s ease-out both' }}
+    aria-hidden="true"
+  >
+    <div className="text-green/90 font-mono text-[10px] tracking-[0.3em] sm:text-xs">&lt;&lt;&lt;&lt;&lt;&lt;&lt; ENTRY</div>
+    <div className="font-display text-gold text-4xl leading-none drop-shadow-[0_4px_24px_rgba(0,0,0,0.85)] sm:text-7xl" style={{ animation: 'riseIn 0.5s ease-out both' }}>
+      ONE SPACE LEFT
+    </div>
+    <div className="text-cream/90 max-w-md text-xs drop-shadow-[0_2px_8px_rgba(0,0,0,0.8)] sm:text-base" style={{ animation: 'fadeIn 0.8s ease-out both' }}>
+      Somewhere in this car park, one bay is empty. Three rivals are looking too. Read the board over the gate.
+    </div>
+    <div className="text-orange/90 font-mono text-[10px] tracking-[0.3em] sm:text-xs">&gt;&gt;&gt;&gt;&gt;&gt;&gt; EVERYONE ELSE</div>
+  </div>
+);
+
 const Stat = ({ label, value }: { label: string; value: string }) => (
   <div className="bg-ink-deep/70 px-3 py-2 text-center">
     <div className="text-lilac text-[10px] font-semibold tracking-widest uppercase">{label}</div>
@@ -228,9 +246,10 @@ export const Race = () => {
             <div className="panel-cut bg-ink-deep/75 font-display text-cream px-4 py-1 text-base tabular-nums sm:px-5 sm:py-1.5 sm:text-xl">{fmtClock(hud.clock)}</div>
           </div>
 
+          {hud.phase === 'countdown' && <Intro />}
           {hud.phase === 'countdown' && hud.countdown > 0 && (
-            <div className="pointer-events-none absolute inset-0 z-10 flex items-center justify-center">
-              <div key={hud.countdown} className="font-display text-gold text-9xl drop-shadow-lg" style={{ animation: 'countPop 1s ease-out both' }}>{hud.countdown}</div>
+            <div className="pointer-events-none absolute inset-0 z-10 flex items-end justify-center pb-[18%] sm:items-center sm:pb-0 sm:pt-[22vh]">
+              <div key={hud.countdown} className="font-display text-gold text-8xl drop-shadow-lg sm:text-9xl" style={{ animation: 'countPop 1s ease-out both' }}>{hud.countdown}</div>
             </div>
           )}
           {hud.disqualified !== null && !showResult && (

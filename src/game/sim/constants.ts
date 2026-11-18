@@ -96,7 +96,7 @@ export const PED = {
 } as const;
 
 export const RACE = {
-  countdown: 3,
+  countdown: 5,
   /** After the winner parks, how long the others get before the round ends (they can still finish 2nd, 3rd). */
   afterWin: 6,
   /** Hard limit on a round. */

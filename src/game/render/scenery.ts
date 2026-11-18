@@ -5,6 +5,7 @@
  */
 import * as THREE from 'three';
 
+import { makeBoard } from './board';
 import { block, canvasTexture, flat, merge, scaleUV } from './geo';
 
 import type { Canopy, Gate, Lot, Prop, Sign, SignKind } from '../sim/lot';
@@ -652,4 +653,29 @@ export const buildMarkings = (lot: Lot): THREE.Group => {
     group.add(m);
   }
   return group;
+};
+
+// ---------------------------------------------------------------------------
+// The free-spaces board over the entry gate
+// ---------------------------------------------------------------------------
+
+/** A gantry across the entry with an LED board facing the queue: "FREE SPACES: 1" and, later, a hint. */
+export const buildGantry = (lot: Lot) => {
+  const group = new THREE.Group();
+  const board = makeBoard(7.4, 1.85);
+  const g = lot.props.find((p) => p.kind === 'gantry');
+  if (!g) return { group, setBoard: board.set };
+  const steelDark = new THREE.MeshStandardMaterial({ color: 0x3b3f45, roughness: 0.5, metalness: 0.6 });
+  const parts: THREE.BufferGeometry[] = [];
+  for (const sx of [-6.6, 6.6]) parts.push(block(0.4, 5.9, 0.4, sx, 0, g.z));
+  parts.push(block(13.8, 0.4, 0.5, 0, 5.5, g.z));
+  parts.push(block(7.9, 2.35, 0.3, 0, 2.05, g.z + 0.3));
+  const frame = new THREE.Mesh(merge(parts), steelDark);
+  frame.castShadow = true;
+  group.add(frame);
+  // Faces south, towards the cars waiting in the queue.
+  board.mesh.position.set(0, 3.2, g.z - 0.2);
+  board.mesh.rotation.y = Math.PI;
+  group.add(board.mesh);
+  return { group, setBoard: board.set };
 };

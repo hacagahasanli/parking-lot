@@ -92,7 +92,7 @@ export interface Gate {
   box: Box;
 }
 
-export type PropKind = 'booth' | 'ticket' | 'pay' | 'charger' | 'truck' | 'van' | 'pallet' | 'cage';
+export type PropKind = 'booth' | 'ticket' | 'pay' | 'charger' | 'truck' | 'van' | 'pallet' | 'cage' | 'gantry';
 export interface Prop { kind: PropKind; x: number; z: number; h: number; /** Colour for vehicles. */ color?: number }
 
 export type SignKind = 'stop' | 'oneway' | 'noentry' | 'ev' | 'disabled' | 'parent' | 'speed' | 'p' | 'exit' | 'entry' | 'loading' | 'slow';
@@ -463,6 +463,9 @@ export const buildLot = (seed = 7): Lot => {
   solids.push(rect(-5.9, -5.1, bounds.z0, ZM - 4), rect(5.1, 5.9, bounds.z0, ZM - 4));
   solids.push(rect(-1.3, 1.3, -41.2, -34.6));
   props.push({ kind: 'booth', x: 0, z: -37.2, h: 0 });
+  // The free-spaces board spans the entry on a gantry: posts on the kerb islands either side of the lanes.
+  props.push({ kind: 'gantry', x: 0, z: -35.8, h: 0 });
+  for (const sx of [-6.6, 6.6]) solids.push({ kind: 'circle', x: sx, z: -35.8, r: 0.26 });
   occluders.push({ kind: 'box', x: 0, z: -37.2, hw: 1.2, hl: 1.5, h: 0 });
   for (const s of [-1, 1]) {
     props.push({ kind: 'ticket', x: s * 0.95, z: -40.3, h: s > 0 ? -Math.PI / 2 : Math.PI / 2 });

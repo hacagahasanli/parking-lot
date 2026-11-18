@@ -777,6 +777,9 @@ export class Game {
     const nearExit = lv && lv.phase === 'out' ? Math.hypot(lv.car.x - (exit.px + exit.tx) / 2, lv.car.z - exit.z) < 13 : false;
     this.exitOpen += ((nearExit ? 1 : 0) - this.exitOpen) * Math.min(1, dt * 2.2);
     this.worldView.setGates(s.gate.open, this.exitOpen);
+    // The board over the gate: how many bays are free. The number blinks like a real LED sign while the cars wait.
+    const lit = this.state.phase === 'countdown' ? Math.floor(this.time * 2) % 2 === 0 : Math.floor(this.time * 1.2) % 6 !== 0;
+    this.worldView.setGantryBoard([{ text: `FREE SPACES: ${lit ? 1 : ' '}`, size: 16 }]);
 
     this.updateCamera(dt);
     this.drawMinimap();

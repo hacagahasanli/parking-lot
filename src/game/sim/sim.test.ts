@@ -1,6 +1,6 @@
 import { DT, DRIVE } from './constants';
 import { botInput, canSee, createBrain, SIGHT } from './bot';
-import { CAR, PED } from './constants';
+import { CAR, PED, RACE } from './constants';
 import { collide } from './collide';
 import { buildLot, LAYOUT } from './lot';
 import { routeToDock, shortestPath } from './nav';
@@ -182,7 +182,7 @@ describe('the gate', () => {
 
   it('lifts at GO and lets them through', () => {
     const { state, world } = open();
-    for (let i = 0; i < 60 * 3.2 && state.phase === 'countdown'; i++) step(state, world, [press({ throttle: 1 })]);
+    for (let i = 0; i < 60 * (RACE.countdown + 0.2) && state.phase === 'countdown'; i++) step(state, world, [press({ throttle: 1 })]);
     expect(state.phase).toBe('race');
     expect(state.gate.open).toBeLessThan(0.2);
     for (let i = 0; i < 60 * 4; i++) step(state, world, [press({ throttle: 1 })]);
@@ -192,7 +192,7 @@ describe('the gate', () => {
 
   it('keeps the countdown honest: no moving before GO even with the pedal down', () => {
     const { state, world } = open();
-    for (let i = 0; i < 60 * 2.5; i++) step(state, world, [press({ throttle: 1 })]);
+    for (let i = 0; i < 60 * (RACE.countdown - 0.5); i++) step(state, world, [press({ throttle: 1 })]);
     expect(state.phase).toBe('countdown');
     expect(state.cars[0].z).toBeLessThan(lot.starts[0].z + 0.3);
   });

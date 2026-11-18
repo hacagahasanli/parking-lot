@@ -11,8 +11,9 @@ import { mergeVertices } from 'three/examples/jsm/utils/BufferGeometryUtils.js';
 import { BAY, rng } from '../sim/lot';
 
 import { block, canvasTexture, flat, merge, scaleUV } from './geo';
-import { animateGates, buildBayPaint, buildCanopy, buildChargers, buildGates, buildMarkings, buildSigns, buildTruck, buildYardProps } from './scenery';
+import { animateGates, buildBayPaint, buildCanopy, buildChargers, buildGantry, buildGates, buildMarkings, buildSigns, buildTruck, buildYardProps } from './scenery';
 
+import type { BoardRow } from './board';
 import type { GateViews } from './scenery';
 import type { Lot, Shop } from '../sim/lot';
 
@@ -226,6 +227,8 @@ export interface WorldView {
   /** The neon letters on the shops, for a flicker. */
   signs: THREE.MeshStandardMaterial[];
   gates: GateViews;
+  /** The LED board over the entry gate (call `setGantryBoard` with its rows). */
+  setGantryBoard: (rows: BoardRow[]) => void;
   /** Lifts the barriers: entry by the sim's gate (0..1), exit by how close the pulling-out car is. */
   setGates: (entryOpen: number, exitOpen: number) => void;
 }
@@ -501,6 +504,8 @@ export const buildWorld = (lot: Lot): WorldView => {
   for (const p of lot.props) if (p.kind === 'truck') group.add(buildTruck(p));
   group.add(buildYardProps(lot));
   group.add(buildSigns(lot.signs));
+  const gantry = buildGantry(lot);
+  group.add(gantry.group);
 
   // --- Buildings across the road (simple blocks with window bands) so the world doesn't end.
   const far = new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.9 });
@@ -536,7 +541,7 @@ export const buildWorld = (lot: Lot): WorldView => {
   }
   group.add(new THREE.Mesh(merge(bollards), new THREE.MeshStandardMaterial({ color: 0xe0b72e, roughness: 0.5 })));
 
-  return { group, trees, signs, gates, setGates: (entry, exit) => animateGates(gates, entry, exit) };
+  return { group, trees, signs, gates, setGantryBoard: gantry.setBoard, setGates: (entry, exit) => animateGates(gates, entry, exit) };
 };
 
 /** A shop: stucco box, a glass front under a canopy, the lit sign, trolleys by the door. The second one is smaller, brick-coloured, with an awning. */
