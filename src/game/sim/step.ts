@@ -4,15 +4,38 @@
  */
 import { CAR, DRIVE, DRIVERS, DT, IMPACT, PARK, RACE } from './constants';
 import { collide, corners, insideBox, nearShape } from './collide';
-import { BAY, bayShape, buildLot, rng } from './lot';
+import { bayShape, buildLot, rng } from './lot';
+import { followRoute, routeToNode } from './nav';
 import { buildWalks, createPeds, pedLimit, stepPeds } from './ped';
 
 import type { Box, Lot, Shape } from './lot';
+import { OWNER_ENTRY, OWNER_EXIT } from './types';
+
 import type { Car, GameState, Input, Leaver, World } from './types';
 
 // ---------------------------------------------------------------------------
 // Round setup
 // ---------------------------------------------------------------------------
+
+const CELL = 12;
+const cellKey = (ix: number, iz: number) => ix * 4096 + iz;
+
+/** Buckets the solids by 12 m cell so a car only tests what is near it. */
+const buildGrid = (solids: Shape[]) => {
+  const grid = new Map<number, number[]>();
+  solids.forEach((s, i) => {
+    const r = (s.kind === 'box' ? Math.hypot(s.hw, s.hl) : s.r) + CAR.length / 2 + 0.5;
+    for (let ix = Math.floor((s.x - r) / CELL); ix <= Math.floor((s.x + r) / CELL); ix++) {
+      for (let iz = Math.floor((s.z - r) / CELL); iz <= Math.floor((s.z + r) / CELL); iz++) {
+        const k = cellKey(ix + 100, iz + 100);
+        const list = grid.get(k);
+        if (list) list.push(i);
+        else grid.set(k, [i]);
+      }
+    }
+  });
+  return grid;
+};
 
 /**
  * The colliders for a round. The free bay is empty; so is the bay of the car that pulls out
@@ -28,7 +51,12 @@ export const createWorld = (target: number, lot: Lot = buildLot(), leaving = -1,
     solids.push(shape);
     owner.push(bay.id);
   }
-  return { lot, solids, owner, walks: buildWalks(lot, seed).walks };
+  // The barrier arms: solid while they are down (the entry ones until the gate has lifted).
+  for (const g of lot.gates) {
+    solids.push(g.box);
+    owner.push(g.kind === 'entry' ? OWNER_ENTRY : OWNER_EXIT);
+  }
+  return { lot, solids, owner, walks: buildWalks(lot, seed).walks, grid: buildGrid(solids) };
 };
 
 export const makeCar = (id: number, name: string, color: number, bot: boolean, x: number, z: number, h: number): Car => ({
@@ -59,6 +87,7 @@ export const makeCar = (id: number, name: string, color: number, bot: boolean, x
   dq: null,
   incidents: 0,
   bay: -1,
+  jolt: 0,
 });
 
 export interface RoundOptions {
@@ -66,17 +95,20 @@ export interface RoundOptions {
   /** Which seats are driven by bots (the rest are people). */
   bots: boolean[];
   names?: string[];
+  /** Force the free bay (tests); otherwise random among the candidates. */
+  target?: number;
 }
 
 export const createRound = (lot: Lot, opts: RoundOptions): { state: GameState; world: World } => {
   const rand = rng(opts.seed * 7919 + 13);
-  const target = lot.candidates[Math.floor(rand() * lot.candidates.length)];
+  const target = opts.target ?? lot.candidates[Math.floor(rand() * lot.candidates.length)];
   const cars: Car[] = opts.bots.map((bot, i) => {
     const s = lot.starts[i];
     return makeCar(i, opts.names?.[i] ?? DRIVERS[i].name, DRIVERS[i].color, bot, s.x, s.z, s.h);
   });
   // One parked car will pull out part-way through the round, and the bay it leaves is free too.
-  const others = lot.candidates.filter((id) => id !== target);
+  // (Only an angled bay with an ordinary car in it: the car backs straight out and drives away along the aisle.)
+  const others = lot.candidates.filter((id) => id !== target && lot.bays[id].type === 'angled' && lot.bays[id].variant < 3);
   const leaveBay = lot.bays[others[Math.floor(rand() * others.length)]];
   const leaver: Leaver = {
     car: makeCar(10, 'Parked car', leaveBay.color, true, leaveBay.x + Math.sin(leaveBay.h) * 0.12, leaveBay.z + Math.cos(leaveBay.h) * 0.12, leaveBay.h),
@@ -84,6 +116,8 @@ export const createRound = (lot: Lot, opts: RoundOptions): { state: GameState; w
     at: 12 + rand() * 16,
     phase: 'wait',
     t: 0,
+    route: [],
+    seg: 0,
   };
   const world = createWorld(target, lot, leaveBay.id, opts.seed);
   const { trolley } = buildWalks(lot, opts.seed);
@@ -93,6 +127,7 @@ export const createRound = (lot: Lot, opts: RoundOptions): { state: GameState; w
     phase: 'countdown',
     cars,
     target,
+    gate: { open: 0 },
     extra: -1,
     winBay: -1,
     winner: null,
@@ -304,7 +339,12 @@ const crashes = (state: GameState, world: World) => {
   const cars = bodies(state);
   for (let pass = 0; pass < 2; pass++) {
     for (const car of cars) {
-      for (let i = 0; i < world.solids.length; i++) {
+      const near = world.grid.get(cellKey(Math.floor(car.x / CELL) + 100, Math.floor(car.z / CELL) + 100));
+      if (!near) continue;
+      for (const i of near) {
+        // The entry barriers stop being solid once the arms are up; the exit one never stops the car leaving.
+        if (world.owner[i] === OWNER_ENTRY && state.gate.open >= 0.55) continue;
+        if (world.owner[i] === OWNER_EXIT && car.id >= 10) continue;
         const solid = world.solids[i];
         const box = carBox(car);
         if (!nearShape(box, solid)) continue;
@@ -324,13 +364,31 @@ const crashes = (state: GameState, world: World) => {
   }
 };
 
+/** Speed bumps: a car going over one at speed is slowed a little and kicked (the body pitches). */
+const bumpsRoad = (state: GameState, world: World) => {
+  for (const car of bodies(state)) {
+    car.jolt = Math.max(0, car.jolt - DT * 3);
+    const speed = Math.hypot(car.vx, car.vz);
+    if (speed < 2.5) continue;
+    for (const b of world.lot.bumps) {
+      const along = (car.x - b.x) * Math.sin(b.h) + (car.z - b.z) * Math.cos(b.h);
+      const across = (car.x - b.x) * Math.cos(b.h) - (car.z - b.z) * Math.sin(b.h);
+      if (Math.abs(along) < 0.6 && Math.abs(across) < b.len / 2 && car.jolt < 0.2) {
+        car.jolt = Math.min(1, speed / 9);
+        car.vx *= 0.96;
+        car.vz *= 0.96;
+      }
+    }
+  }
+};
+
 // ---------------------------------------------------------------------------
 // Parking
 // ---------------------------------------------------------------------------
 
 export const bayBox = (world: World, id: number): Box => {
   const bay = world.lot.bays[id];
-  return { kind: 'box', x: bay.x, z: bay.z, hw: BAY.width / 2, hl: BAY.depth / 2, h: bay.h };
+  return { kind: 'box', x: bay.x, z: bay.z, hw: bay.w / 2, hl: bay.d / 2, h: bay.h };
 };
 
 const wrap = (a: number) => Math.atan2(Math.sin(a), Math.cos(a));
@@ -398,18 +456,21 @@ const stepLeaver = (state: GameState, world: World): Input => {
     return idle;
   }
   if (l.phase === 'reverse') {
-    if (out > BAY.depth / 2 + CAR.length / 2 + 1.4 || l.t > 8) {
+    if (out > bay.d / 2 + CAR.length / 2 + 1.4 || l.t > 8) {
       l.phase = 'out';
       l.t = 0;
+      l.route = routeToNode(world.lot.graph, car, world.lot.exitNode) ?? [];
+      l.seg = 0;
     }
     return { throttle: 0, brake: 0.8, steer: 0, handbrake: false, horn: l.t < 1.2 && Math.floor(l.t * 5) % 2 === 0 };
   }
-  // Out into the aisle and away along its flow, towards the end where the cars leave.
+  // Out into the aisle and away along the aisle graph to the exit gate.
   if (state.extra < 0 && Math.hypot(car.x - bay.x, car.z - bay.z) > 6.5) {
     state.extra = l.bay;
     state.events.push({ type: 'vacated', bay: l.bay });
   }
-  if (Math.abs(car.x) > 41.5 || l.t > 40) {
+  const end = l.route[l.route.length - 1];
+  if (!end || Math.hypot(car.x - end.x, car.z - end.z) < 3.5 || l.t > 90) {
     l.phase = 'gone';
     if (state.extra < 0) {
       state.extra = l.bay;
@@ -419,11 +480,9 @@ const stepLeaver = (state: GameState, world: World): Input => {
     car.vx = car.vz = 0;
     return idle;
   }
-  const goal = bay.flow > 0 ? Math.PI / 2 : -Math.PI / 2;
-  const err = wrap(goal - car.h);
   // Never into a shopper: wait until they are clear.
   if (pedLimit(state, car, forwardSpeed(car), Math.sin(car.h), Math.cos(car.h)) < 3) return { throttle: 0, brake: 0, steer: 0, handbrake: true, horn: false };
-  return { throttle: 0.75, brake: 0, steer: Math.max(-1, Math.min(1, -err * 2)), handbrake: false, horn: false };
+  return followRoute(car, l.route, l, 5.5, steerLimit(forwardSpeed(car)));
 };
 
 // ---------------------------------------------------------------------------
@@ -449,6 +508,9 @@ export const step = (state: GameState, world: World, inputs: Input[]) => {
       state.events.push({ type: 'end', winner: null });
     }
   }
+
+  // The entry barriers lift from GO (about 0.9 s).
+  if (state.phase !== 'countdown') state.gate.open = Math.min(1, state.gate.open + DT / 0.9);
 
   const leaverInput = stepLeaver(state, world);
   if (state.leaver && state.leaver.phase !== 'gone') {
@@ -480,6 +542,7 @@ export const step = (state: GameState, world: World, inputs: Input[]) => {
     }
   }
   crashes(state, world);
+  bumpsRoad(state, world);
   stepPeds(state, world);
   parking(state, world);
   // If everyone is out (disqualified), nobody can win: the round is over.

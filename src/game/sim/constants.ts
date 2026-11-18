@@ -92,7 +92,7 @@ export const PED = {
   /** How long the shopper stays down, in total including getting up (s). */
   down: 2.6,
   /** People on the lot. */
-  count: 16,
+  count: 22,
 } as const;
 
 export const RACE = {

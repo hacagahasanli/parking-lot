@@ -1,9 +1,11 @@
 import { DT, DRIVE } from './constants';
 import { botInput, canSee, createBrain, SIGHT } from './bot';
+import { CAR } from './constants';
 import { collide } from './collide';
-import { approachOf, buildLot } from './lot';
+import { buildLot, LAYOUT } from './lot';
+import { routeToDock, shortestPath } from './nav';
 import { radio } from './radio';
-import { bayBox, carBox, createRound, drive, forwardSpeed, step } from './step';
+import { bayBox, carBox, createRound, createWorld, drive, forwardSpeed, step } from './step';
 
 import type { Input } from './types';
 
@@ -11,22 +13,164 @@ const lot = buildLot();
 const press = (p: Partial<Input>): Input => ({ throttle: 0, brake: 0, steer: 0, handbrake: false, horn: false, ...p });
 
 describe('the lot', () => {
-  it('has rows of bays and candidates for the free one', () => {
-    expect(lot.bays.length).toBeGreaterThan(100);
-    expect(lot.candidates.length).toBeGreaterThan(60);
+  it('is about twice the area of the old lot (88 x 72 m)', () => {
+    const w = lot.bounds.x1 - lot.bounds.x0;
+    const d = lot.bounds.z1 - lot.bounds.z0;
+    expect((w * d) / (88 * 72)).toBeGreaterThan(1.9);
+    expect((w * d) / (88 * 72)).toBeLessThan(2.3);
   });
 
-  it('leaves every candidate bay free of kerbs and posts, so a car fits', () => {
+  it('mixes angled, 90 degree and parallel bays, special bays, and has plenty of candidates', () => {
+    expect(lot.bays.length).toBeGreaterThan(220);
+    for (const type of ['angled', 'perp', 'parallel']) expect(lot.bays.some((b) => b.type === type)).toBe(true);
+    for (const tag of ['ev', 'disabled', 'parent', 'canopy', 'pocket', 'kerb']) expect(lot.bays.some((b) => b.tags.includes(tag as never))).toBe(true);
+    expect(lot.candidates.length).toBeGreaterThan(100);
+    // Parallel bays and the pocket are for the player: bots cannot take them, so they are never the free bay.
     for (const id of lot.candidates) {
-      const bay = lot.bays[id];
-      const box = carBox({ x: bay.x, z: bay.z, h: bay.h });
-      for (const s of lot.solids) expect(collide(box, s), `bay ${id}`).toBeNull();
+      expect(lot.bays[id].type).not.toBe('parallel');
+      expect(lot.bays[id].tags).not.toContain('pocket');
     }
   });
 
-  it('starts the cars side by side, not touching', () => {
+  it('has a candidate in every zone a bot can reach', () => {
+    const has = (f: (b: (typeof lot.bays)[number]) => boolean) => lot.candidates.some((id) => f(lot.bays[id]));
+    expect(has((b) => b.type === 'angled')).toBe(true);
+    expect(has((b) => b.type === 'perp' && b.tags.includes('canopy'))).toBe(true);
+    expect(has((b) => b.tags.includes('ev'))).toBe(true);
+    expect(has((b) => b.type === 'perp' && b.tags.length === 0)).toBe(true);
+  });
+
+  it('leaves every candidate bay free of kerbs, posts and neighbours, so a car fits', () => {
+    for (const id of lot.candidates) {
+      const world = createWorld(id, lot);
+      const bay = lot.bays[id];
+      const box = carBox({ x: bay.x, z: bay.z, h: bay.h });
+      for (const s of world.solids) expect(collide(box, s), `bay ${id}`).toBeNull();
+    }
+  });
+
+  it('keeps every candidate far from the start and reachable by an approach that is clear of cars', () => {
+    for (const id of lot.candidates) {
+      const bay = lot.bays[id];
+      expect(Math.hypot(bay.x - lot.starts[0].x, bay.z - lot.starts[0].z)).toBeGreaterThan(35);
+      expect(bay.approach.length).toBeGreaterThan(0);
+      for (const ap of bay.approach) expect(ap.tail.slice(-3)).toHaveLength(3);
+    }
+  });
+
+  it('starts the cars behind the closed gate, not touching anything or each other', () => {
     const { state, world } = createRound(lot, { seed: 1, bots: [false, true, true, true] });
-    for (const car of state.cars) for (const s of world.solids) expect(collide(carBox(car), s)).toBeNull();
+    for (const car of state.cars) {
+      expect(car.z + CAR.length / 2).toBeLessThan(lot.gateZ);
+      for (const s of world.solids) expect(collide(carBox(car), s)).toBeNull();
+    }
+    for (let i = 0; i < 4; i++) for (let j = i + 1; j < 4; j++) expect(collide(carBox(state.cars[i]), carBox(state.cars[j]))).toBeNull();
+  });
+
+  it('keeps every lane of the aisle graph clear of solids and parked cars', () => {
+    const world = createWorld(-1, lot);
+    for (const e of lot.graph.edges) {
+      if (e.avoid) continue;
+      const h = Math.atan2(e.ux, e.uz);
+      for (let t = lot.aisles[e.aisle].kind === 'entry' ? 4 : 0; t <= e.len; t += 1) {
+        const box = carBox({ x: e.a.x + e.ux * t, z: e.a.z + e.uz * t, h });
+        world.solids.forEach((s, i) => world.owner[i] >= -1 && expect(collide(box, s), `${lot.aisles[e.aisle].name} at ${t.toFixed(0)} m`).toBeNull());
+      }
+    }
+  });
+});
+
+describe('the aisle graph', () => {
+  it('has only edges that go with the flow of a one-way aisle', () => {
+    for (const e of lot.graph.edges) if (lot.aisles[e.aisle].oneWay) expect(e.dir).toBe(1);
+    const flow = (name: string) => lot.graph.edges.filter((e) => lot.aisles[e.aisle].name === name);
+    for (const e of flow('WA')) expect(e.ux).toBeGreaterThan(0.99);
+    for (const e of flow('WB')) expect(e.ux).toBeLessThan(-0.99);
+    for (const e of flow('WC')) expect(e.ux).toBeGreaterThan(0.99);
+    for (const e of flow('CW')) expect(e.uz).toBeGreaterThan(0.99);
+  });
+
+  it('routes between any two reachable nodes without ever driving against a one-way aisle', () => {
+    const g = lot.graph;
+    let routes = 0;
+    for (const from of g.nodes) {
+      for (const to of g.nodes) {
+        const path = shortestPath(g, from.id, to.id);
+        if (!path) continue;
+        routes++;
+        for (const id of path) expect(lot.aisles[g.edges[id].aisle].oneWay ? g.edges[id].dir : 1).toBe(1);
+        // A chain: each edge starts where the last ended.
+        path.forEach((id, i) => i > 0 && expect(g.edges[id].from).toBe(g.edges[path[i - 1]].to));
+      }
+    }
+    expect(routes).toBeGreaterThan(200);
+  });
+
+  it('takes the long way round a one-way aisle', () => {
+    const g = lot.graph;
+    const from = g.nodes.find((n) => n.name === 'AV_A')!;
+    const to = g.nodes.find((n) => n.name === 'CW_A')!;
+    // WA only runs CW_A to AV_A, so going back means round by the main road or the fire lane.
+    const direct = Math.hypot(from.x - to.x, from.z - to.z);
+    const len = shortestPath(g, from.id, to.id)!.reduce((d, id) => d + g.edges[id].len, 0);
+    expect(len).toBeGreaterThan(direct * 1.5);
+  });
+
+  it('gives every bay a route from the gate through the graph', () => {
+    const { world } = createRound(lot, { seed: 3, bots: [true] });
+    const car = world.lot.starts[0];
+    for (const id of lot.candidates) {
+      const bay = lot.bays[id];
+      for (const ap of bay.approach) expect(routeToDock(world.lot.graph, car, ap.edge, ap.s), `bay ${id}`).not.toBeNull();
+    }
+  });
+});
+
+describe('the gate', () => {
+  const open = () => {
+    const r = createRound(lot, { seed: 1, bots: [false] });
+    return r;
+  };
+  it('holds the cars: the arm is solid before GO', () => {
+    const { state, world } = open();
+    // Race on, but the arms still down: a car driven at the barrier stops against it.
+    state.phase = 'race';
+    const car = state.cars[0];
+    for (let i = 0; i < 60 * 2; i++) {
+      state.gate.open = 0;
+      step(state, world, [press({ throttle: 1 })]);
+    }
+    expect(car.z + CAR.length / 2).toBeLessThan(lot.gateZ + 0.15);
+  });
+
+  it('lifts at GO and lets them through', () => {
+    const { state, world } = open();
+    for (let i = 0; i < 60 * 3.2 && state.phase === 'countdown'; i++) step(state, world, [press({ throttle: 1 })]);
+    expect(state.phase).toBe('race');
+    expect(state.gate.open).toBeLessThan(0.2);
+    for (let i = 0; i < 60 * 4; i++) step(state, world, [press({ throttle: 1 })]);
+    expect(state.gate.open).toBe(1);
+    expect(state.cars[0].z).toBeGreaterThan(lot.gateZ + 3);
+  });
+
+  it('keeps the countdown honest: no moving before GO even with the pedal down', () => {
+    const { state, world } = open();
+    for (let i = 0; i < 60 * 2.5; i++) step(state, world, [press({ throttle: 1 })]);
+    expect(state.phase).toBe('countdown');
+    expect(state.cars[0].z).toBeLessThan(lot.starts[0].z + 0.3);
+  });
+
+  it('has bots wait for the arms instead of ramming them', () => {
+    const { state, world } = createRound(lot, { seed: 4, bots: [true, true, true, true] });
+    const brains = state.cars.map((c) => createBrain(world, c, 4));
+    let armHit = 0;
+    for (let i = 0; i < 60 * 12; i++) {
+      step(state, world, state.cars.map((c) => botInput(state, world, c, brains[c.id])));
+      // A bump with a fixed thing (not a car) close to the barrier line is a bot driving into the arm or its housing.
+      for (const e of state.events) if (e.type === 'bump' && e.other === -1 && Math.abs(e.z - lot.gateZ) < 1.5 && Math.abs(e.x) < 6) armHit++;
+    }
+    expect(armHit).toBe(0);
+    for (const c of state.cars) expect(c.z).toBeGreaterThan(lot.gateZ + 3);
   });
 });
 
@@ -99,16 +243,13 @@ describe('a round', () => {
     }
     expect(state.winner, `target ${state.target}`).not.toBeNull();
     expect(state.clock).toBeLessThan(150);
-  });
+  }, 60000);
 
   it.each(Array.from({ length: 24 }, (_, i) => i + 1))('a bot never heads for the bay before it has spotted it (seed %i)', (seed) => {
     const { state, world } = createRound(lot, { seed, bots: [true, true, true, true] });
     const brains = state.cars.map((c) => createBrain(world, c, seed));
-    const approaches = (id: number) => {
-      const bay = lot.bays[id];
-      const { a1, enter } = approachOf(bay, lot.aisles[bay.aisle]);
-      return [a1, enter];
-    };
+    // The points that only the bay's own approach uses: where the car turns in, the mouth, the stop.
+    const approaches = (id: number) => lot.bays[id].approach.flatMap((ap) => ap.tail);
     const spots: number[] = [];
     for (let i = 0; i < 60 * 150 && state.phase !== 'done'; i++) {
       step(state, world, state.cars.map((c) => botInput(state, world, c, brains[c.id])));
@@ -124,34 +265,53 @@ describe('a round', () => {
     }
     // Nobody saw it from further than their eyes reach, or from the start line.
     for (const d of spots) expect(d).toBeLessThanOrEqual(SIGHT.range + 0.01);
-  });
+  }, 60000);
 });
 
 describe('seeing the bay', () => {
+  /** A car where the bay's own path begins, heading along it. */
+  const placeAt = (bayId: number) => {
+    const [p, q] = lot.bays[bayId].approach[0].tail;
+    return { x: p.x, z: p.z, h: Math.atan2(q.x - p.x, q.z - p.z) };
+  };
+
   it('needs it close, in front of the car and in the same aisle', () => {
     const { state, world } = createRound(lot, { seed: 5, bots: [true] });
-    const bay = lot.bays[state.target];
-    const aisle = lot.aisles[bay.aisle];
     const car = state.cars[0];
-    // On the aisle, 9 m upstream, nose along the flow: sees it.
-    Object.assign(car, { x: bay.x - bay.flow * 9, z: aisle.z, h: bay.flow > 0 ? Math.PI / 2 : -Math.PI / 2 });
-    expect(canSee(world, car, state.target)).toBe(true);
+    // Some candidate is plainly visible from its own dock (a van beside it may hide others).
+    const id = lot.candidates.find((c) => (Object.assign(car, placeAt(c)), canSee(world, car, c)));
+    expect(id).toBeDefined();
+    Object.assign(car, placeAt(id!));
+    expect(canSee(world, car, id!)).toBe(true);
     // Facing away: no.
     car.h += Math.PI;
-    expect(canSee(world, car, state.target)).toBe(false);
+    expect(canSee(world, car, id!)).toBe(false);
     // Too far: no.
-    Object.assign(car, { x: bay.x - bay.flow * 30, h: bay.flow > 0 ? Math.PI / 2 : -Math.PI / 2 });
-    expect(canSee(world, car, state.target)).toBe(false);
-    // The start line: no.
+    Object.assign(car, { x: placeAt(id!).x - Math.sin(placeAt(id!).h) * 30, z: placeAt(id!).z - Math.cos(placeAt(id!).h) * 30, h: placeAt(id!).h });
+    expect(canSee(world, car, id!)).toBe(false);
+    // From the gate: no.
     Object.assign(car, lot.starts[0]);
-    expect(canSee(world, car, state.target)).toBe(false);
+    expect(canSee(world, car, id!)).toBe(false);
+  });
+
+  it('is blocked by a van, a hedge or the truck in the way', () => {
+    const { state, world } = createRound(lot, { seed: 5, bots: [true] });
+    const car = state.cars[0];
+    const id = lot.candidates.find((c) => (Object.assign(car, placeAt(c)), canSee(world, car, c)))!;
+    Object.assign(car, placeAt(id));
+    const bay = lot.bays[id];
+    const wall = { kind: 'box' as const, x: (car.x + bay.x) / 2, z: (car.z + bay.z) / 2, hw: 1, hl: 1, h: 0 };
+    lot.occluders.push(wall);
+    expect(canSee(world, car, id)).toBe(false);
+    lot.occluders.pop();
+    expect(canSee(world, car, id)).toBe(true);
   });
 
   it('picks the free bay from many places, never within sight of the start', () => {
     const picks = new Set<number>();
     for (let seed = 1; seed <= 60; seed++) picks.add(createRound(lot, { seed, bots: [true] }).state.target);
     expect(picks.size).toBeGreaterThan(30);
-    for (const id of lot.candidates) expect(Math.hypot(lot.bays[id].x - lot.starts[0].x, lot.bays[id].z - lot.starts[0].z)).toBeGreaterThan(24);
+    for (const id of lot.candidates) expect(Math.hypot(lot.bays[id].x - lot.starts[0].x, lot.bays[id].z - lot.starts[0].z)).toBeGreaterThan(35);
   });
 });
 
@@ -166,7 +326,7 @@ describe('shoppers', () => {
     const r = ready(seed);
     const p = r.state.peds[0];
     r.state.peds = [p];
-    const a = lot.aisles[2];
+    const a = { z: LAYOUT.ZA };
     Object.assign(p, { x: 0, z: a.z, h: Math.PI / 2, mode: 'dwell', t: 0 });
     r.world.walks[p.walk].points = [{ x: 0, z: a.z, dwell: 99 }, { x: 1, z: a.z, dwell: 99 }];
     p.next = 0;
@@ -228,7 +388,7 @@ describe('shoppers', () => {
     Object.assign(car, { x: bay.x, z: bay.z, h: bay.h, vx: 0, vz: 0 });
     for (let i = 0; i < 120; i++) step(state, world, [press({}), press({ handbrake: true })]);
     expect(state.winner).toBeNull();
-    Object.assign(car, { x: 0, z: lot.aisles[0].z });
+    Object.assign(car, { x: 0, z: LAYOUT.ZM });
     // The race goes on for the rest; a car that parks still wins.
     expect(state.phase).toBe('race');
     Object.assign(state.cars[1], { x: bay.x, z: bay.z, h: bay.h, vx: 0, vz: 0, w: 0 });

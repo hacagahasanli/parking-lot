@@ -1,16 +1,24 @@
 /**
- * Bot drivers. Each one plans a route through the aisles (with the one-way flow, so it reaches the
- * free bay at the bay's angle), follows it with *pure pursuit* (steer towards a point a few metres
- * ahead on the route, like a person looking down the road), slows for corners and the bay, and
+ * Bot drivers. Each one searches the lot by driving sweeps along the aisles of the aisle graph (a
+ * different order for each, so they spread out), and when it spots the free bay it plans the way
+ * there through the graph (with the one-way flow) and onto the bay's own approach path. It follows
+ * routes with *pure pursuit* (steer towards a point a few metres ahead, like a person looking down
+ * the road), lines up on the bay's axis with Stanley steering, slows for corners and the stop, and
  * backs out and tries again when it gets stuck.
  */
 import { CAR } from './constants';
-import { approachOf, BAY, END_AISLE } from './lot';
+import { locate, roundCorners, routeLength, routeToDock, routeToSweep, shortestPath } from './nav';
 import { pedLimit } from './ped';
 import { bodies, forwardSpeed, freeBays, steerLimit } from './step';
 
-import type { Vec } from './lot';
+import type { Box, Lot, Vec } from './lot';
 import type { Car, GameEvent, GameState, Input, World } from './types';
+
+/** One pass along an aisle in one direction. */
+export interface Sweep {
+  aisle: number;
+  dir: 1 | -1;
+}
 
 export interface BotBrain {
   route: Vec[];
@@ -29,8 +37,11 @@ export interface BotBrain {
   spotted: boolean;
   /** Seconds the bay has been in view (a short reaction time before the bot commits). */
   seeing: number;
-  /** The order this driver searches the aisles in. */
-  order: number[];
+  /** The order this driver sweeps the aisles in (repeating), and which sweep it is on. */
+  sweeps: Sweep[];
+  sweep: number;
+  /** Seconds after GO before this driver pulls away (the cars at the gate do not all go at once). */
+  launch: number;
   /** Small personal wobble so bots don't drive like rails. */
   wobble: number;
   /** Seconds left of getting clear of the bay to line up again (0 = not recovering). */
@@ -50,60 +61,84 @@ export interface BotBrain {
   outbox: GameEvent[];
 }
 
-/** The order each seat searches the aisles in: so the bots are not all in the same place. */
-const ORDERS = [
-  [1, 2, 3],
-  [3, 2, 1],
-  [2, 3, 1],
-  [1, 3, 2],
-];
-
 /** How far a driver can make out an empty bay, and how wide its view is. */
 export const SIGHT = { range: 14, cone: (75 * Math.PI) / 180, peek: 7, react: 0.35 } as const;
 
-/** Cars on the apron keep right: eastbound in the south half, westbound in the north half, each in its own lane. */
-const laneOf = (world: World, car: Car, dir: number) => world.lot.aisles[0].z - dir * (2.4 + (car.id % 2) * 1.3);
-
-/**
- * Appends the way to the entry end of an aisle (the upstream end, so the cars go with the flow),
- * from wherever a car is: straight up the end column if it is already at that end, otherwise down
- * to the apron, across, and up.
- */
-const legTo = (world: World, route: Vec[], col: number, car: Car, aisleIdx: number) => {
-  const a = world.lot.aisles[aisleIdx];
-  const entry = a.flow > 0 ? -END_AISLE : END_AISLE;
-  if (col !== entry) {
-    const lane = laneOf(world, car, Math.sign(entry - col));
-    route.push({ x: col, z: lane });
-    route.push({ x: entry, z: lane });
-  }
-  route.push({ x: entry, z: a.z });
+/** The lane edges of one pass along an aisle, in order of travel. */
+export const sweepEdges = (lot: Lot, sw: Sweep): number[] => {
+  const ids = lot.graph.edges.filter((e) => e.aisle === sw.aisle && e.dir === sw.dir).map((e) => e.id);
+  return sw.dir > 0 ? ids : ids.reverse();
 };
 
-/** The search: drive each aisle of the order end to end, over and over. */
-const searchRoute = (world: World, car: Car, order: number[], cycles = 4): Vec[] => {
-  const first = world.lot.aisles[order[0]];
-  const entry = first.flow > 0 ? -END_AISLE : END_AISLE;
-  const lane = laneOf(world, car, Math.sign(entry));
-  const route: Vec[] = [{ x: car.x, z: car.z + 3 }, { x: car.x + Math.sign(entry) * 9, z: lane }];
-  let col = Math.sign(entry) * 99;
-  for (let c = 0; c < cycles; c++) {
-    for (const idx of order) {
-      const a = world.lot.aisles[idx];
-      if (route.length === 2) route.push({ x: entry, z: lane }, { x: entry, z: a.z });
-      else legTo(world, route, col, car, idx);
-      col = a.flow * END_AISLE;
-      route.push({ x: col, z: a.z });
+/** Aisles the bots search: every road and aisle except the entry, exit and the dead end. */
+const searchable = (lot: Lot) => lot.aisles.filter((a) => (a.kind === 'road' || a.kind === 'aisle') && !a.avoid);
+
+/**
+ * The order one driver searches in: it starts at a different aisle depending on its seat, then
+ * always goes next to whichever remaining pass is nearest (plus a personal bias), so the four
+ * cars cover different parts of the lot at the same time.
+ */
+export const planSweeps = (lot: Lot, car: Car, seed: number): Sweep[] => {
+  const g = lot.graph;
+  const aisles = searchable(lot);
+  const first = ['EA', 'WA', 'AVE', 'EB'][(car.id + seed) % 4];
+  const bias = (k: number) => (((seed * 7919 + car.id * 104729 + k * 15485863) >>> 0) % 1000) / 1000;
+  // Pass one covers every aisle once (a two-way aisle in the direction the driver fancies); pass two drives the two-way ones back.
+  const pass1: Sweep[] = [];
+  const pass2: Sweep[] = [];
+  aisles.forEach((a, i) => {
+    if (a.oneWay) pass1.push({ aisle: a.id, dir: 1 });
+    else {
+      const flip = bias(i) < 0.5;
+      pass1.push({ aisle: a.id, dir: flip ? 1 : -1 });
+      pass2.push({ aisle: a.id, dir: flip ? -1 : 1 });
+    }
+  });
+  const out: Sweep[] = [];
+  let at = lot.entryNode;
+  for (const todo of [pass1, pass2]) {
+    while (todo.length) {
+      let best = -1;
+      let bestCost = Infinity;
+      todo.forEach((sw, i) => {
+        const e0 = g.edges[sweepEdges(lot, sw)[0]];
+        const path = shortestPath(g, at, e0.from);
+        let cost = path ? path.reduce((d, id) => d + g.edges[id].len, 0) : 999;
+        cost += bias(i + out.length * 31) * 40;
+        // The first pass is the driver's own choice.
+        if (out.length === 0 && lot.aisles[sw.aisle].name !== first) cost += 500;
+        if (cost < bestCost) {
+          bestCost = cost;
+          best = i;
+        }
+      });
+      const sw = todo.splice(best, 1)[0];
+      out.push(sw);
+      at = g.edges[sweepEdges(lot, sw).slice(-1)[0]].to;
     }
   }
-  return route;
+  return out;
+};
+
+/** The way to the start of a driver's current sweep and along it. */
+const sweepRoute = (world: World, car: Car, brain: Pick<BotBrain, 'sweeps' | 'sweep'>): Vec[] => {
+  const lot = world.lot;
+  for (let tries = 0; tries < brain.sweeps.length; tries++) {
+    const sw = brain.sweeps[brain.sweep % brain.sweeps.length];
+    const r = routeToSweep(lot.graph, car, sweepEdges(lot, sw));
+    if (r) return r;
+    brain.sweep++;
+  }
+  const fx = Math.sin(car.h);
+  const fz = Math.cos(car.h);
+  return [{ x: car.x, z: car.z }, { x: car.x + fx * 6, z: car.z + fz * 6 }];
 };
 
 export const createBrain = (world: World, car: Car, seed: number): BotBrain => {
-  const order = ORDERS[(car.id + seed) % ORDERS.length];
   const r = ((seed * 9301 + car.id * 49297) % 233280) / 233280;
-  return {
-    route: searchRoute(world, car, order),
+  const sweeps = planSweeps(world.lot, car, seed);
+  const brain: BotBrain = {
+    route: [],
     seg: 0,
     cruise: 8.2 + r * 3,
     stuck: 0,
@@ -112,7 +147,9 @@ export const createBrain = (world: World, car: Car, seed: number): BotBrain => {
     target: -1,
     spotted: false,
     seeing: 0,
-    order,
+    sweeps,
+    sweep: 0,
+    launch: [0.15, 0.7, 1.9, 2.6][car.id % 4],
     wobble: (car.id * 1.7) % 3,
     recover: 0,
     aggr: ((seed * 31 + car.id * 17) % 10) / 10,
@@ -123,23 +160,63 @@ export const createBrain = (world: World, car: Car, seed: number): BotBrain => {
     lastHonk: -9,
     outbox: [],
   };
+  brain.route = sweepRoute(world, car, brain);
+  return brain;
 };
 
-/** The aisle a car is in (the nearest centre line), or -1 when it is out on the apron. */
-const aisleOf = (world: World, car: Car) => {
+const wrap = (a: number) => Math.atan2(Math.sin(a), Math.cos(a));
+
+/** The aisle a point is on (the nearest one whose width covers it), or -1. */
+export const aisleAt = (lot: Lot, x: number, z: number) => {
   let best = -1;
-  let d = Infinity;
-  world.lot.aisles.forEach((a, i) => {
-    const dz = Math.abs(car.z - a.z);
-    if (i > 0 && dz < d) {
-      d = dz;
-      best = i;
+  let bestD = Infinity;
+  for (const a of lot.aisles) {
+    if (a.kind === 'entry' || a.kind === 'exit') continue;
+    for (let i = 0; i < a.nodes.length - 1; i++) {
+      const p = lot.graph.nodes[a.nodes[i]];
+      const q = lot.graph.nodes[a.nodes[i + 1]];
+      const dx = q.x - p.x;
+      const dz = q.z - p.z;
+      const t = Math.max(0, Math.min(1, ((x - p.x) * dx + (z - p.z) * dz) / (dx * dx + dz * dz)));
+      const d = Math.hypot(x - (p.x + dx * t), z - (p.z + dz * t));
+      if (d < a.width / 2 + 0.3 && d < bestD) {
+        bestD = d;
+        best = a.id;
+      }
     }
-  });
-  return d < 5 ? best : -1;
+  }
+  return best;
 };
 
-/** Can this driver make out that bay from here? Distance, view cone, and the same aisle (or a peek across). */
+/** Does the straight line from a to b pass through a box (a hedge, a van)? */
+const crosses = (ax: number, az: number, bx: number, bz: number, s: Box) => {
+  const fx = Math.sin(s.h);
+  const fz = Math.cos(s.h);
+  const loc = (x: number, z: number) => ({ f: (x - s.x) * fx + (z - s.z) * fz, s: (x - s.x) * fz - (z - s.z) * fx });
+  const p = loc(ax, az);
+  const q = loc(bx, bz);
+  let t0 = 0;
+  let t1 = 1;
+  for (const [a, b, h] of [
+    [p.f, q.f, s.hl],
+    [p.s, q.s, s.hw],
+  ]) {
+    const d = b - a;
+    if (Math.abs(d) < 1e-9) {
+      if (Math.abs(a) > h) return false;
+      continue;
+    }
+    let u0 = (-h - a) / d;
+    let u1 = (h - a) / d;
+    if (u0 > u1) [u0, u1] = [u1, u0];
+    t0 = Math.max(t0, u0);
+    t1 = Math.min(t1, u1);
+    if (t0 > t1) return false;
+  }
+  return true;
+};
+
+/** Can this driver make out that bay from here? Distance, view cone, the same aisle (or a peek across), and nothing tall in the way. */
 export const canSee = (world: World, car: Car, bayId: number) => {
   const bay = world.lot.bays[bayId];
   const dx = bay.x - car.x;
@@ -148,31 +225,28 @@ export const canSee = (world: World, car: Car, bayId: number) => {
   if (d > SIGHT.range) return false;
   const inView = d < 4 || Math.abs(wrap(Math.atan2(dx, dz) - car.h)) < SIGHT.cone;
   if (!inView) return false;
-  const here = aisleOf(world, car);
-  return bay.aisle === here || (Math.abs(bay.aisle - here) === 1 && d < SIGHT.peek);
+  const here = aisleAt(world.lot, car.x, car.z);
+  if (!(bay.aisle === here || d < SIGHT.peek)) return false;
+  // A van, the truck or a hedge between the car and the bay hides it.
+  for (const o of world.lot.occluders) if (o.kind === 'box' && crosses(car.x, car.z, bay.x, bay.z, o)) return false;
+  return true;
 };
 
-/** From the aisle the bot is in, plan the way to the bay it has just seen. */
-const spotRoute = (world: World, car: Car, bayId: number): Vec[] => {
-  const { lot } = world;
-  const bay = lot.bays[bayId];
-  const aisle = lot.aisles[bay.aisle];
-  const { a0, a1, enter, end } = approachOf(bay, aisle);
-  const tail = [a0, a1, enter, end];
-  const fx = Math.sin(car.h);
-  const fz = Math.cos(car.h);
-  const here = aisleOf(world, car);
-  const route: Vec[] = [{ x: car.x + fx * 3, z: car.z + fz * 3 }];
-  const upstream = (a0.x - car.x) * bay.flow > 2;
-  if (here === bay.aisle && upstream && fx * bay.flow > 0.3) return [...route, ...tail];
-  // Too late to turn in (or looking from across): finish the aisle, come round and take the bay properly.
-  let col = Math.sign(car.x || 1) * END_AISLE;
-  if (here > 0) {
-    col = lot.aisles[here].flow * END_AISLE;
-    route.push({ x: col, z: lot.aisles[here].z });
+/** From where the car is, plan the way to the bay it has just seen: the quickest of the bay's approaches. */
+const spotRoute = (world: World, car: Car, bayId: number): Vec[] | null => {
+  const bay = world.lot.bays[bayId];
+  let best: Vec[] | null = null;
+  let bestLen = Infinity;
+  for (const ap of bay.approach) {
+    const r = routeToDock(world.lot.graph, car, ap.edge, ap.s);
+    if (!r) continue;
+    const len = routeLength(r);
+    if (len < bestLen) {
+      bestLen = len;
+      best = [...r, ...ap.tail];
+    }
   }
-  legTo(world, route, col, car, bay.aisle);
-  return [...route, ...tail];
+  return best;
 };
 
 /** Closest point on segment ab to p, and how far along it (0..1). */
@@ -205,13 +279,31 @@ const along = (route: Vec[], seg: number, t: number, dist: number): Vec => {
   return route[route.length - 1];
 };
 
+/** The fastest the car should take the bends in the next stretch of route: v = sqrt(lateral grip / curvature). */
+const curveSpeed = (route: Vec[], seg: number, t: number, vF: number) => {
+  const reach = 6 + Math.abs(vF) * 1.4;
+  let prev = along(route, seg, t, 0.5);
+  let heading = Math.atan2(prev.x - along(route, seg, t, 0).x, prev.z - along(route, seg, t, 0).z);
+  let worst = 0;
+  for (let d = 2; d <= reach; d += 2) {
+    const p = along(route, seg, t, d);
+    const h = Math.atan2(p.x - prev.x, p.z - prev.z);
+    if (Math.hypot(p.x - prev.x, p.z - prev.z) > 0.2) {
+      worst = Math.max(worst, Math.abs(wrap(h - heading)) / 2);
+      heading = h;
+      prev = p;
+    }
+  }
+  // worst is radians per metre of route (steps of 2 m).
+  return worst < 0.02 ? 99 : Math.max(2.4, Math.sqrt(3.4 / worst));
+};
+
 const remaining = (route: Vec[], seg: number, p: Vec) => {
   let d = Math.hypot(route[seg + 1].x - p.x, route[seg + 1].z - p.z);
   for (let i = seg + 1; i < route.length - 1; i++) d += Math.hypot(route[i + 1].x - route[i].x, route[i + 1].z - route[i].z);
   return d;
 };
 
-const wrap = (a: number) => Math.atan2(Math.sin(a), Math.cos(a));
 
 /** The nearest car in front, in this car's lane: how far (bumper to bumper) and how fast it is going the same way. */
 export const carAhead = (state: GameState, car: Car, fx: number, fz: number) => {
@@ -222,7 +314,12 @@ export const carAhead = (state: GameState, car: Car, fx: number, fz: number) => 
     const dz = o.z - car.z;
     const ahead = dx * fx + dz * fz;
     const across = Math.abs(dx * fz - dz * fx);
-    if (ahead < 1 || ahead > 16 || across > 1.9) continue;
+    if (ahead < 1 || ahead > 16) continue;
+    // The lane in front, widening a little with distance so a car merging in from the side counts;
+    // but not one coming the other way (two-way aisles are full of them).
+    const reach = 1.9 + Math.min(1.6, ahead * 0.16);
+    if (across > reach) continue;
+    if (Math.sin(o.h) * fx + Math.cos(o.h) * fz < -0.2) continue;
     const gap = ahead - CAR.length;
     if (!best || gap < best.gap) best = { gap, speed: o.vx * fx + o.vz * fz, id: o.id };
   }
@@ -232,6 +329,7 @@ export const carAhead = (state: GameState, car: Car, fx: number, fz: number) => 
 export const botInput = (state: GameState, world: World, car: Car, brain: BotBrain): Input => {
   const idle: Input = { throttle: 0, brake: 0, steer: 0, handbrake: true, horn: false };
   if (state.phase !== 'race' || car.parkedAt !== null || car.dq !== null) return idle;
+  if (state.clock < brain.launch) return idle;
   const vF = forwardSpeed(car);
   const dt = 1 / 60;
   const fx = Math.sin(car.h);
@@ -250,11 +348,12 @@ export const botInput = (state: GameState, world: World, car: Car, brain: BotBra
   if (!brain.spotted) {
     const seen = freeBays(state).find((id) => canSee(world, car, id));
     brain.seeing = seen !== undefined ? brain.seeing + dt : Math.max(0, brain.seeing - dt);
-    if (seen !== undefined && brain.seeing > SIGHT.react) {
+    const route = seen !== undefined && brain.seeing > SIGHT.react ? spotRoute(world, car, seen) : null;
+    if (seen !== undefined && route) {
       const b = world.lot.bays[seen];
       brain.spotted = true;
       brain.target = seen;
-      brain.route = spotRoute(world, car, seen);
+      brain.route = route;
       brain.seg = 0;
       brain.stuck = 0;
       brain.reverse = 0;
@@ -277,7 +376,7 @@ export const botInput = (state: GameState, world: World, car: Car, brain: BotBra
   if (bay && brain.recover > 0) {
     brain.recover -= dt;
     // Each driver regroups at a different distance out, so they don't all go for the same spot.
-    const out = BAY.depth / 2 + 4 + (car.id % 4) * 2.2;
+    const out = bay.d / 2 + 4 + (car.id % 4) * 2.2;
     const px = bay.x - bay.ax * out;
     const pz = bay.z - bay.az * out;
     const dx = px - car.x;
@@ -299,6 +398,12 @@ export const botInput = (state: GameState, world: World, car: Car, brain: BotBra
     );
   }
 
+  // Still searching and at the end of the sweep: on to the next aisle in this driver's order.
+  if (!brain.spotted && brain.seg >= brain.route.length - 2 && remaining(brain.route, brain.seg, car) < 6) {
+    brain.sweep++;
+    brain.route = sweepRoute(world, car, brain);
+    brain.seg = 0;
+  }
   const route = brain.route;
   while (brain.seg < route.length - 2) {
     const s = onSegment(car, route[brain.seg], route[brain.seg + 1]);
@@ -334,11 +439,9 @@ export const botInput = (state: GameState, world: World, car: Car, brain: BotBra
   }
   const steer = Math.max(-1, Math.min(1, wheel / lim + (lineUp ? 0 : Math.sin(state.t * 0.7 + brain.wobble) * 0.04)));
 
-  // Speed: slow for the bend coming up and for the stop at the end.
-  const far = along(route, brain.seg, s.t, 11);
-  const bend = Math.abs(Math.atan2((far.x - car.x) * fz - (far.z - car.z) * fx, (far.x - car.x) * fx + (far.z - car.z) * fz));
+  // Speed: slow for the sharpest bend coming up (the tyres can only give so much sideways grip) and for the stop at the end.
   const cruise = brain.spotted ? brain.cruise : brain.cruise * 0.82;
-  let want = cruise * (1 - Math.min(1, bend / 1.3) * 0.72);
+  let want = Math.min(cruise, curveSpeed(route, brain.seg, s.t, vF));
   want = Math.min(want, Math.max(lineUp ? 1.1 : 2.2, Math.sqrt(2 * 2.4 * Math.max(0, toGo - 0.2))));
   // How deep into the bay along its axis (0 at the centre).
   const depth = bay ? (car.x - bay.x) * bay.ax + (car.z - bay.z) * bay.az : 0;
@@ -382,6 +485,30 @@ export const botInput = (state: GameState, world: World, car: Car, brain: BotBra
     }
   }
 
+  // Crossing traffic: give way to a moving car that is on the right and will reach the same spot (priority to the right).
+  if (!lineUp && !fighting) {
+    for (const o of bodies(state)) {
+      if (o === car || o.parkedAt !== null || o.dq !== null) continue;
+      const ov = Math.hypot(o.vx, o.vz);
+      if (ov < 1.5) continue;
+      const px = o.x - car.x;
+      const pz = o.z - car.z;
+      if (px * px + pz * pz > 22 * 22) continue;
+      const left = px * fz - pz * fx;
+      if (left > -0.4) continue;
+      const rvx = o.vx - fx * Math.max(vF, 0);
+      const rvz = o.vz - fz * Math.max(vF, 0);
+      const rv2 = rvx * rvx + rvz * rvz;
+      if (rv2 < 0.5) continue;
+      const tc = Math.max(0, Math.min(2.6, -(px * rvx + pz * rvz) / rv2));
+      if (Math.hypot(px + rvx * tc, pz + rvz * tc) > 3.4) continue;
+      // Not one coming straight at us, or going the same way (that is the lead car's business).
+      const along = (o.vx * fx + o.vz * fz) / ov;
+      if (Math.abs(along) > 0.8) continue;
+      want = Math.min(want, tc < 1.1 ? 0 : 1.2);
+    }
+  }
+
   // Held up by a car that is not going anywhere: after a moment, back off and find a way round.
   if (lead && lead.gap < 1.5 && lead.speed < 0.5 && Math.abs(vF) < 0.4) brain.held += dt;
   else brain.held = Math.max(0, brain.held - dt);
@@ -390,6 +517,13 @@ export const botInput = (state: GameState, world: World, car: Car, brain: BotBra
     brain.reverse = 1.4;
     brain.reverseSteer = brain.aggr > 0.5 ? 1 : -1;
     brain.outbox.push({ type: 'recover', car: car.id });
+  }
+
+  // A closed entry barrier ahead: stop short of it (the arm is solid until it has lifted).
+  if (state.gate.open < 0.8 && Math.abs(car.x) < 6.5 && car.z < world.lot.gateZ + 1) {
+    const room = world.lot.gateZ - 0.5 - (car.z + CAR.length / 2);
+    want = Math.min(want, Math.sqrt(2 * 3 * Math.max(0, room)));
+    if (room < 0.4) want = 0;
   }
 
   // People on foot: never drive into them.

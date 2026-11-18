@@ -54,6 +54,8 @@ export interface Car {
   incidents: number;
   /** The free bay this car is closest to being inside (-1 when in none), and the share of its corners in it. */
   bay: number;
+  /** 0..1 kick from the last speed bump, decaying; the renderer pitches the body with it. */
+  jolt: number;
 }
 
 /** What a shopper is doing. */
@@ -114,6 +116,9 @@ export interface Leaver {
   phase: 'wait' | 'reverse' | 'out' | 'gone';
   /** Seconds in this phase. */
   t: number;
+  /** The way to the exit gate once it is out in the aisle, and the segment it is on. */
+  route: { x: number; z: number }[];
+  seg: number;
 }
 
 export type GameEvent =
@@ -142,6 +147,8 @@ export interface GameState {
   clock: number;
   phase: 'countdown' | 'race' | 'done';
   cars: Car[];
+  /** The entry barriers: 0 down, 1 fully up. They start to lift at GO. */
+  gate: { open: number };
   /** The one free bay this round. */
   target: number;
   /** A second free bay, once the leaving car has driven out of its own (-1 until then). */
@@ -164,11 +171,17 @@ export interface GameState {
 }
 
 /** Fixed per round: the lot and the colliders (the parked cars with the target bay left empty). */
+/** `World.owner` values for the barrier arms. */
+export const OWNER_ENTRY = -2;
+export const OWNER_EXIT = -3;
+
 export interface World {
   lot: Lot;
   solids: Shape[];
-  /** Bay id for each solid (parked car / corral / cones), -1 for kerbs and posts. */
+  /** Bay id for each solid (parked car / corral / cones), -1 for kerbs and posts, `OWNER_ENTRY` / `OWNER_EXIT` for the barrier arms. */
   owner: number[];
   /** Where the shoppers walk. */
   walks: Walk[];
+  /** Which solids are near which 12 m cell (a solid is listed in every cell its bounding circle plus a car's reach touches): `crashes` only tests those. */
+  grid: Map<number, number[]>;
 }

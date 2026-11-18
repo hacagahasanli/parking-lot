@@ -9,7 +9,7 @@
  */
 import { DT, PED } from './constants';
 import { collide } from './collide';
-import { approachOf, rng } from './lot';
+import { rng } from './lot';
 
 import type { Box, Lot } from './lot';
 import type { Car, GameEvent, GameState, Ped, Walk, World } from './types';
@@ -19,51 +19,88 @@ const LANE = 3.2;
 
 const wrap = (a: number) => Math.atan2(Math.sin(a), Math.cos(a));
 
+/**
+ * Where the shoppers walk, made from the layout: out of each shop door and across the fire lane to
+ * a car, over the zebra crossings, across the aisles between the rows, and along the fronts of the
+ * parked cars. Works for any layout that has shops, crossings and east-west aisles.
+ */
 export const buildWalks = (lot: Lot, seed: number): { walks: Walk[]; trolley: boolean[] } => {
   const rand = rng(seed * 4241 + 7);
   const between = (a: number, b: number) => a + (b - a) * rand();
+  const pick = <T,>(list: T[]) => list[Math.floor(rand() * list.length)];
   const walks: Walk[] = [];
   const trolley: boolean[] = [];
-  const fire = lot.aisles[lot.aisles.length - 1];
-  const door = lot.store.z0 - 0.7;
+  const nodeOf = (id: number) => lot.graph.nodes[id];
+  // East-west aisles: their z and the stretches of x that have cars on them.
+  const ew = lot.aisles
+    .filter((a) => a.kind !== 'entry' && a.kind !== 'exit' && a.kind !== 'pocket' && nodeOf(a.nodes[0]).z === nodeOf(a.nodes[a.nodes.length - 1]).z)
+    .map((a) => {
+      const xs = a.nodes.map((n) => nodeOf(n).x);
+      return { aisle: a, z: nodeOf(a.nodes[0]).z, x0: Math.min(...xs), x1: Math.max(...xs) };
+    });
+  const spans = (name: string): [number, number][] =>
+    (({ M: [[-30, -12], [12, 48]], F: [[-26, -6], [12, 54]], WA: [[-48, -12]], WB: [[-48, -12]], WC: [[-48, -12]], EA: [[12, 52]], EB: [[12, 52]], EC: [[12, 52]] }) as Record<string, [number, number][]>)[name] ?? [];
+  const aisleZ = (name: string) => ew.find((e) => e.aisle.name === name)!.z;
 
-  // Store trips: out of the door, across the fire lane, to a car on its far side.
-  const nearStore = lot.bays.filter((b) => b.use === 'car' && b.aisle === lot.aisles.length - 1);
-  for (let i = 0; i < 4; i++) {
-    const bay = nearStore[Math.floor(rand() * nearStore.length)];
-    const mouth = approachOf(bay, fire).enter;
-    const mx = mouth.x - bay.ax * 3.2;
-    const dx = between(-1.6, 1.6);
+  // Store trips: out of the door, over the crossing, to a car in the row facing the fire lane.
+  const fireZ = aisleZ('F');
+  const nearStore = lot.bays.filter((b) => b.use === 'car' && b.aisle === lot.aisles.findIndex((a) => a.name === 'F') && b.az < 0);
+  const trips = [...Array(3).fill(lot.shops[0]), ...Array(2).fill(lot.shops[1])];
+  trips.forEach((shop, i) => {
+    const near = nearStore.filter((b) => Math.abs(b.x - shop.doorX) < 22);
+    const bay = pick(near.length ? near : nearStore);
+    const dx = between(-1.4, 1.4) + shop.doorX;
     walks.push({
       points: [
-        { x: dx, z: door, dwell: 1 + rand() * 2 },
-        { x: dx, z: fire.z - LANE, dwell: 0 },
-        { x: mx, z: fire.z - LANE, dwell: 2.5 + rand() * 2.5 },
+        { x: dx, z: shop.z0 - 0.7, dwell: 1 + rand() * 2 },
+        { x: dx, z: fireZ - LANE, dwell: 0 },
+        { x: bay.x, z: fireZ - LANE, dwell: 2.5 + rand() * 2.5 },
       ],
     });
     trolley.push(i % 2 === 0);
-  }
-  // Crossers: over an aisle to the car on the other side, and back.
-  for (let i = 0; i < 7; i++) {
-    const a = lot.aisles[1 + (i % 3)];
-    const x = between(-28, 28);
+  });
+  // Zebra crossings: back and forth over each one.
+  lot.crossings.forEach((c, i) => {
+    const dx = Math.sin(c.h);
+    const dz = Math.cos(c.h);
+    const k = c.len / 2 + 0.9;
+    const off = between(-1.2, 1.2);
+    const ox = Math.cos(c.h) * off;
+    const oz = -Math.sin(c.h) * off;
     walks.push({
       points: [
-        { x, z: a.z - LANE, dwell: 1.5 + rand() * 2 },
-        { x: x + between(-5, 5), z: a.z + LANE, dwell: 1.5 + rand() * 2.5 },
+        { x: c.x + ox - dx * k, z: c.z + oz - dz * k, dwell: 1 + rand() * 2.5 },
+        { x: c.x + ox + dx * k, z: c.z + oz + dz * k, dwell: 1 + rand() * 2.5 },
+      ],
+    });
+    trolley.push(i % 3 === 0);
+  });
+  // Crossers: over an aisle to the car on the other side, and back.
+  const names = ['WA', 'WB', 'WC', 'EA', 'EB', 'EC', 'M'];
+  for (let i = 0; i < 7; i++) {
+    const name = names[i % names.length];
+    const [lo, hi] = pick(spans(name));
+    const z = aisleZ(name);
+    const x = between(lo, hi);
+    walks.push({
+      points: [
+        { x, z: z - LANE, dwell: 1.5 + rand() * 2 },
+        { x: x + between(-4, 4), z: z + LANE, dwell: 1.5 + rand() * 2.5 },
       ],
     });
     trolley.push(rand() < 0.4);
   }
   // Walkers: along the fronts of the parked cars to the one that is theirs.
   for (let i = 0; i < 5; i++) {
-    const a = lot.aisles[1 + (i % 3)];
+    const name = names[(i * 2 + 1) % names.length];
+    const [lo, hi] = pick(spans(name));
+    const z = aisleZ(name);
     const side = rand() < 0.5 ? -1 : 1;
-    const x = between(-26, 20);
+    const x = between(lo, Math.max(lo, hi - 12));
     walks.push({
       points: [
-        { x, z: a.z + side * LANE, dwell: 1.5 + rand() * 2 },
-        { x: x + between(9, 15), z: a.z + side * LANE, dwell: 2 + rand() * 2.5 },
+        { x, z: z + side * LANE, dwell: 1.5 + rand() * 2 },
+        { x: Math.min(hi, x + between(8, 14)), z: z + side * LANE, dwell: 2 + rand() * 2.5 },
       ],
     });
     trolley.push(rand() < 0.5);
