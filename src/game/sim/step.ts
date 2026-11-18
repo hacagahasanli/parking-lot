@@ -105,7 +105,7 @@ export const drive = (c: Car, input: Input, dt = DT) => {
 
   // Steering wheel: towards the wanted angle at the steering rate, home faster when let go.
   const want = Math.max(-1, Math.min(1, input.steer)) * steerLimit(vF);
-  const homing = want === 0 || Math.sign(want) !== Math.sign(c.steer);
+  const homing = want === 0 || (c.steer !== 0 && Math.sign(want) !== Math.sign(c.steer));
   c.steer = approach(c.steer, want, (homing ? DRIVE.steerReturn : DRIVE.steerRate) * dt);
   // A lock that was fine at walking pace is clamped as the car speeds up.
   const lim = steerLimit(vF);

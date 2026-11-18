@@ -23,17 +23,17 @@ export const CAR = {
 
 /**
  * How the car drives. Tuned to feel like a real car in a car park, not a go-kart: the wheel turns
- * over about half a second from centre to lock, comes back by itself, and locks less at speed.
+ * over about a third of a second from centre to lock, comes back by itself, and locks less at speed.
  */
 export const DRIVE = {
   /** Most the front wheels turn at walking pace and at full speed. */
-  maxSteer: 0.6,
-  maxSteerFast: 0.16,
+  maxSteer: 0.66,
+  maxSteerFast: 0.22,
   /** Speed (m/s) at which the steering has dropped to `maxSteerFast`. */
   steerFadeSpeed: 20,
-  /** How fast the wheel turns towards lock (rad/s), and back to centre when let go. */
-  steerRate: 1.25,
-  steerReturn: 2.6,
+  /** How fast the wheel turns towards lock (rad/s, about 0.3 s centre to lock), and back to centre when let go. */
+  steerRate: 2.3,
+  steerReturn: 3.2,
   /** Forward engine: acceleration at a standstill, and top speed (≈ 68 km/h). */
   accel: 5.2,
   topSpeed: 19,
