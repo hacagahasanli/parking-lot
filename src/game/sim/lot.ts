@@ -464,8 +464,8 @@ export const buildLot = (seed = 7): Lot => {
   props.push({ kind: 'booth', x: 0, z: -37.2, h: 0 });
   occluders.push({ kind: 'box', x: 0, z: -37.2, hw: 1.2, hl: 1.5, h: 0 });
   for (const s of [-1, 1]) {
-    props.push({ kind: 'ticket', x: s * 1.55, z: -40.3, h: s > 0 ? -Math.PI / 2 : Math.PI / 2 });
-    solids.push({ kind: 'box', x: s * 1.4, z: GZ, hw: 0.2, hl: 0.25, h: 0 });
+    props.push({ kind: 'ticket', x: s * 0.95, z: -40.3, h: s > 0 ? -Math.PI / 2 : Math.PI / 2 });
+    solids.push({ kind: 'box', x: s * 0.95, z: GZ, hw: 0.2, hl: 0.25, h: 0 });
   }
   props.push({ kind: 'pay', x: XE + 2.7, z: EXIT_Z + 1.6, h: -Math.PI / 2 });
   // Exit lane: kerbs either side, closed at the street end.
@@ -545,14 +545,14 @@ export const buildLot = (seed = 7): Lot => {
   signs.push(
     { kind: 'entry', x: -6.6, z: -43, h: Math.PI / 2 },
     { kind: 'p', x: 6.6, z: -36, h: -Math.PI / 2 },
-    { kind: 'stop', x: 5.2, z: -33.4, h: Math.PI },
-    { kind: 'stop', x: -5.2, z: -33.4, h: Math.PI },
-    { kind: 'speed', x: -4.6, z: -31.5, h: Math.PI },
-    { kind: 'noentry', x: XE - 2.6, z: ZM + 4.2, h: Math.PI },
+    { kind: 'stop', x: 5.5, z: -34.8, h: Math.PI },
+    { kind: 'stop', x: -5.5, z: -34.8, h: Math.PI },
+    { kind: 'speed', x: -5.5, z: -37.5, h: Math.PI },
+    { kind: 'noentry', x: XE - 3.9, z: ZM + 4.2, h: Math.PI },
     { kind: 'exit', x: XE + 2.8, z: -40, h: -Math.PI / 2 },
-    { kind: 'oneway', x: -56.2, z: ZA - 4.4, h: 0 },
+    { kind: 'oneway', x: -54.3, z: ZA - 4.4, h: 0 },
     { kind: 'oneway', x: -4.4, z: ZB + 4.6, h: 0 },
-    { kind: 'oneway', x: -56.2, z: ZC - 4.4, h: 0 },
+    { kind: 'oneway', x: -54.3, z: ZC - 4.4, h: 0 },
     { kind: 'ev', x: EX0 + 6, z: ZA - 4 - 0.3, h: 0 },
     { kind: 'disabled', x: -28.4, z: Fz - 0.4, h: 0 },
     { kind: 'parent', x: -17.2, z: Fz - 0.4, h: 0 },

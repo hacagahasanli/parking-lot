@@ -80,6 +80,43 @@ describe('the lot', () => {
   });
 });
 
+describe('posts, signs and poles', () => {
+  /** Is the point (with a radius) inside the drivable corridor of any aisle? Returns the aisle names it is in. */
+  const inAisle = (x: number, z: number, r: number) => {
+    const hits: string[] = [];
+    for (const a of lot.aisles) {
+      for (let i = 0; i < a.nodes.length - 1; i++) {
+        const p = lot.graph.nodes[a.nodes[i]];
+        const q = lot.graph.nodes[a.nodes[i + 1]];
+        const len = Math.hypot(q.x - p.x, q.z - p.z);
+        const ux = (q.x - p.x) / len;
+        const uz = (q.z - p.z) / len;
+        const s = (x - p.x) * ux + (z - p.z) * uz;
+        const off = Math.abs((x - p.x) * uz - (z - p.z) * ux);
+        if (s > -r && s < len + r && off < a.width / 2 + r - 0.001) hits.push(a.name);
+      }
+    }
+    return hits;
+  };
+
+  it('keeps every sign, lamp, post, charger and ticket machine out of every lane and aisle', () => {
+    for (const s of lot.signs) expect(inAisle(s.x, s.z, 0.2), `sign ${s.kind} at ${s.x}, ${s.z}`).toEqual([]);
+    for (const l of lot.lamps) expect(inAisle(l.x, l.z, 0.25), `lamp at ${l.x}, ${l.z}`).toEqual([]);
+    for (const p of lot.posts) expect(inAisle(p.x, p.z, 0.25), `post at ${p.x}, ${p.z}`).toEqual([]);
+    for (const p of lot.props) {
+      if (p.kind === 'booth' || p.kind === 'truck' || p.kind === 'van') continue;
+      expect(inAisle(p.x, p.z, 0.3), `${p.kind} at ${p.x}, ${p.z}`).toEqual([]);
+    }
+  });
+
+  it('keeps every circular or boxed pole collider out of the aisle corridors too', () => {
+    for (const s of lot.solids) {
+      if (s.kind !== 'circle' || s.r > 0.5) continue;
+      expect(inAisle(s.x, s.z, s.r), `collider at ${s.x}, ${s.z}`).toEqual([]);
+    }
+  });
+});
+
 describe('the aisle graph', () => {
   it('has only edges that go with the flow of a one-way aisle', () => {
     for (const e of lot.graph.edges) if (lot.aisles[e.aisle].oneWay) expect(e.dir).toBe(1);
