@@ -10,15 +10,15 @@ export const DT = 1 / 60;
 
 /** A compact sedan, about the size of a current C-segment four-door. */
 export const CAR = {
-  length: 4.68,
-  width: 1.82,
-  wheelbase: 2.72,
+  length: 4.45,
+  width: 1.78,
+  wheelbase: 2.62,
   /** Front and rear axle distance from the centre (the body overhangs both). */
-  frontAxle: 1.38,
-  rearAxle: -1.34,
+  frontAxle: 1.33,
+  rearAxle: -1.29,
   mass: 1350,
   /** Moment of inertia about the vertical axis (a box, a little more for the engine up front). */
-  inertia: 1350 * (4.68 * 4.68 + 1.82 * 1.82) / 12 * 1.1,
+  inertia: 1350 * (4.45 * 4.45 + 1.78 * 1.78) / 12 * 1.1,
 } as const;
 
 /**
@@ -77,6 +77,22 @@ export const PARK = {
   maxSpeed: 0.45,
   /** ...for this long. */
   hold: 0.9,
+} as const;
+
+/** Pedestrians: shoppers on foot. */
+export const PED = {
+  /** Walking pace (m/s), plus or minus a little per person. */
+  walk: 1.3,
+  /** Stepping out of the way of a car. */
+  dodge: 2.7,
+  /** Body radius for collisions. */
+  radius: 0.3,
+  /** A car faster than this (m/s) that touches someone is disqualified (walking pace is 1.3). */
+  hitSpeed: 1,
+  /** How long the shopper stays down, in total including getting up (s). */
+  down: 2.6,
+  /** People on the lot. */
+  count: 16,
 } as const;
 
 export const RACE = {

@@ -30,12 +30,28 @@ const Standings = ({ hud, compact }: { hud: HudState; compact: boolean }) => (
         <span className="font-display w-4 text-xs">{i + 1}</span>
         <span className="h-3 w-3 shrink-0 rounded-sm border border-black/50" style={{ background: hex(s.color) }} />
         <span className="flex-1 truncate">{s.me ? 'You' : s.name}</span>
-        <span className={`tabular-nums ${s.parked ? 'font-display text-green text-xs' : 'text-cream/60 text-xs'}`}>
-          {s.parked ? 'PARKED' : `${Math.round(s.dist)} m`}
+        <span className={`tabular-nums ${s.parked ? 'font-display text-green text-xs' : s.out ? 'font-display text-orange text-xs' : 'text-cream/60 text-xs'}`}>
+          {s.parked ? 'PARKED' : s.out ? 'OUT' : `${s.bumps} ${s.bumps === 1 ? 'bump' : 'bumps'}`}
         </span>
       </li>
     ))}
   </ol>
+);
+
+/** What the bots say over the radio: the latest few lines, each fading out. */
+const Radio = ({ hud, compact }: { hud: HudState; compact: boolean }) => (
+  <ul className={`flex flex-col gap-1 ${compact ? 'w-44' : 'w-60 sm:w-72'}`} aria-label="Radio" aria-live="off">
+    {hud.chat.map((l) => (
+      <li
+        key={l.id}
+        className={`bg-ink-deep/75 border-l-4 px-2 py-1 backdrop-blur-sm ${compact ? 'text-[10px] leading-tight' : 'text-xs'}`}
+        style={{ borderColor: hex(l.color), opacity: l.age > 5 ? Math.max(0, 6.5 - l.age) / 1.5 : 1, animation: 'riseIn 0.25s ease-out both' }}
+      >
+        <span className="font-bold" style={{ color: hex(l.color) === '#3a3d44' ? '#9aa3b2' : hex(l.color) }}>{l.name}</span>
+        <span className="text-cream/90">{': '}{l.text}</span>
+      </li>
+    ))}
+  </ul>
 );
 
 const Meter = ({ hud }: { hud: HudState }) => {
@@ -70,13 +86,15 @@ const Result = ({ hud, onAgain }: { hud: HudState; onAgain: () => void }) => {
     <div className="absolute inset-0 z-30 flex items-center justify-center bg-ink-deep/70 p-4 backdrop-blur-sm" style={{ animation: 'fadeIn 0.4s ease-out both' }} role="dialog" aria-label="Result">
       <div className="panel-cut bg-ink border-blue/20 max-h-[calc(100dvh-16px)] w-full max-w-md overflow-y-auto border p-4 text-center sm:p-6" style={{ animation: 'riseIn 0.5s ease-out both' }}>
         <div className={`font-display text-3xl sm:text-4xl ${r.won ? 'text-green' : 'text-orange'}`}>
-          {r.won ? 'PARKED FIRST' : r.winner ? `${r.winner} took your spot` : 'Out of time'}
+          {r.reason === 'pedestrian' ? 'DISQUALIFIED' : r.won ? 'PARKED FIRST' : r.winner ? `${r.winner} took your spot` : 'Out of time'}
         </div>
+        {r.reason === 'pedestrian' && <p className="text-cream/85 mt-2 text-sm">You hit a pedestrian. Shoppers have right of way, so your round is over.</p>}
         <div className="font-display text-gold mt-2 text-6xl">#{r.place}<span className="text-lilac text-2xl">/4</span></div>
         <div className="mt-4 grid grid-cols-2 gap-1.5">
           <Stat label="Time" value={fmtClock(r.time)} />
           <Stat label="Top speed" value={`${Math.round(r.topSpeed)} km/h`} />
           <Stat label="Bumps" value={String(r.bumps)} />
+          <Stat label="Pedestrians hit" value={String(r.incidents)} />
           <Stat label="Distance" value={`${Math.round(r.distance)} m`} />
         </div>
         <div className="mt-6 flex flex-col gap-3 sm:flex-row">
@@ -134,7 +152,6 @@ const PauseMenu = ({ hud, game, onResume }: { hud: HudState; game: Game | null; 
 export const Race = () => {
   const canvas = useRef<HTMLCanvasElement>(null);
   const minimap = useRef<HTMLCanvasElement>(null);
-  const pointer = useRef<HTMLDivElement>(null);
   const gameRef = useRef<Game | null>(null);
   const [hud, setHud] = useState<HudState | null>(null);
   const touch = useTouch();
@@ -145,7 +162,6 @@ export const Race = () => {
       if (cancelled || !canvas.current) return;
       const g = new Game(canvas.current, { mode: 'race', onHud: setHud });
       g.attachMinimap(minimap.current);
-      g.attachPointer(pointer.current);
       gameRef.current = g;
       if (process.env.NODE_ENV !== 'production') (window as unknown as { __game?: Game }).__game = g;
     });
@@ -168,18 +184,13 @@ export const Race = () => {
     return () => window.removeEventListener('keydown', onKey);
   }, [hud?.result, hud?.endedFor, again]);
 
-  const showResult = !!hud?.result && hud.endedFor >= 1.2;
-  const showMeter = !!hud && hud.phase !== 'countdown' && (hud.dist < 12 || hud.park > 0) && !hud.result;
+  const showResult = !!hud?.result && hud.endedFor >= (hud.result.reason === 'pedestrian' ? 2.2 : 1.2);
+  const showMeter = !!hud && hud.phase !== 'countdown' && (hud.inBay > 0 || hud.park > 0) && !hud.result;
   const showHint = !touch && !!hud && hud.phase !== 'done' && hud.clock < 9 && !hud.paused && !showMeter;
 
   return (
     <main className="fixed inset-0 overflow-hidden bg-ink-deep select-none" onPointerDown={() => gameRef.current?.unlockAudio()}>
       <canvas ref={canvas} className="absolute inset-0 h-full w-full touch-none" />
-      <div ref={pointer} className="pointer-events-none fixed top-0 left-0 z-10" style={{ willChange: 'transform', opacity: 0 }} aria-hidden>
-        <svg width="46" height="46" viewBox="0 0 46 46" className="drop-shadow-lg">
-          <path d="M6 8 L40 23 L6 38 L14 23 Z" fill="#3ddc84" stroke="#0a0d18" strokeWidth="3" strokeLinejoin="round" />
-        </svg>
-      </div>
       <div
         className="pointer-events-none absolute z-10"
         style={{
@@ -200,8 +211,16 @@ export const Race = () => {
       {hud && (
         <>
           <div className="pointer-events-none absolute z-10" style={{ top: 'calc(10px + env(safe-area-inset-top))', left: 'calc(10px + env(safe-area-inset-left))' }}>
-            <Standings hud={hud} compact={touch} />
+            <div className="flex flex-col gap-2">
+              <Standings hud={hud} compact={touch} />
+              {!touch && <Radio hud={hud} compact={false} />}
+            </div>
           </div>
+          {touch && (
+            <div className="pointer-events-none absolute z-10" style={{ top: 'calc(176px + env(safe-area-inset-top))', left: 'calc(10px + env(safe-area-inset-left))' }}>
+              <Radio hud={hud} compact />
+            </div>
+          )}
           <div
             className={`pointer-events-none absolute z-10 ${touch ? '' : 'left-1/2 -translate-x-1/2'}`}
             style={touch ? { top: 'calc(60px + env(safe-area-inset-top))', right: 'calc(12px + env(safe-area-inset-right))' } : { top: 'calc(10px + env(safe-area-inset-top))' }}
@@ -212,6 +231,14 @@ export const Race = () => {
           {hud.phase === 'countdown' && hud.countdown > 0 && (
             <div className="pointer-events-none absolute inset-0 z-10 flex items-center justify-center">
               <div key={hud.countdown} className="font-display text-gold text-9xl drop-shadow-lg" style={{ animation: 'countPop 1s ease-out both' }}>{hud.countdown}</div>
+            </div>
+          )}
+          {hud.disqualified !== null && !showResult && (
+            <div className="pointer-events-none absolute inset-x-0 top-1/3 z-20 -translate-y-1/2" role="alert" style={{ animation: 'fadeIn 0.2s ease-out both' }}>
+              <div className="bg-orange/95 text-ink-deep w-full px-4 py-3 text-center shadow-2xl">
+                <div className="font-display text-2xl sm:text-5xl">YOU HIT A PEDESTRIAN</div>
+                <div className="font-display text-lg tracking-widest sm:text-3xl">DISQUALIFIED</div>
+              </div>
             </div>
           )}
           {hud.phase === 'race' && hud.clock < 1 && (

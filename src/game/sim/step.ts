@@ -5,26 +5,61 @@
 import { CAR, DRIVE, DRIVERS, DT, IMPACT, PARK, RACE } from './constants';
 import { collide, corners, insideBox, nearShape } from './collide';
 import { BAY, bayShape, buildLot, rng } from './lot';
+import { buildWalks, createPeds, pedLimit, stepPeds } from './ped';
 
 import type { Box, Lot, Shape } from './lot';
-import type { Car, GameState, Input, World } from './types';
+import type { Car, GameState, Input, Leaver, World } from './types';
 
 // ---------------------------------------------------------------------------
 // Round setup
 // ---------------------------------------------------------------------------
 
-export const createWorld = (target: number, lot: Lot = buildLot()): World => {
+/**
+ * The colliders for a round. The free bay is empty; so is the bay of the car that pulls out
+ * mid-round (`leaving`), whose car is a moving body instead of a solid.
+ */
+export const createWorld = (target: number, lot: Lot = buildLot(), leaving = -1, seed = 1): World => {
   const solids: Shape[] = [...lot.solids];
   const owner: number[] = lot.solids.map(() => -1);
   for (const bay of lot.bays) {
-    if (bay.id === target) continue;
+    if (bay.id === target || bay.id === leaving) continue;
     const shape = bayShape(bay);
     if (!shape) continue;
     solids.push(shape);
     owner.push(bay.id);
   }
-  return { lot, solids, owner };
+  return { lot, solids, owner, walks: buildWalks(lot, seed).walks };
 };
+
+export const makeCar = (id: number, name: string, color: number, bot: boolean, x: number, z: number, h: number): Car => ({
+  id,
+  name,
+  color,
+  bot,
+  x,
+  z,
+  h,
+  vx: 0,
+  vz: 0,
+  w: 0,
+  steer: 0,
+  gear: 1,
+  throttle: 0,
+  braking: false,
+  handbrake: false,
+  horn: false,
+  slip: 0,
+  park: 0,
+  inBay: 0,
+  parkedAt: null,
+  bumps: 0,
+  topSpeed: 0,
+  distance: 0,
+  hitCooldown: 0,
+  dq: null,
+  incidents: 0,
+  bay: -1,
+});
 
 export interface RoundOptions {
   seed: number;
@@ -38,35 +73,40 @@ export const createRound = (lot: Lot, opts: RoundOptions): { state: GameState; w
   const target = lot.candidates[Math.floor(rand() * lot.candidates.length)];
   const cars: Car[] = opts.bots.map((bot, i) => {
     const s = lot.starts[i];
-    return {
-      id: i,
-      name: opts.names?.[i] ?? DRIVERS[i].name,
-      color: DRIVERS[i].color,
-      bot,
-      x: s.x,
-      z: s.z,
-      h: s.h,
-      vx: 0,
-      vz: 0,
-      w: 0,
-      steer: 0,
-      gear: 1,
-      throttle: 0,
-      braking: false,
-      handbrake: false,
-      horn: false,
-      slip: 0,
-      park: 0,
-      inBay: 0,
-      parkedAt: null,
-      bumps: 0,
-      topSpeed: 0,
-      distance: 0,
-      hitCooldown: 0,
-    };
+    return makeCar(i, opts.names?.[i] ?? DRIVERS[i].name, DRIVERS[i].color, bot, s.x, s.z, s.h);
   });
-  const state: GameState = { t: 0, clock: 0, phase: 'countdown', cars, target, winner: null, alarms: {}, events: [], seed: opts.seed };
-  return { state, world: createWorld(target, lot) };
+  // One parked car will pull out part-way through the round, and the bay it leaves is free too.
+  const others = lot.candidates.filter((id) => id !== target);
+  const leaveBay = lot.bays[others[Math.floor(rand() * others.length)]];
+  const leaver: Leaver = {
+    car: makeCar(10, 'Parked car', leaveBay.color, true, leaveBay.x + Math.sin(leaveBay.h) * 0.12, leaveBay.z + Math.cos(leaveBay.h) * 0.12, leaveBay.h),
+    bay: leaveBay.id,
+    at: 12 + rand() * 16,
+    phase: 'wait',
+    t: 0,
+  };
+  const world = createWorld(target, lot, leaveBay.id, opts.seed);
+  const { trolley } = buildWalks(lot, opts.seed);
+  const state: GameState = {
+    t: 0,
+    clock: 0,
+    phase: 'countdown',
+    cars,
+    target,
+    extra: -1,
+    winBay: -1,
+    winner: null,
+    peds: createPeds(world, trolley, opts.seed),
+    leaver,
+    chat: [],
+    chatLast: {},
+    chatAny: -99,
+    chatN: 0,
+    alarms: {},
+    events: [],
+    seed: opts.seed,
+  };
+  return { state, world };
 };
 
 // ---------------------------------------------------------------------------
@@ -257,8 +297,11 @@ const resolve = (state: GameState, a: Car, b: Car | null, k: { nx: number; nz: n
   }
 };
 
+/** Every moving body: the racers and the car pulling out of its bay. */
+export const bodies = (state: GameState): Car[] => (state.leaver && state.leaver.phase !== 'gone' ? [...state.cars, state.leaver.car] : state.cars);
+
 const crashes = (state: GameState, world: World) => {
-  const { cars } = state;
+  const cars = bodies(state);
   for (let pass = 0; pass < 2; pass++) {
     for (const car of cars) {
       for (let i = 0; i < world.solids.length; i++) {
@@ -298,25 +341,89 @@ export const aligned = (h: number, bayH: number) => {
   return d < PARK.maxAngle || Math.PI - d < PARK.maxAngle;
 };
 
+/** The bays that are free right now: the target, and the one a car has pulled out of. */
+export const freeBays = (state: GameState): number[] => (state.extra >= 0 ? [state.target, state.extra] : [state.target]);
+
 const parking = (state: GameState, world: World) => {
-  const bay = bayBox(world, state.target);
+  const free = freeBays(state);
   for (const car of state.cars) {
     const pts = corners(carBox(car));
-    car.inBay = pts.filter((p) => insideBox(p, bay, PARK.slack)).length / 4;
-    if (car.parkedAt !== null) continue;
+    let best = -1;
+    let share = 0;
+    for (const id of free) {
+      const n = pts.filter((p) => insideBox(p, bayBox(world, id), PARK.slack)).length / 4;
+      if (n > share) {
+        share = n;
+        best = id;
+      }
+    }
+    car.inBay = share;
+    car.bay = best;
+    if (car.parkedAt !== null || car.dq !== null) continue;
+    const bay = best >= 0 ? bayBox(world, best) : null;
     const still = Math.hypot(car.vx, car.vz) < PARK.maxSpeed && Math.abs(car.w) < 0.2;
-    const ok = state.phase === 'race' && car.inBay === 1 && aligned(car.h, bay.h);
+    const ok = !!bay && state.phase === 'race' && car.inBay === 1 && aligned(car.h, bay.h);
     if (ok && still) car.park = Math.min(1, car.park + DT / PARK.hold);
     else if (ok) car.park = Math.max(0, car.park - DT * 0.5);
     else car.park = 0;
     if (car.park >= 1 && state.winner === null) {
       car.parkedAt = state.clock;
       state.winner = car.id;
-      state.events.push({ type: 'parked', car: car.id, time: state.clock });
+      state.winBay = best;
+      state.events.push({ type: 'parked', car: car.id, time: state.clock, bay: best });
       state.events.push({ type: 'end', winner: car.id });
       state.phase = 'done';
     }
   }
+};
+
+// ---------------------------------------------------------------------------
+// The car that pulls out
+// ---------------------------------------------------------------------------
+
+const stepLeaver = (state: GameState, world: World): Input => {
+  const idle: Input = { throttle: 0, brake: 0, steer: 0, handbrake: true, horn: false };
+  const l = state.leaver;
+  if (!l || l.phase === 'gone') return idle;
+  const bay = world.lot.bays[l.bay];
+  const car = l.car;
+  l.t += DT;
+  const out = (car.x - bay.x) * -bay.ax + (car.z - bay.z) * -bay.az;
+  if (l.phase === 'wait') {
+    if (state.phase === 'race' && state.clock >= l.at) {
+      l.phase = 'reverse';
+      l.t = 0;
+      state.events.push({ type: 'leave', bay: l.bay });
+    }
+    return idle;
+  }
+  if (l.phase === 'reverse') {
+    if (out > BAY.depth / 2 + CAR.length / 2 + 1.4 || l.t > 8) {
+      l.phase = 'out';
+      l.t = 0;
+    }
+    return { throttle: 0, brake: 0.8, steer: 0, handbrake: false, horn: l.t < 1.2 && Math.floor(l.t * 5) % 2 === 0 };
+  }
+  // Out into the aisle and away along its flow, towards the end where the cars leave.
+  if (state.extra < 0 && Math.hypot(car.x - bay.x, car.z - bay.z) > 6.5) {
+    state.extra = l.bay;
+    state.events.push({ type: 'vacated', bay: l.bay });
+  }
+  if (Math.abs(car.x) > 41.5 || l.t > 40) {
+    l.phase = 'gone';
+    if (state.extra < 0) {
+      state.extra = l.bay;
+      state.events.push({ type: 'vacated', bay: l.bay });
+    }
+    car.x = car.z = 9999;
+    car.vx = car.vz = 0;
+    return idle;
+  }
+  const goal = bay.flow > 0 ? Math.PI / 2 : -Math.PI / 2;
+  const err = wrap(goal - car.h);
+  // Never into a shopper: wait until they are clear.
+  if (pedLimit(state, car, forwardSpeed(car), Math.sin(car.h), Math.cos(car.h)) < 3) return { throttle: 0, brake: 0, steer: 0, handbrake: true, horn: false };
+  return { throttle: 0.75, brake: 0, steer: Math.max(-1, Math.min(1, -err * 2)), handbrake: false, horn: false };
 };
 
 // ---------------------------------------------------------------------------
@@ -343,9 +450,24 @@ export const step = (state: GameState, world: World, inputs: Input[]) => {
     }
   }
 
+  const leaverInput = stepLeaver(state, world);
+  if (state.leaver && state.leaver.phase !== 'gone') {
+    const lc = state.leaver.car;
+    lc.hitCooldown = Math.max(0, lc.hitCooldown - DT);
+    drive(lc, leaverInput);
+  }
+
   for (const car of state.cars) {
     car.hitCooldown = Math.max(0, car.hitCooldown - DT);
     const input = inputs[car.id];
+    if (car.dq !== null) {
+      // Disqualified: pulled over where it is, hazards on, out of the race.
+      drive(car, { throttle: 0, brake: 0, steer: 0, handbrake: true, horn: false });
+      car.vx *= 0.94;
+      car.vz *= 0.94;
+      car.park = 0;
+      continue;
+    }
     // Before GO the cars hold on the brake (you can still rev); after the end, the losers coast.
     if (state.phase === 'countdown') {
       drive(car, { throttle: 0, brake: 0, steer: input?.steer ?? 0, handbrake: true, horn: input?.horn ?? false });
@@ -358,18 +480,29 @@ export const step = (state: GameState, world: World, inputs: Input[]) => {
     }
   }
   crashes(state, world);
+  stepPeds(state, world);
   parking(state, world);
+  // If everyone is out (disqualified), nobody can win: the round is over.
+  if (state.phase === 'race' && state.cars.every((c) => c.dq !== null)) {
+    state.phase = 'done';
+    state.events.push({ type: 'end', winner: null });
+  }
 };
 
-/** Straight-line distance from a car to the free bay. */
+/** Straight-line distance from a car to the nearest free bay. */
 export const distanceToTarget = (state: GameState, world: World, car: Car) => {
-  const bay = world.lot.bays[state.target];
-  return Math.hypot(bay.x - car.x, bay.z - car.z);
+  let best = Infinity;
+  for (const id of freeBays(state)) {
+    const bay = world.lot.bays[id];
+    best = Math.min(best, Math.hypot(bay.x - car.x, bay.z - car.z));
+  }
+  return best;
 };
 
-/** Placings: the winner first, then everyone else by how close they got. */
+/** Final placings: the winner first, then everyone else by how close they got. Only for after the round. */
 export const standings = (state: GameState, world: World) =>
   [...state.cars].sort((a, b) => {
+    if ((a.dq !== null) !== (b.dq !== null)) return a.dq !== null ? 1 : -1;
     if (a.parkedAt !== null || b.parkedAt !== null) return (a.parkedAt ?? Infinity) - (b.parkedAt ?? Infinity);
     return distanceToTarget(state, world, a) - distanceToTarget(state, world, b);
   });
