@@ -697,7 +697,11 @@ export class Game {
     this.marker.beamMat.uniforms.uTime.value = t;
     (this.marker.beamMat.uniforms.uColor.value as THREE.Color).setHex(color);
     this.marker.sign.position.y = 3.4 + Math.sin(t * 2) * 0.15;
-    this.marker.sign.visible = s.winner === null;
+    // The P is a beacon for far away: fade it out as you get close so it never covers the bay.
+    const away = Math.hypot(s.cars[0].x - bay.x, s.cars[0].z - bay.z);
+    const fade = Math.min(1, Math.max(0, (away - 7) / 6));
+    (this.marker.sign.material as THREE.SpriteMaterial).opacity = fade;
+    this.marker.sign.visible = s.winner === null && fade > 0.01;
 
     // Alarms going off.
     const alarms = Object.entries(s.alarms)
@@ -724,10 +728,11 @@ export class Game {
     let want: THREE.Vector3;
     let look: THREE.Vector3;
     if (showcase) {
-      // A slow orbit high over the leader.
-      const a = this.time * 0.08;
-      want = new THREE.Vector3(x + Math.sin(a) * 26, 15, z + Math.cos(a) * 26);
-      look = new THREE.Vector3(x, 0.5, z);
+      // A slow sway behind and above the leader, always looking north up the lot so the frame is
+      // cars, bays and the store sign (never the road or the empty grass behind the camera).
+      const a = Math.sin(this.time * 0.1) * 0.55 + 0.25;
+      want = new THREE.Vector3(x - Math.sin(a) * 16, 6.2, z - Math.cos(a) * 16);
+      look = new THREE.Vector3(x + 5 + Math.sin(a) * 4, 2.6, z + 14);
     } else if (this.cameraMode === 'top') {
       // Straight down, north up: for squeezing into the bay.
       want = new THREE.Vector3(x, 22, z - 0.01);
