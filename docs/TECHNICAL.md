@@ -12,14 +12,13 @@ the names of the techniques so you can look them up.
 ```bash
 npm install
 npm run dev          # http://localhost:3200
-npm run test:run     # vitest, src/game/sim/sim.test.ts and debug.test.ts
+npm run test:run     # vitest, src/game/sim/sim.test.ts (about 45 s: 48 of the tests play whole bot rounds)
 npm run type-check   # tsc --noEmit
 ```
 
-Open `http://localhost:3200/play`. When this was written, `npm run test:run` reported 32 of 33
-tests passing: `a round > bots find and park in the free bay (seed 13)` failed with a bot parking
-at 61.1 s against a 60 s limit in the test. That is a bot-tuning or test-limit question, not a
-rules bug, and is open.
+Open `http://localhost:3200/play`. `npm run test:run` is green (86 tests). In development the page also
+exposes `window.__game` (the running `Game`), which the Playwright scripts use to place the camera
+and read `renderer.info`.
 
 ## 2. Architecture in one picture
 
@@ -32,16 +31,20 @@ src/
   game/
     sim/                THE RULES. Pure TypeScript: no DOM, no three.js
       constants.ts      every number: car, driving, impacts, parking, countdown
-      lot.ts            buildLot(): bays, aisles, islands, colliders, start grid
+      lot.ts            buildLot(): the layout (bays by type, aisles, islands, gates, props, signs),
+                        approach paths per bay, candidates; the grid constants in LAYOUT
+      nav.ts            the aisle graph: nodes, directed edges, Dijkstra, routes, route following
       types.ts          Car, GameState, Input, GameEvent, World
       step.ts           step(): one tick. drive(), crashes, parking rule
       collide.ts        SAT box and circle collision
-      bot.ts            planRoute(), botInput(): bot drivers
+      bot.ts            planSweeps(), sweepRoute(), spotRoute(), botInput(): bot drivers
       sim.test.ts       tests
     render/             WHAT YOU SEE. three.js
       game.ts           the loop, inputs, camera, HUD data, effects
       car.ts            car models, instanced parked cars
-      world.ts          lot, store, trees, lamps
+      world.ts          the scene: ground, roads, paint, islands, lawns, hedges, trees, lamps, shops
+      scenery.ts        gates (animated arms), carport, EV chargers, truck, yard props, signs, bay paint, zebra and bumps
+      geo.ts            small geometry and canvas-texture helpers
     sfx.ts              Web Audio synthesis
 ```
 
@@ -152,24 +155,85 @@ of friction**.
 
 Every threshold is in `PARK` in `constants.ts`.
 
-## 7. Bots: pure pursuit and Stanley
+## 7. Bots: the aisle graph, pure pursuit and Stanley
 
-`src/game/sim/bot.ts`. A bot gets only the state and returns an `Input`, exactly like a player.
+`src/game/sim/bot.ts` and `nav.ts`. A bot gets only the state and returns an `Input`, exactly like a player.
 
-- **Route** (`planRoute`, `bot.ts:34`): a list of waypoints through the aisles, along the one-way
-  flow, ending with `approachOf()` from `lot.ts`: a point on the aisle, a turn-in point on the
-  bay's centre line, the mouth of the bay, and the stopping point.
-- **Pure pursuit** (`bot.ts:170`) for the route: pick a **look-ahead point** a few metres ahead on
-  the path (further when faster), compute the circle arc that would take the car to it, and turn
-  the wheel for that curvature: `curvature = 2 · lateral / distance²`, then
-  `steer = -atan(curvature · wheelbase)`. It cuts corners smoothly, like a person looking down
-  the road.
-- **Stanley steering** (`bot.ts:162`) for the last stretch, where precision matters: steer to remove
-  the heading error, plus `atan(k · crossTrackError / (speed + softening))` to pull the front axle
-  back onto the bay's centre line. It comes from the Stanford self-driving car "Stanley". Pure
-  pursuit is smooth but cuts corners; Stanley sticks to a line.
-- **Speed**: cruise speed reduced by how sharp the bend ahead is, and capped so the car can stop
-  at the end with a fixed deceleration (`v = sqrt(2 · a · distance)`).
+### The aisle graph (`nav.ts`)
+
+The old bots had the snake of three aisles written into the code, so they could only drive one layout. Now
+`buildLot()` describes the roads as data and `nav.ts` turns that into a graph (a *directed graph*, the same
+structure as a road network in a satnav):
+
+- A **node** is a junction or the end of an aisle (`M_C` is where the main road meets the avenue, `CW_A`
+  where the west service road meets aisle WA, and so on): 24 of them. Nodes sit on the centre lines.
+- An **aisle** is a chain of nodes with a width and a flag `oneWay`. A one-way aisle lists its nodes in the
+  direction of flow, so it only gets edges that go that way. A two-way aisle gets an edge each way.
+- An **edge** (`GEdge`) is one direction of travel along one stretch of aisle. Its endpoints (`a`, `b`) are
+  the *lane* the car drives in: the centre line for a one-way aisle, shifted to the right of the direction of
+  travel (2 m on an 8 m aisle) for a two-way one, so cars going opposite ways pass each other.
+
+**Shortest path.** `pathFrom()` is Dijkstra's algorithm run over *edges* rather than nodes. That small change
+lets it forbid a U-turn at a junction (the next edge may not be the reverse of the one you arrived by):
+on a node graph a car that reached the end of a road could turn round on the spot, which no car can.
+It skips edges flagged `avoid` (the entry and exit lanes, the dead-end pocket) so bots do not wander in.
+The graph is small, so a plain O(E²) selection loop is plenty (the test run builds hundreds of routes).
+
+**Where a car is.** `locate()` snaps a position to the nearest lane (penalising lanes pointing the wrong way
+by 7 m), so a bot that has been shoved sideways still knows which edge to continue on.
+
+**Routes.** `routeToDock`, `routeToSweep` and `routeToNode` build a list of points: the rest of the car's own
+lane, the lanes of the shortest path, then the target. `roundCorners()` cleans that list: it removes repeated
+points, points in the middle of a straight run, and *spikes* (a point where the route goes up to the centre
+line of a junction and straight back, which lane offsets cause), then replaces each corner with a short
+curve (a quadratic Bezier through the corner point). A pure pursuit follower gets a path a car can really drive.
+
+### Searching: sweeps
+
+A **sweep** is one pass along an aisle in one direction (`Sweep`). `planSweeps()` orders them for one driver:
+the first is chosen by seat (EA, WA, AVE or EB), then greedily the nearest unvisited one by path length,
+plus a bias of up to 40 m taken from a hash of seed and seat, in two passes (every aisle once; then
+the two-way ones back the other way). When a bot reaches the end of its route and has not spotted the bay it
+asks for the next sweep (`sweepRoute`). The route ends are therefore always on a legal lane.
+
+### Going to a bay
+
+Every bay carries `approach[]` (see `Approach` in `lot.ts`): where on a lane (`edge`, `s` metres along it) its own
+path starts (`dock`) and the points from there (`tail`), which always end with *square to the bay, mouth, stop*.
+`spotRoute` costs each approach with `routeToDock` and takes the quickest. The tail comes from the type:
+
+- Angled: a1 = 3.6 m out from the mouth along the bay axis, dock 8 m upstream of that. Only in the direction the bay is angled for.
+- 90 degree: the car drives the far side of the aisle (0.72 of the aisle width from the mouth, at most 6.2 m) then
+  turns through a quarter circle of radius R = 4.4 m onto the bay's axis. The circle is tangent to both lines, so
+  with the approach line at distance `dm` from the mouth the turn ends `dm - R` before the mouth.
+  (A car's tightest turn, wheelbase / tan(max steer) = 2.62 / tan(0.66), is 3.4 m; 4.4 leaves room for pure
+  pursuit to lag.)
+- Parallel and pocket bays: none.
+
+The lot keeps an approach only if its dock edge is reachable from the entry lanes without a U-turn
+(`reachableFrom`) and if a car box inflated by 0.22 m each side and 0.15 m each end, swept along the path every
+0.7 m (`sweepClear`), touches no solid and no parked car, and if the bay itself holds a car with the
+neighbours in place. `Lot.candidates` are the bays that keep at least one approach (plus the rules in DESIGN.md).
+That one test replaces the old hand-written "not the first bays of a row" rule and works on any layout.
+
+### Following a route
+
+- **Pure pursuit** (`botInput`): pick a **look-ahead point** a few metres ahead on the path (further when faster),
+  compute the circle arc that would take the car to it, and turn the wheel for that curvature:
+  `curvature = 2 · lateral / distance²`, then `steer = -atan(curvature · wheelbase)`.
+- **Stanley steering** for the last stretch, where precision matters: steer to remove the heading error, plus
+  `atan(k · crossTrackError / (speed + softening))` to pull the front axle back onto the bay's centre line. It
+  comes from the Stanford self-driving car "Stanley". Pure pursuit is smooth but cuts corners; Stanley sticks to a line.
+- **Speed**: the lesser of the cruise speed, a **curve limit** and the speed from which the car can stop at the end
+  at a fixed deceleration (`v = sqrt(2 · a · distance)`). The curve limit (`curveSpeed`) samples the route
+  every 2 m ahead, takes the sharpest bend as a curvature κ (radians per metre) and allows `v = sqrt(3.4 / κ)`,
+  at least 2.4 m/s: lateral acceleration `v² · κ` is held under what the tyres give.
+- **Traffic**: `carAhead` looks for a car in the lane ahead, widening by 0.16 m per metre of distance (to catch
+  one merging in) and ignoring cars coming the other way. A separate rule gives way to a moving car on the right that a
+  straight-line prediction puts within 3.4 m of ours in the next 2.6 s (priority to the right); cars that are
+  stopped or moving along our own line are not that rule's business.
+- **The gate**: while `state.gate.open < 0.8`, a bot in the entry lanes limits its speed so it can stop 0.5 m
+  short of the arm.
 - **Recovery**: a small state machine (`brain.stuck`, `brain.reverse`, `brain.recover`) that backs
   out of jams and re-approaches a crooked or overshot bay.
 - **Politeness**: if another car is already mostly in the bay, the bot holds upstream and honks.
@@ -185,7 +249,7 @@ outline that leans inward toward the roof (**tumblehome**). `STYLES` holds three
 
 ### Instanced rendering of parked cars
 
-More than 100 parked cars would be more than 100 meshes and several hundred **draw calls**. A draw
+About 240 parked cars would be more than 100 meshes and several hundred **draw calls**. A draw
 call is one request from the CPU to the GPU; too many makes the frame slow. `buildParked()`
 (`car.ts:465`) instead uses **`THREE.InstancedMesh`**: one geometry per material per body style,
 drawn many times with a different transform each (`setMatrixAt`) and a different colour
@@ -239,8 +303,10 @@ connect through filters and gains to the output.
 | Make parking easier or stricter | `PARK` in `constants.ts` |
 | Change crash bounce or alarm threshold | `IMPACT` in `constants.ts` |
 | Change round length or countdown | `RACE` in `constants.ts` |
-| Change the lot layout, bay angle, bay size | `BAY`, `AISLE`, `ISLAND`, `buildLot()` in `lot.ts` |
-| Change what share of bays are corrals or cones | the `r < 0.04` and `r < 0.07` lines in `buildLot()` |
+| Change the lot layout, bay sizes | `LAYOUT`, `BAY`, `PERP`, `PARALLEL` and the zone code in `buildLot()` in `lot.ts` |
+| Add or change a road | the node list and `A(...)` aisle calls in `buildLot()`; the graph, routes and bots follow |
+| Change how the gate behaves | `gates`, `GZ` in `lot.ts`; the lift in `step()`, the arms in `crashes()`, drawing in `scenery.ts` |
+| Change what share of bays are corrals, cones, SUVs or vans | the `r < 0.035`, `r < 0.06` and `variant` lines in `buildLot()` |
 | Make bots braver or smarter | `createBrain()` (cruise speed) and `botInput()` in `bot.ts` |
 | Add a sound | `src/game/sfx.ts`, call it from the `tick()` event loop in `game.ts` |
 | Add a car body style | `STYLES` in `car.ts` |
