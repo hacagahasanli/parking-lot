@@ -16,6 +16,7 @@ import { hintLines, hintOf } from '../sim/hint';
 import { LEVELS, LEVEL_COLOR, LEVEL_H, levelName, levelOf, levelY } from '../sim/levels';
 import { BAY, buildLot } from '../sim/lot';
 import { radio } from '../sim/radio';
+import { hasNext, isShut, newProgress, next, pick, stageDef, STAGE_COUNT, won } from '../sim/stages';
 import { createRound, distanceToTarget, forwardSpeed, standings, step } from '../sim/step';
 import { NO_INPUT } from '../sim/types';
 
@@ -26,6 +27,7 @@ import { circleHit, boxHit } from './sight';
 import { buildTargetMarker, buildWorld } from './world';
 
 import type { BotBrain } from '../sim/bot';
+import type { Progress } from '../sim/stages';
 import type { Lot } from '../sim/lot';
 import type { Car, GameState, Input, World } from '../sim/types';
 import type { VolumeKind } from '../sfx';
@@ -98,6 +100,8 @@ export interface HudState {
   levelColor: number;
   /** The free-spaces board: the two lines of text, and the deck colour of the second line when it names a deck. */
   board: { free: number; line: string; deckColor: number | null };
+  /** The stage being played (n is 0 on the home page, where the whole site is open), what is new in it, and how far you have got this visit. */
+  stage: { n: number; name: string; news: string; total: number; unlocked: number; hasNext: boolean };
   /** The minimap's tabs and the one being shown. */
   mapLevel: number;
   mapLevels: { level: number; name: string; color: number }[];
@@ -340,6 +344,8 @@ export class Game {
   private disposed = false;
   private minimap: HTMLCanvasElement | null = null;
   private roundNo = 0;
+  /** How far this visit has got (in memory only: a page load starts at stage 1). */
+  private progress: Progress = newProgress();
   /** How far the exit barrier is lifted (0..1), eased. */
   private exitOpen = 0;
   private joltSeen: number[] = [];
@@ -426,7 +432,8 @@ export class Game {
     this.roundNo++;
     const seed = this.seed + this.roundNo * 101;
     const bots = this.opts.mode === 'race' ? [false, true, true, true] : [true, true, true, true];
-    const { state, world } = createRound(this.lot, { seed, bots });
+    const stage = this.opts.mode === 'race' ? this.progress.current : undefined;
+    const { state, world } = createRound(this.lot, { seed, bots, stage });
     this.state = state;
     this.world = world;
     this.brains = state.cars.map((c) => (c.bot ? createBrain(world, c, seed) : null));
@@ -462,6 +469,9 @@ export class Game {
       this.worldView.garage.decks.get(L)?.add(g);
       this.deckParked.push(g);
     }
+    // The barriers of the ways this stage keeps shut.
+    const stageOpen = world.lot.open;
+    this.worldView.setClosures(stageOpen ? this.lot.closures.filter((c) => isShut(c, stageOpen)).map((c) => c.id) : []);
     this.camSolids = world.solids.map((sh, i) => ({ sh, i })).filter(({ sh, i }) => sh.y0 !== undefined && world.owner[i] === -1).map(({ sh }) => ({ s: sh }));
 
     this.marker.group.visible = false;
@@ -554,7 +564,31 @@ export class Game {
     }
     if (down && e.code === 'KeyC') this.cycleCamera();
     if (down && e.code === 'Escape') this.setPaused(!this.paused);
-    if (down && e.code === 'Enter' && (this.state.phase === 'done' || this.state.cars[0].dq !== null)) this.newRound();
+    if (down && e.code === 'Enter' && (this.state.phase === 'done' || this.state.cars[0].dq !== null)) {
+      // (the result card's focused button would also click on Enter: one press, one action)
+      e.preventDefault();
+      this.confirm();
+    }
+  };
+
+  // ----- stages -----
+
+  /** The result card's main button: the next stage after a win (when there is one), otherwise the same stage again. */
+  confirm = () => {
+    if (this.state.winner === 0 && hasNext(this.progress)) this.nextStage();
+    else this.newRound();
+  };
+
+  /** Go on to the stage after this one (only once it is unlocked). */
+  nextStage = () => {
+    this.progress = next(this.progress);
+    this.newRound();
+  };
+
+  /** Start an unlocked stage (a locked one does nothing). */
+  selectStage = (n: number) => {
+    this.progress = pick(this.progress, n);
+    this.newRound();
   };
 
   private onBlur = () => {
@@ -678,8 +712,10 @@ export class Game {
       } else if (e.type === 'end') {
         if (this.endedAt < 0) this.endedAt = this.time;
         if (this.opts.mode === 'race') {
-          if (e.winner === 0) this.sfx.win();
-          else this.sfx.lose();
+          if (e.winner === 0) {
+            this.sfx.win();
+            this.progress = won(this.progress);
+          } else this.sfx.lose();
         }
       }
     }
@@ -856,7 +892,7 @@ export class Game {
     this.fill.intensity = d * 38;
     this.fill.color.setHex(level < 0 ? 0xcfe0ff : 0xfff0d8);
     // The boards: the one over the gate, and the one at the car park's door.
-    const hint = hintOf(this.state, this.lot);
+    const hint = hintOf(this.state, this.world.lot);
     const [head, tail] = hintLines(hint);
     // The number blinks like a real LED sign while the cars wait, and once a second afterwards.
     const blink = this.state.phase === 'countdown' ? Math.floor(this.time * 2) % 2 === 0 : Math.floor(this.time * 1.2) % 6 !== 0;
@@ -1164,12 +1200,18 @@ export class Game {
       inGarage: this.garageOf(me.x, me.z, me.y).inside,
       levelColor: LEVEL_COLOR[levelOf(me.y)] ?? 0xffffff,
       board: (() => {
-        const h = hintOf(s, this.lot);
+        const h = hintOf(s, this.world.lot);
         const [head, tail] = hintLines(h);
         return { free: h.free, line: tail || head.replace(/^FREE SPACES: \d+$/, ''), deckColor: h.showing !== null ? LEVEL_COLOR[h.showing] : null };
       })(),
       mapLevel: this.mapShown,
-      mapLevels: LEVELS.map((l) => ({ level: l, name: levelName(l), color: LEVEL_COLOR[l] })),
+      stage: (() => {
+        const n = this.world.lot.stage ?? 0;
+        const def = n ? stageDef(n) : null;
+        return { n, name: def?.name ?? 'The whole site', news: def?.news ?? '', total: STAGE_COUNT, unlocked: this.opts.mode === 'race' ? this.progress.unlocked : STAGE_COUNT, hasNext: s.winner === 0 && hasNext(this.progress) };
+      })(),
+      // Only the floors that are open get a tab (the open lot alone has none to choose from).
+      mapLevels: LEVELS.filter((l) => !this.world.lot.open || this.world.lot.open.levels.includes(l)).map((l) => ({ level: l, name: levelName(l), color: LEVEL_COLOR[l] })),
     });
     void force;
   }

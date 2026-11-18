@@ -8,6 +8,8 @@ import * as THREE from 'three';
 import { makeBoard } from './board';
 import { block, canvasTexture, flat, merge, scaleUV } from './geo';
 
+import { levelY } from '../sim/levels';
+
 import type { Canopy, Gate, Lot, Prop, Sign, SignKind } from '../sim/lot';
 
 const steel = () => new THREE.MeshStandardMaterial({ color: 0x4a4f57, roughness: 0.5, metalness: 0.6 });
@@ -672,4 +674,70 @@ export const buildBoothBoard = (lot: Lot) => {
   board.mesh.rotation.y = Math.PI;
   group.add(board.mesh);
   return { group, setBoard: board.set };
+};
+
+// ---------------------------------------------------------------------------
+// Ways a stage keeps shut
+// ---------------------------------------------------------------------------
+
+export interface ClosureViews {
+  /** One group per closure id ('door', 'down', 'up1', 'up2'), standing at the barrier's place; hidden when the stage lets you through. */
+  groups: Map<string, { group: THREE.Group; lvl: number }>;
+}
+
+/**
+ * A closed way: a low red-and-white barrier on two posts across the road, and traffic cones on the approach side. Kept low on
+ * purpose (a metre high, nothing above it), so it never blocks the chase camera's view of the road beyond; the sim's `solid` is
+ * what stops cars. The renderer shows the ones the stage shuts.
+ */
+export const buildClosures = (lot: Lot): ClosureViews => {
+  const groups: ClosureViews['groups'] = new Map();
+  const stripes = stripeTexture();
+  const bar = new THREE.MeshStandardMaterial({ map: stripes, roughness: 0.6 });
+  const post = new THREE.MeshStandardMaterial({ color: 0xf2f2ee, roughness: 0.6 });
+  const cone = new THREE.MeshStandardMaterial({ color: 0xf06a1d, roughness: 0.6 });
+  const band = new THREE.MeshStandardMaterial({ color: 0xf4f4f0, roughness: 0.6 });
+  const lamp = new THREE.MeshStandardMaterial({ color: 0xffb02e, emissive: 0xffb02e, emissiveIntensity: 1.2 });
+  for (const c of lot.closures) {
+    const g = new THREE.Group();
+    // The road runs along x; the barrier spans z.
+    const half = c.width / 2 + 0.25;
+    const rail = new THREE.Mesh(new THREE.BoxGeometry(0.16, 0.34, half * 2), bar);
+    rail.position.set(0, 0.82, 0);
+    rail.castShadow = true;
+    g.add(rail);
+    const rail2 = rail.clone();
+    rail2.position.y = 0.4;
+    g.add(rail2);
+    for (const s of [-1, 1]) {
+      const p = new THREE.Mesh(new THREE.BoxGeometry(0.2, 1.1, 0.2), post);
+      p.position.set(0, 0.55, s * half);
+      p.castShadow = true;
+      g.add(p);
+      const l = new THREE.Mesh(new THREE.SphereGeometry(0.09, 8, 6), lamp);
+      l.position.set(0, 1.18, s * half);
+      g.add(l);
+    }
+    // Cones in a row on the side the cars come from (x grows going in, so the approach is at -x).
+    for (let i = 0; i < 5; i++) {
+      const z = -half + 0.6 + (i * (half * 2 - 1.2)) / 4;
+      const body = new THREE.Mesh(new THREE.ConeGeometry(0.2, 0.62, 12), cone);
+      body.position.set(-1.1 - (i % 2) * 0.35, 0.31, z);
+      body.castShadow = true;
+      g.add(body);
+      const stripe = new THREE.Mesh(new THREE.CylinderGeometry(0.1, 0.13, 0.1, 12), band);
+      stripe.position.set(-1.1 - (i % 2) * 0.35, 0.36, z);
+      g.add(stripe);
+      const foot = new THREE.Mesh(new THREE.BoxGeometry(0.46, 0.04, 0.46), cone);
+      foot.position.set(-1.1 - (i % 2) * 0.35, 0.02, z);
+      g.add(foot);
+    }
+    // (on the foot of a ramp the road has already climbed or dropped a little)
+    g.position.set(c.x - 0.35, levelY(c.lvl) + (c.id === 'down' ? -0.1 : c.id === 'door' ? 0 : 0.1), c.z);
+    g.visible = false;
+    groups.set(c.id, { group: g, lvl: c.lvl });
+  }
+  // The stripes run the length of the rail (z).
+  stripes.repeat.set(3, 1);
+  return { groups };
 };

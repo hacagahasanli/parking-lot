@@ -17,7 +17,7 @@ import type { Closure, Lot, Open } from './lot';
 
 export interface StageDef {
   n: number;
-  /** "P0 - Ground floor": the name on the intro card (the number is shown beside it). */
+  /** "P0 — Ground floor": the name on the intro card and the result card (the stage number is shown beside it). */
   name: string;
   /** One sentence: what is new this stage. */
   news: string;
@@ -29,10 +29,10 @@ export interface StageDef {
 
 export const STAGES: StageDef[] = [
   { n: 1, name: 'The open lot', news: 'The car park is shut. The free bay is somewhere out here, in the open.', newest: null, open: { garage: false, levels: [] } },
-  { n: 2, name: 'P0 · Ground floor', news: 'The car park is open, ground floor only. The free bay is in there; the ramps stay shut.', newest: 0, open: { garage: true, levels: [0] } },
-  { n: 3, name: 'P1 · First floor', news: 'The ramp up is open. The free bay is one floor above the ground.', newest: 1, open: { garage: true, levels: [0, 1] } },
-  { n: 4, name: 'P2 · The roof', news: 'The roof deck is open to the sky. The free bay is up there.', newest: 2, open: { garage: true, levels: [0, 1, 2] } },
-  { n: 5, name: 'P-1 · Underground', news: 'The ramp down is open. The free bay is below ground, in the dark.', newest: -1, open: { garage: true, levels: [-1, 0, 1, 2] } },
+  { n: 2, name: 'P0 — Ground floor', news: 'The car park is open, ground floor only. The free bay is in there; the ramps stay shut.', newest: 0, open: { garage: true, levels: [0] } },
+  { n: 3, name: 'P1 — First floor', news: 'The ramp up is open. The free bay is one floor above the ground.', newest: 1, open: { garage: true, levels: [0, 1] } },
+  { n: 4, name: 'P2 — The roof', news: 'The roof deck is open to the sky. The free bay is up there.', newest: 2, open: { garage: true, levels: [0, 1, 2] } },
+  { n: 5, name: 'P-1 — Underground', news: 'The ramp down is open. The free bay is below ground, in the dark.', newest: -1, open: { garage: true, levels: [-1, 0, 1, 2] } },
   { n: 6, name: 'The whole site', news: 'Everything is open. The free bay could be anywhere.', newest: null, open: { garage: true, levels: [-1, 0, 1, 2] } },
 ];
 

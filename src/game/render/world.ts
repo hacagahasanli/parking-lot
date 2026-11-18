@@ -12,7 +12,7 @@ import { BAY, rng } from '../sim/lot';
 
 import { block, canvasTexture, flat, merge, scaleUV } from './geo';
 import { buildGarage } from './garage';
-import { animateGates, buildBayPaint, buildCanopy, buildChargers, buildBoothBoard, buildGates, buildMarkings, buildSigns, buildTruck, buildYardProps } from './scenery';
+import { animateGates, buildBayPaint, buildCanopy, buildChargers, buildBoothBoard, buildClosures, buildGates, buildMarkings, buildSigns, buildTruck, buildYardProps } from './scenery';
 
 import type { GarageView } from './garage';
 import type { GateViews } from './scenery';
@@ -232,6 +232,8 @@ export interface WorldView {
   /** The multi-storey car park, and the board over the entry gate (call `setBoard` with its rows). */
   garage: GarageView;
   setBoothBoard: (rows: BoardRow[]) => void;
+  /** Shows the barriers and cones of the ways a stage keeps shut (by closure id) and hides the rest. */
+  setClosures: (shut: string[]) => void;
   /** Lifts the barriers: entry by the sim's gate (0..1), exit by how close the pulling-out car is. */
   setGates: (entryOpen: number, exitOpen: number) => void;
 }
@@ -526,6 +528,9 @@ export const buildWorld = (lot: Lot): WorldView => {
   group.add(garage.group);
   const boothBoard = buildBoothBoard(lot);
   group.add(boothBoard.group);
+  // The barriers: one group each, standing in the deck they close (so they are hidden with it).
+  const closures = buildClosures(lot);
+  for (const { group: cg, lvl } of closures.groups.values()) (garage.decks.get(lvl) ?? group).add(cg);
 
   // --- Buildings across the road (simple blocks with window bands) so the world doesn't end.
   const far = new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.9 });
@@ -561,7 +566,8 @@ export const buildWorld = (lot: Lot): WorldView => {
   }
   group.add(new THREE.Mesh(merge(bollards), new THREE.MeshStandardMaterial({ color: 0xe0b72e, roughness: 0.5 })));
 
-  return { group, trees, signs, gates, garage, setBoothBoard: boothBoard.setBoard, setGates: (entry, exit) => animateGates(gates, entry, exit) };
+  return { group, trees, signs, gates, garage, setBoothBoard: boothBoard.setBoard,
+    setClosures: (shut) => closures.groups.forEach((v, id) => (v.group.visible = shut.includes(id))), setGates: (entry, exit) => animateGates(gates, entry, exit) };
 };
 
 /** A shop: stucco box, a glass front under a canopy, the lit sign, trolleys by the door. The second one is smaller, brick-coloured, with an awning. */
