@@ -659,22 +659,16 @@ export const buildMarkings = (lot: Lot): THREE.Group => {
 // The free-spaces board over the entry gate
 // ---------------------------------------------------------------------------
 
-/** A gantry across the entry with an LED board facing the queue: "FREE SPACES: 1" and, later, a hint. */
-export const buildGantry = (lot: Lot) => {
+/**
+ * The FREE SPACES board: a small LED panel on the face of the ticket booth, towards the queue. (It used to hang on a
+ * gantry over both lanes, which stood between the chase camera and the road.)
+ */
+export const buildBoothBoard = (lot: Lot) => {
   const group = new THREE.Group();
-  const board = makeBoard(7.4, 1.85);
-  const g = lot.props.find((p) => p.kind === 'gantry');
-  if (!g) return { group, setBoard: board.set };
-  const steelDark = new THREE.MeshStandardMaterial({ color: 0x3b3f45, roughness: 0.5, metalness: 0.6 });
-  const parts: THREE.BufferGeometry[] = [];
-  for (const sx of [-6.6, 6.6]) parts.push(block(0.4, 5.9, 0.4, sx, 0, g.z));
-  parts.push(block(13.8, 0.4, 0.5, 0, 5.5, g.z));
-  parts.push(block(7.9, 2.35, 0.3, 0, 3.15, g.z + 0.3));
-  const frame = new THREE.Mesh(merge(parts), steelDark);
-  frame.castShadow = true;
-  group.add(frame);
-  // Faces south, towards the cars waiting in the queue.
-  board.mesh.position.set(0, 4.3, g.z - 0.2);
+  const board = makeBoard(1.9, 0.475);
+  const booth = lot.props.find((p) => p.kind === 'booth');
+  if (!booth) return { group, setBoard: board.set };
+  board.mesh.position.set(booth.x, 2.12, booth.z - 1.46);
   board.mesh.rotation.y = Math.PI;
   group.add(board.mesh);
   return { group, setBoard: board.set };

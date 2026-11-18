@@ -81,6 +81,8 @@ export interface Aisle {
   /** Not for bots (entry and exit lanes, the dead end). */
   avoid: boolean;
   kind: 'road' | 'aisle' | 'entry' | 'exit' | 'pocket' | 'ramp';
+  /** Shut by the stage being played: bots do not search it and no route goes through it. */
+  closed?: boolean;
   /** Level of its first node (a ramp climbs from there), and whether it is inside the car park. */
   lvl: number;
   garage: boolean;
@@ -101,7 +103,7 @@ export interface Gate {
   box: Box;
 }
 
-export type PropKind = 'booth' | 'ticket' | 'pay' | 'charger' | 'truck' | 'van' | 'pallet' | 'cage' | 'gantry';
+export type PropKind = 'booth' | 'ticket' | 'pay' | 'charger' | 'truck' | 'van' | 'pallet' | 'cage';
 export interface Prop { kind: PropKind; x: number; z: number; h: number; /** Colour for vehicles. */ color?: number }
 
 export type SignKind = 'stop' | 'oneway' | 'noentry' | 'ev' | 'disabled' | 'parent' | 'speed' | 'p' | 'exit' | 'entry' | 'loading' | 'slow';
@@ -125,9 +127,9 @@ export interface GarageLevel {
   /** Roofed over (a ceiling above): every level but the top deck. */
   roofed: boolean;
 }
-/** Signs hung from the ceiling or fixed to a wall inside the car park (always above head height of a car). */
+/** Small plates fixed to an outer wall of the car park, above the bays (nothing hangs over an aisle). */
 export interface Plaque {
-  kind: 'up' | 'down' | 'exit' | 'level' | 'height';
+  kind: 'exit' | 'level';
   lvl: number;
   x: number;
   y: number;
@@ -152,7 +154,34 @@ export interface Garage {
   lightLines: { lvl: number; x0: number; x1: number; z: number }[];
 }
 
+/**
+ * A way into part of the site that a stage keeps shut: a striped barrier with cones across the garage door or the
+ * mouth of a ramp. It is solid while it is closed (`solid`, a box the width of the opening) and drawn by the renderer.
+ */
+export interface Closure {
+  id: 'door' | 'down' | 'up1' | 'up2';
+  /** The level it stands on (the road height under it). */
+  lvl: number;
+  /** Centre of the barrier on the road, how wide the opening is (along z), and the heading of the road it closes (the way a car faces going in). */
+  x: number;
+  z: number;
+  width: number;
+  h: number;
+  /** What opens it: the garage as a whole, or the level this way leads to. */
+  opensWith: 'garage' | number;
+  solid: Box;
+}
+
+/** What a stage has open: the open lot always, the garage and which of its levels. */
+export interface Open { garage: boolean; levels: number[] }
+
 export interface Lot {
+  /** Set on the lot a stage plays on (`stageLot`): its number, and what is open in it. */
+  stage?: number;
+  open?: Open;
+  closures: Closure[];
+  /** Bays the car that pulls out may leave (every candidate in the part of the site that is open). */
+  eligible: number[];
   bays: Bay[];
   garage: Garage;
   surfaces: Surfaces;
@@ -620,17 +649,28 @@ export const buildLot = (seed = 7): Lot => {
       solids.push({ ...rect(r.x0, r.x1, z0, z1), y0: levelY(r.lo) - 0.2, y1: levelY(r.hi) + 2.9 });
     }
   }
-  // Plaques: where to go. Hung over the aisle just before each ramp, and by the way out.
+  // Wayfinding without anything hung in the aisles or standing on the road (it came between the chase camera and the road):
+  // the way is painted on the floor (garage.ts: UP, DOWN, EXIT, arrows, the big level number) and the only plates are small
+  // ones fixed to the outer walls, above the single row of bays, facing the aisles: the level, and on P0 the way out.
   const plaques: Plaque[] = [];
   for (const L of LEVELS) {
-    const hang = (kind: Plaque['kind'], x: number, z: number, h: number, y = levelY(L) + 2.35) => plaques.push({ kind, lvl: L, x, y, z, h });
-    hang('level', WCX + 3.6, Z1C + HALF + 0.2, Math.PI);
-    hang('level', WCX + 3.6, Z2C + HALF + 0.2, Math.PI);
-    if (L < 2) hang('up', CCX - 6, Z2C, -Math.PI / 2);
-    if (L > -1) hang('down', CCX - 6, Z1C, -Math.PI / 2);
-    if (L === 0) hang('exit', WCX + 3.2, Z2C, Math.PI / 2);
-    if (L === 0) hang('height', GX0 - 0.1, Z2C, -Math.PI / 2, 2.2);
+    const wall = (kind: Plaque['kind'], x: number, z: number, h: number, y = levelY(L) + 2.2) => plaques.push({ kind, lvl: L, x, y, z, h });
+    for (const x of [ROW_X0 + 6, ROW_X0 + 16]) {
+      wall('level', x, GZ1 - 0.02, Math.PI);
+      wall('level', x, GZ0 + 0.02, 0);
+    }
+    if (L === 0) wall('exit', GX0 + 0.02, Z2C + HALF + 1.8, Math.PI / 2);
   }
+  // The ways a stage can shut: the door of the car park, and the foot of each ramp (a barrier with cones across the road).
+  const closures: Closure[] = [];
+  const shut = (id: Closure['id'], lvl: number, x: number, z: number, width: number, opensWith: Closure['opensWith']) => {
+    const y = levelY(lvl);
+    closures.push({ id, lvl, x, z, width, h: Math.PI / 2, opensWith, solid: { kind: 'box', x, z, hw: 0.45, hl: width / 2 + 0.3, h: 0, y0: y - 0.2, y1: y + 2.9 } });
+  };
+  shut('door', 0, GX0 - 0.45, Z2C, 2 * HALF, 'garage');
+  shut('down', 0, GXB + 0.8, Z1C, 2 * HALF, -1);
+  shut('up1', 0, GXB + 0.8, Z2C, 2 * HALF, 1);
+  shut('up2', 1, GXB + 0.8, Z2C, 2 * HALF, 2);
   const lightLines: Garage['lightLines'] = [];
   for (const L of LEVELS) for (const z of [Z1C, Z2C]) lightLines.push({ lvl: L, x0: GX0 + 1, x1: GXB - 1, z });
   const garage: Garage = { x0: GX0 - T, x1: GXE + T, z0: GZ0 - T, z1: GZ1 + T, levels: garageLevels, ramps, plaques, entrance: { x: GX0, z: Z2C }, aisleZ: [Z1C, Z2C], rows: [ROW_X0, ROW_X0 + ROW_N * PERP.width], lightLines };
@@ -673,9 +713,7 @@ export const buildLot = (seed = 7): Lot => {
   solids.push(rect(-5.9, -5.1, bounds.z0, ZM - 4), rect(5.1, 5.9, bounds.z0, ZM - 4));
   solids.push(rect(-1.3, 1.3, -41.2, -34.6));
   props.push({ kind: 'booth', x: 0, z: -37.2, h: 0 });
-  // The free-spaces board spans the entry on a gantry: posts on the kerb islands either side of the lanes.
-  props.push({ kind: 'gantry', x: 0, z: -35.8, h: 0 });
-  for (const sx of [-6.6, 6.6]) solids.push({ kind: 'circle', x: sx, z: -35.8, r: 0.26 });
+  // (No gantry over the lanes: the FREE SPACES board is a small panel on the booth, out of the way of the chase camera.)
   occluders.push({ kind: 'box', x: 0, z: -37.2, hw: 1.2, hl: 1.5, h: 0 });
   for (const s of [-1, 1]) {
     props.push({ kind: 'ticket', x: s * 0.95, z: -40.3, h: s > 0 ? -Math.PI / 2 : Math.PI / 2 });
@@ -904,6 +942,8 @@ export const buildLot = (seed = 7): Lot => {
     store,
     shops,
     candidates,
+    eligible: candidates,
+    closures,
     garage,
     surfaces,
   };

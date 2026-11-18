@@ -189,13 +189,12 @@ export const buildGarage = (lot: Lot): GarageView => {
   const steelMat = std({ color: 0x8c929a, roughness: 0.4, metalness: 0.75 });
   const paintMat = std({ color: 0xffffff, roughness: 0.65, polygonOffset: true, polygonOffsetFactor: -2 });
   const yellowMat = std({ color: 0xf5c71a, roughness: 0.65, polygonOffset: true, polygonOffsetFactor: -2 });
-  const lightMat = new THREE.MeshStandardMaterial({ color: 0xffffff, emissive: 0xfff4dc, emissiveIntensity: 1.8 });
+  const lightMat = new THREE.MeshStandardMaterial({ color: 0xffffff, emissive: 0xfff4dc, emissiveIntensity: 0.9 });
   const levelMat = (lvl: number) => std({ color: LEVEL_COLOR[lvl], roughness: 0.7 });
   const bandMats = new Map<number, THREE.MeshStandardMaterial>(LEVELS.map((l) => [l, levelMat(l)]));
   const paintLevelMats = new Map<number, THREE.MeshStandardMaterial>(LEVELS.map((l) => [l, std({ color: LEVEL_COLOR[l], roughness: 0.65, polygonOffset: true, polygonOffsetFactor: -2 })]));
   const atlas = plaqueAtlas();
   const plaqueMat = new THREE.MeshStandardMaterial({ map: atlas, roughness: 0.5, emissive: 0xffffff, emissiveMap: atlas, emissiveIntensity: 0.35 });
-  const chainMat = std({ color: 0x30343a, roughness: 0.6, metalness: 0.5 });
 
   const add = (parent: THREE.Object3D, geos: THREE.BufferGeometry[], mat: THREE.Material, shadow: 'both' | 'receive' | 'none' = 'both') => {
     if (!geos.length) return;
@@ -277,9 +276,9 @@ export const buildGarage = (lot: Lot): GarageView => {
     // Light strips under the ceiling along the aisles (where a ceiling exists), and the way in.
     const strips: THREE.BufferGeometry[] = [];
     if (lv.roofed) {
-      for (const l of gar.lightLines.filter((l) => l.lvl === lv.lvl)) for (let x = l.x0 + 2; x < l.x1; x += 4.6) for (const dz of [-1.6, 1.6]) strips.push(block(1.3, 0.05, 0.13, x, Y + H - 0.06, l.z + dz));
+      for (const l of gar.lightLines.filter((l) => l.lvl === lv.lvl)) for (let x = l.x0 + 2; x < l.x1; x += 5.4) for (const dz of [-1.6, 1.6]) strips.push(block(0.8, 0.02, 0.07, x, Y + H - 0.025, l.z + dz));
       // Over the connectors too.
-      for (const z of [-8, 0, 8]) strips.push(block(0.13, 0.05, 1.3, gar.x0 + 4.5, Y + H - 0.06, z + (gar.z0 + gar.z1) / 2 + 0.0));
+      for (const z of [-8, 0, 8]) strips.push(block(0.07, 0.02, 0.8, gar.x0 + 4.5, Y + H - 0.025, z + (gar.z0 + gar.z1) / 2 + 0.0));
     }
     if (strips.length) {
       const m = new THREE.Mesh(merge(strips), lightMat);
@@ -379,62 +378,67 @@ export const buildGarage = (lot: Lot): GarageView => {
     }
   }
 
-  // --- Plaques: hung from the ceiling on two chains (roof deck: mounted on the wall) --------------
+  // --- Wall plates: small, fixed to the outer walls above the bays (nothing hangs over an aisle) -----
   const tileOf = (p: Plaque) => PLAQUE_TILES.indexOf(p.kind === 'level' ? (`level${p.lvl}` as (typeof PLAQUE_TILES)[number]) : p.kind);
   for (const [lvl, dk] of decks) {
-    const mine = gar.plaques.filter((p) => p.lvl === lvl);
     const plates: THREE.BufferGeometry[] = [];
-    const chains: THREE.BufferGeometry[] = [];
-    const lintel: THREE.BufferGeometry[] = [];
-    for (const p of mine) {
+    for (const p of gar.plaques.filter((q) => q.lvl === lvl)) {
       const i = tileOf(p);
-      const w = p.kind === 'height' ? 3.4 : 2.4;
-      const h = w / 2;
-      for (const side of [0, Math.PI]) {
-        const g = new THREE.PlaneGeometry(w, h);
-        const u0 = (i % 4) / 4;
-        const v0 = 1 - (Math.floor(i / 4) + 1) / 2;
-        const uv = g.attributes.uv;
-        for (let k = 0; k < uv.count; k++) uv.setXY(k, u0 + uv.getX(k) / 4, v0 + uv.getY(k) / 2);
-        g.rotateY(p.h + side);
-        g.translate(p.x + Math.sin(p.h + side) * 0.03, p.y, p.z + Math.cos(p.h + side) * 0.03);
-        plates.push(g);
-      }
-      if (lvl < 2 && p.kind !== 'height') {
-        // Two chains up to the ceiling, across the sign's width.
-        const ax = Math.cos(p.h);
-        const az = -Math.sin(p.h);
-        for (const s of [-0.9, 0.9]) {
-          const c = new THREE.CylinderGeometry(0.015, 0.015, levelY(lvl) + LEVEL_H - SLAB - (p.y + h / 2), 5);
-          c.translate(p.x + ax * s, p.y + h / 2 + (levelY(lvl) + LEVEL_H - SLAB - (p.y + h / 2)) / 2, p.z + az * s);
-          chains.push(c);
-        }
-      } else if (lvl === 2) {
-        // Roof deck: on two posts standing on the parapet line.
-        const ax = Math.cos(p.h);
-        const az = -Math.sin(p.h);
-        for (const s of [-1.05, 1.05]) chains.push(block(0.07, p.y - levelY(lvl) - h / 2 + 0.2, 0.07, p.x + ax * s, levelY(lvl), p.z + az * s));
-      }
-      if (p.kind === 'height') {
-        // The entrance: a lintel over the opening, and a yellow-and-black height bar hung from it on chains, across the whole way in.
-        lintel.push(block(0.5, LEVEL_H - SLAB - 2.45, 8.0, gar.x0 + 0.4, levelY(0) + 2.45, p.z));
-        const bar = block(0.14, 0.26, 7.6, p.x - 0.35, levelY(0) + 2.12, p.z);
-        chains.push(bar, block(0.02, 0.35, 0.02, p.x - 0.35, levelY(0) + 2.38, p.z - 3.6), block(0.02, 0.35, 0.02, p.x - 0.35, levelY(0) + 2.38, p.z + 3.6));
-      }
+      const g = new THREE.PlaneGeometry(1.6, 0.8);
+      const u0 = (i % 4) / 4;
+      const v0 = 1 - (Math.floor(i / 4) + 1) / 2;
+      const uv = g.attributes.uv;
+      for (let k = 0; k < uv.count; k++) uv.setXY(k, u0 + uv.getX(k) / 4, v0 + uv.getY(k) / 2);
+      g.rotateY(p.h);
+      g.translate(p.x, p.y, p.z);
+      plates.push(g);
     }
-    if (plates.length) {
-      const m = new THREE.Mesh(merge(plates), plaqueMat);
-      dkAdd(dk, m);
-    }
-    add(dk, chains, chainMat);
-    add(dk, lintel, wallMat);
+    if (plates.length) dk.add(new THREE.Mesh(merge(plates), plaqueMat));
   }
-  function dkAdd(dk: THREE.Group, m: THREE.Mesh) {
+
+  // --- Painted wayfinding: UP, DOWN and EXIT on the floor, where a driver looks anyway -----------------
+  const floorWords = new Map<string, THREE.MeshStandardMaterial>();
+  const floorWord = (dk: THREE.Group, text: string, color: string, x: number, y: number, z: number, travel: number, w: number) => {
+    let mat = floorWords.get(text + color);
+    if (!mat) {
+      mat = new THREE.MeshStandardMaterial({
+        map: canvasTexture(512, 192, (g) => {
+          g.clearRect(0, 0, 512, 192);
+          g.fillStyle = color;
+          g.font = 'bold 150px "Arial Narrow", Arial, sans-serif';
+          g.textAlign = 'center';
+          g.textBaseline = 'middle';
+          g.fillText(text, 256, 100);
+        }),
+        transparent: true,
+        roughness: 0.7,
+        polygonOffset: true,
+        polygonOffsetFactor: -3,
+      });
+      floorWords.set(text + color, mat);
+    }
+    const m = new THREE.Mesh(new THREE.PlaneGeometry(w, w * 0.375), mat);
+    // Lying flat, the top of the lettering towards where the driver is heading (`travel`, a heading like a car's).
+    m.rotation.order = 'YXZ';
+    m.rotation.set(-Math.PI / 2, travel + Math.PI, 0);
+    m.position.set(x, y, z);
+    m.receiveShadow = true;
     dk.add(m);
+  };
+  for (const [lvl, dk] of decks) {
+    const Y = levelY(lvl) + 0.016;
+    const [z1, z2] = gar.aisleZ;
+    const east = Math.PI / 2;
+    // The way up: on the north aisle, just before the cross connector where the ramp carries straight on.
+    if (lvl < 2) floorWord(dk, 'UP', '#f5c71a', gar.rows[1] - 1.5, Y, z2, east, 3.4);
+    // The way down: on the cross connector heading south, before the turn onto the south aisle where the ramp starts.
+    if (lvl > -1) floorWord(dk, 'DOWN', '#f5c71a', gar.rows[1] + 4, Y, (z1 + z2) / 2 + 2, Math.PI, 3.8);
+    // The way out, on the ground floor: on the west connector, before the opening in the wall.
+    if (lvl === 0) floorWord(dk, 'EXIT', '#43d17a', gar.x0 + 11, Y, z2 + 0.2, -east, 3.2);
   }
 
   // --- The board on the wall beside the way in --------------------------------------------------
-  const board: Board = makeBoard(4.8, 1.2);
+  const board: Board = makeBoard(3.2, 0.8);
   board.mesh.position.set(gar.x0 - 0.02, 2.1, gar.entrance.z + 6.5);
   board.mesh.rotation.y = -Math.PI / 2;
   decks.get(0)!.add(board.mesh);

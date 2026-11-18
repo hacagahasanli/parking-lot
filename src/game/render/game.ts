@@ -863,7 +863,7 @@ export class Game {
     const lit = head.replace(/\d+$/, (n) => (blink ? n : ' '.repeat(n.length)));
     const color = hint.showing !== null ? '#' + LEVEL_COLOR[hint.showing].toString(16).padStart(6, '0') : '#ff7a2e';
     const rows = [{ text: lit, size: tail ? 12 : 16 }, ...(tail ? [{ text: tail, size: 13, color }] : [])];
-    this.worldView.setGantryBoard(rows);
+    this.worldView.setBoothBoard(rows);
     this.worldView.garage.setBoard([{ text: 'GARAGE', size: 9, color: '#ffffff' }, ...rows.map((r) => ({ ...r, size: Math.min(r.size, 11) }))]);
   }
 
@@ -878,7 +878,7 @@ export class Game {
     const showcase = this.opts.mode === 'showcase';
     const { inside, level } = this.garageOf(x, z, y);
     // Under a deck the ceiling is 3.1 m up: the camera stays under it.
-    const ceil = inside && level < 2 && this.cameraMode === 'chase' ? levelY(level) + LEVEL_H - 0.5 - 0.3 : Infinity;
+    const ceil = inside && level < 2 && this.cameraMode === 'chase' ? levelY(level) + LEVEL_H - 0.5 - 0.7 : Infinity;
     let want: THREE.Vector3;
     let look: THREE.Vector3;
     if (showcase) {
