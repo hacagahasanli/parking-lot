@@ -21,6 +21,10 @@ export interface Sfx {
   engine: () => EngineVoice;
   bump: (speed: number, x: number, z: number, metal: boolean) => void;
   alarm: (x: number, z: number, seconds: number) => void;
+  /** A shopper's shout and a long blast of the horn: someone was hit. */
+  shout: (x: number, z: number) => void;
+  /** A short toot of a horn (the radio's bots, a car pulling out). */
+  toot: (x: number, z: number) => void;
   beep: (high: boolean) => void;
   win: () => void;
   lose: () => void;
@@ -285,6 +289,71 @@ export const createSfx = (): Sfx => {
     o.stop(t + seconds);
   };
 
+  /** A shout: a sawtooth voice sliding down through two formant filters, over a long two-note horn. */
+  const shout = (x: number, z: number) => {
+    const c = init();
+    const t = c.currentTime;
+    const p = panner(x, z);
+    p.connect(fxBus);
+    const voice = c.createOscillator();
+    voice.type = 'sawtooth';
+    voice.frequency.setValueAtTime(330, t);
+    voice.frequency.exponentialRampToValueAtTime(190, t + 0.5);
+    const f1 = c.createBiquadFilter();
+    f1.type = 'bandpass';
+    f1.frequency.value = 700;
+    f1.Q.value = 3;
+    const f2 = c.createBiquadFilter();
+    f2.type = 'bandpass';
+    f2.frequency.value = 1500;
+    f2.Q.value = 4;
+    const vg = c.createGain();
+    vg.gain.setValueAtTime(0, t);
+    vg.gain.linearRampToValueAtTime(0.5, t + 0.04);
+    vg.gain.exponentialRampToValueAtTime(0.001, t + 0.55);
+    voice.connect(f1).connect(vg);
+    voice.connect(f2).connect(vg);
+    vg.connect(p);
+    voice.start(t);
+    voice.stop(t + 0.6);
+    for (const f of [415, 523]) {
+      const o = c.createOscillator();
+      o.type = 'square';
+      o.frequency.value = f;
+      const lp = c.createBiquadFilter();
+      lp.type = 'lowpass';
+      lp.frequency.value = 1800;
+      const g = c.createGain();
+      g.gain.setValueAtTime(0.07, t);
+      g.gain.setValueAtTime(0.07, t + 0.9);
+      g.gain.linearRampToValueAtTime(0, t + 1.0);
+      o.connect(lp).connect(g).connect(p);
+      o.start(t);
+      o.stop(t + 1.05);
+    }
+  };
+
+  const toot = (x: number, z: number) => {
+    const c = init();
+    const t = c.currentTime;
+    const p = panner(x, z);
+    p.connect(fxBus);
+    for (const f of [415, 523]) {
+      const o = c.createOscillator();
+      o.type = 'square';
+      o.frequency.value = f;
+      const lp = c.createBiquadFilter();
+      lp.type = 'lowpass';
+      lp.frequency.value = 1800;
+      const g = c.createGain();
+      g.gain.setValueAtTime(0.05, t);
+      g.gain.linearRampToValueAtTime(0, t + 0.22);
+      o.connect(lp).connect(g).connect(p);
+      o.start(t);
+      o.stop(t + 0.25);
+    }
+  };
+
   const tone = (freq: number, at: number, len: number, vol = 0.18, type: OscillatorType = 'square') => {
     const c = init();
     const t = c.currentTime + at;
@@ -323,6 +392,8 @@ export const createSfx = (): Sfx => {
     engine,
     bump,
     alarm,
+    shout,
+    toot,
     beep: (high) => tone(high ? 880 : 440, 0, high ? 0.45 : 0.18, 0.16),
     win: () => [523, 659, 784, 1047].forEach((f, i) => tone(f, i * 0.11, 0.22, 0.14, 'triangle')),
     lose: () => [392, 330, 262].forEach((f, i) => tone(f, i * 0.16, 0.26, 0.12, 'triangle')),

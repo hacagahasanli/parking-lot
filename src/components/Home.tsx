@@ -7,8 +7,8 @@ import type { Game } from '~/game/render/game';
 
 const STEPS = [
   ['Line up', 'Four company cars side by side at the entrance. Engines on.'],
-  ['Find the green bay', 'One space left in the whole lot. Follow the beam of light.'],
-  ['Stop inside the lines', 'Straight, between the lines, standing still. First one wins.'],
+  ['Find the empty bay', 'One space left in the whole lot, and nobody tells you where. Drive the aisles and look.'],
+  ['Stop inside the lines', 'Straight, between the lines, standing still. First one wins. Hit a shopper and you are out.'],
 ];
 
 const KEYS = [

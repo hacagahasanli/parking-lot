@@ -11,17 +11,19 @@ import { Sky } from 'three/examples/jsm/objects/Sky.js';
 
 import { createSfx } from '../sfx';
 import { botInput, createBrain } from '../sim/bot';
-import { CAR, DT, RACE } from '../sim/constants';
+import { CAR, DT, PED, RACE } from '../sim/constants';
 import { BAY, buildLot } from '../sim/lot';
+import { radio } from '../sim/radio';
 import { createRound, distanceToTarget, forwardSpeed, standings, step } from '../sim/step';
 import { NO_INPUT } from '../sim/types';
 
 import { buildParked, buildRacer } from './car';
+import { buildPeds } from './peds';
 import { buildTargetMarker, buildWorld } from './world';
 
 import type { BotBrain } from '../sim/bot';
 import type { Lot } from '../sim/lot';
-import type { GameState, Input, World } from '../sim/types';
+import type { Car, GameState, Input, World } from '../sim/types';
 import type { VolumeKind } from '../sfx';
 import type { RacerRig } from './car';
 
@@ -35,9 +37,22 @@ export interface Standing {
   id: number;
   name: string;
   color: number;
-  dist: number;
+  /** Bumps so far: the standings never say how close anyone is to the free bay. */
+  bumps: number;
   parked: boolean;
+  /** Disqualified for hitting a pedestrian. */
+  out: boolean;
   me: boolean;
+}
+
+/** A line on the radio. */
+export interface ChatBubble {
+  id: number;
+  name: string;
+  color: number;
+  text: string;
+  /** Seconds since it was said (for fading). */
+  age: number;
 }
 
 export interface HudState {
@@ -47,7 +62,9 @@ export interface HudState {
   speed: number;
   gear: 'D' | 'R' | 'P';
   standings: Standing[];
-  dist: number;
+  chat: ChatBubble[];
+  /** Seconds since you were disqualified for hitting a pedestrian, or null. */
+  disqualified: number | null;
   park: number;
   inBay: number;
   camera: CameraMode;
@@ -57,6 +74,9 @@ export interface HudState {
     winner: string | null;
     winnerColor: number;
     won: boolean;
+    /** Why it ended for you: 'parked' (someone did), 'pedestrian' (you hit one), 'time'. */
+    reason: 'parked' | 'pedestrian' | 'time';
+    incidents: number;
     place: number;
     time: number;
     topSpeed: number;
@@ -265,6 +285,7 @@ export class Game {
   private world!: World;
   private brains: (BotBrain | null)[] = [];
   private rigs: RacerRig[] = [];
+  private pedView = buildPeds(PED.count);
   private prev: { x: number; z: number; h: number }[] = [];
   private parked: THREE.Group | null = null;
   private marker = buildTargetMarker();
@@ -289,10 +310,11 @@ export class Game {
   private cameraMode: CameraMode = 'chase';
   private paused = false;
   private endedAt = -1;
+  /** Game time you were disqualified at, or -1. */
+  private dqAt = -1;
   private seed: number;
   private disposed = false;
   private minimap: HTMLCanvasElement | null = null;
-  private pointer: HTMLElement | null = null;
   private roundNo = 0;
 
   constructor(
@@ -347,6 +369,9 @@ export class Game {
     this.worldView = buildWorld(this.lot);
     this.scene.add(this.worldView.group);
     this.scene.add(this.marker.group);
+    this.scene.add(this.pedView.group);
+    // The free bay is not marked: the outline is only shown for a moment when the round is over.
+    this.marker.group.visible = false;
     this.effects = createEffects(this.scene);
 
     this.newRound();
@@ -370,10 +395,11 @@ export class Game {
     const { state, world } = createRound(this.lot, { seed, bots });
     this.state = state;
     this.world = world;
-    this.brains = state.cars.map((c) => (c.bot ? createBrain(world, c, state.target, seed) : null));
-    this.prev = state.cars.map((c) => ({ x: c.x, z: c.z, h: c.h }));
-    this.wheelPrev = state.cars.map(() => []);
+    this.brains = state.cars.map((c) => (c.bot ? createBrain(world, c, seed) : null));
+    this.prev = this.allCars().map((c) => ({ x: c.x, z: c.z, h: c.h }));
+    this.wheelPrev = this.allCars().map(() => []);
     this.endedAt = -1;
+    this.dqAt = -1;
     this.paused = false;
 
     // Parked cars: everything except the free bay.
@@ -382,26 +408,24 @@ export class Game {
       this.parked.traverse((o) => (o as THREE.Mesh).geometry?.dispose());
     }
     const spots = this.lot.bays
-      .filter((b) => b.use === 'car' && b.id !== state.target)
+      .filter((b) => b.use === 'car' && b.id !== state.target && b.id !== state.leaver?.bay)
       .map((b) => ({ x: b.x + Math.sin(b.h) * 0.12, z: b.z + Math.cos(b.h) * 0.12, h: b.h, style: b.variant, color: b.color }));
     this.parked = buildParked(spots);
     this.parked.add(this.bayProps());
     this.scene.add(this.parked);
 
-    const bay = this.lot.bays[state.target];
-    this.marker.group.position.set(bay.x, 0, bay.z);
-    this.marker.group.rotation.y = bay.h;
+    this.marker.group.visible = false;
 
     for (const r of this.rigs) this.scene.remove(r.root);
-    const plates = ['MRG 042', 'STG 001', 'FIX 911', 'OLD 1999'];
-    this.rigs = state.cars.map((c) => {
+    const plates = ['MRG 042', 'STG 001', 'FIX 911', 'OLD 1999', 'PRK 007'];
+    this.rigs = this.allCars().map((c) => {
       const rig = buildRacer(c.color, plates[c.id]);
       this.scene.add(rig.root);
       return rig;
     });
     for (const e of this.engines) e.stop();
     this.engines = [];
-    this.rpm = state.cars.map(() => 850);
+    this.rpm = this.allCars().map(() => 850);
 
     // Camera starts behind your car (or high over the lot on the home page).
     const me = state.cars[0];
@@ -411,6 +435,11 @@ export class Game {
     this.cam.y = 3;
     this.cam.look.set(me.x, 1, me.z);
   };
+
+  /** The racers and, if there is one, the parked car that pulls out. */
+  private allCars(): Car[] {
+    return this.state.leaver ? [...this.state.cars, this.state.leaver.car] : this.state.cars;
+  }
 
   /** Trolley corrals and traffic cones in the bays that hold them. */
   private bayProps() {
@@ -475,7 +504,7 @@ export class Game {
     }
     if (down && e.code === 'KeyC') this.cycleCamera();
     if (down && e.code === 'Escape') this.setPaused(!this.paused);
-    if (down && e.code === 'Enter' && this.state.phase === 'done') this.newRound();
+    if (down && e.code === 'Enter' && (this.state.phase === 'done' || this.state.cars[0].dq !== null)) this.newRound();
   };
 
   private onBlur = () => {
@@ -508,10 +537,6 @@ export class Game {
 
   attachMinimap = (c: HTMLCanvasElement | null) => {
     this.minimap = c;
-  };
-
-  attachPointer = (el: HTMLElement | null) => {
-    this.pointer = el;
   };
 
   private playerInput(): Input {
@@ -566,13 +591,16 @@ export class Game {
 
   private tick() {
     const s = this.state;
-    this.prev = s.cars.map((c) => ({ x: c.x, z: c.z, h: c.h }));
+    this.prev = this.allCars().map((c) => ({ x: c.x, z: c.z, h: c.h }));
     const inputs = s.cars.map((c, i) => {
       const brain = this.brains[i];
       if (brain) return botInput(s, this.world, c, brain);
       return this.opts.mode === 'race' && i === 0 ? this.playerInput() : NO_INPUT;
     });
     step(s, this.world, inputs);
+    // What the bots did on their own (spotted the bay, honked, backed out) goes to the radio with the sim's events.
+    const botEvents = this.brains.flatMap((b) => (b ? b.outbox.splice(0) : []));
+    radio(s, [...s.events, ...botEvents]);
     for (const e of s.events) {
       if (e.type === 'count') this.sfx.beep(false);
       else if (e.type === 'go') this.sfx.beep(true);
@@ -585,8 +613,20 @@ export class Game {
       } else if (e.type === 'alarm') {
         const b = this.lot.bays[e.bay];
         this.sfx.alarm(b.x, b.z, 9);
+      } else if (e.type === 'incident') {
+        this.sfx.shout(e.x, e.z);
+        this.effects.burst(e.x, e.z, 3);
+        if (e.car === 0 && this.opts.mode === 'race') {
+          this.trauma = 1;
+          this.dqAt = this.time;
+          if (this.endedAt < 0) this.endedAt = this.time;
+          this.sfx.lose();
+        }
+      } else if (e.type === 'leave') {
+        const b = this.lot.bays[e.bay];
+        this.sfx.toot(b.x, b.z);
       } else if (e.type === 'end') {
-        this.endedAt = this.time;
+        if (this.endedAt < 0) this.endedAt = this.time;
         if (this.opts.mode === 'race') {
           if (e.winner === 0) this.sfx.win();
           else this.sfx.lose();
@@ -606,8 +646,11 @@ export class Game {
   private draw(dt: number, alpha: number) {
     const s = this.state;
     const t = this.time;
-    s.cars.forEach((c, i) => {
+    this.allCars().forEach((c, i) => {
       const rig = this.rigs[i];
+      if (!rig) return;
+      // The car that pulled out has left the lot.
+      rig.root.visible = c.x < 5000;
       const p = this.prev[i] ?? c;
       const x = p.x + (c.x - p.x) * alpha;
       const z = p.z + (c.z - p.z) * alpha;
@@ -687,29 +730,35 @@ export class Game {
       e.set(this.rpm[i], c.throttle, c.slip, c.x, c.z, c.horn);
     });
 
-    // Target bay: pulse, and turn amber while someone is half in.
-    const bay = this.lot.bays[s.target];
-    const someone = Math.max(...s.cars.map((c) => c.inBay));
-    const color = s.winner !== null ? 0x3ec5ff : someone >= 1 ? 0xffd23f : 0x3ddc84;
-    this.marker.lineMat.color.setHex(color);
-    this.marker.fillMat.color.setHex(color);
-    this.marker.fillMat.opacity = 0.12 + Math.sin(t * 4) * 0.05;
-    this.marker.beamMat.uniforms.uTime.value = t;
-    (this.marker.beamMat.uniforms.uColor.value as THREE.Color).setHex(color);
-    this.marker.sign.position.y = 3.4 + Math.sin(t * 2) * 0.15;
-    this.marker.sign.visible = s.winner === null;
+    // The free bay is not marked while the round is on. Only when it is over, a short reveal of
+    // where it was (the bay the winner took).
+    const reveal = s.phase === 'done' && this.time - this.endedAt < 6 && this.endedAt >= 0;
+    this.marker.group.visible = reveal;
+    if (reveal) {
+      const bay = this.lot.bays[s.winBay >= 0 ? s.winBay : s.target];
+      this.marker.group.position.set(bay.x, 0, bay.z);
+      this.marker.group.rotation.y = bay.h;
+      const fade = Math.min(1, (this.time - this.endedAt) * 2) * Math.min(1, (6 - (this.time - this.endedAt)) * 2);
+      this.marker.lineMat.opacity = 0.95 * fade;
+      this.marker.fillMat.opacity = (0.12 + Math.sin(t * 4) * 0.05) * fade;
+      this.marker.beamMat.uniforms.uTime.value = t;
+      this.marker.sign.position.y = 3.4 + Math.sin(t * 2) * 0.15;
+      (this.marker.sign.material as THREE.SpriteMaterial).opacity = fade;
+    }
+    this.pedView.update(s.peds, t);
 
     // Alarms going off.
     const alarms = Object.entries(s.alarms)
       .filter(([, until]) => until > s.t)
       .map(([id]) => this.lot.bays[Number(id)]);
+    // A disqualified car pulls over with its hazards on.
+    for (const c of s.cars) if (c.dq !== null) alarms.push({ x: c.x, z: c.z, h: c.h } as (typeof alarms)[number]);
     this.effects.update(dt, t, alarms);
     this.worldView.trees.update(t);
     this.worldView.sign.emissiveIntensity = 1.3 + (Math.sin(t * 37) > 0.97 ? -0.6 : 0);
 
     this.updateCamera(dt);
     this.drawMinimap();
-    this.updatePointer(bay.x, bay.z);
     this.renderer.render(this.scene, this.camera);
   }
 
@@ -768,30 +817,6 @@ export class Game {
     this.sun.position.set(fx, 0, fz).addScaledVector(dir, 80);
   }
 
-  /** Edge-of-screen arrow towards the free bay when it is off screen. */
-  private updatePointer(bx: number, bz: number) {
-    const el = this.pointer;
-    if (!el) return;
-    const v = new THREE.Vector3(bx, 1.5, bz).project(this.camera);
-    const behind = v.z > 1;
-    const onScreen = !behind && Math.abs(v.x) < 0.9 && Math.abs(v.y) < 0.85;
-    if (onScreen || this.state.phase === 'done') {
-      el.style.opacity = '0';
-      return;
-    }
-    let ax = behind ? -v.x : v.x;
-    let ay = behind ? -v.y : v.y;
-    if (behind && Math.abs(ax) < 0.01 && Math.abs(ay) < 0.01) ay = -1;
-    const m = Math.max(Math.abs(ax) / 0.88, Math.abs(ay) / 0.8);
-    ax /= m;
-    ay /= m;
-    const sx = ((ax + 1) / 2) * window.innerWidth;
-    const sy = ((1 - ay) / 2) * window.innerHeight;
-    const angle = Math.atan2(-ay, ax);
-    el.style.opacity = '1';
-    el.style.transform = `translate(${sx}px, ${sy}px) translate(-50%, -50%) rotate(${angle}rad)`;
-  }
-
   private drawMinimap() {
     const c = this.minimap;
     if (!c) return;
@@ -816,12 +841,16 @@ export class Game {
     for (const isl of this.lot.islands) g.fillRect(px(isl.x1), pz(isl.z1), (isl.x1 - isl.x0) * sc, (isl.z1 - isl.z0) * sc);
     g.fillStyle = 'rgba(200,190,170,0.6)';
     g.fillRect(px(this.lot.store.x1), 0, (this.lot.store.x1 - this.lot.store.x0) * sc, 4);
-    const bay = this.lot.bays[this.state.target];
-    const pulse = 0.6 + Math.sin(this.time * 6) * 0.4;
-    g.fillStyle = `rgba(61,220,132,${pulse})`;
-    g.beginPath();
-    g.arc(px(bay.x), pz(bay.z), 5, 0, Math.PI * 2);
-    g.fill();
+    // Shoppers as small pale dots; the free bay only once the round is over.
+    g.fillStyle = 'rgba(235,235,225,0.75)';
+    for (const p of this.state.peds) g.fillRect(px(p.x) - 1, pz(p.z) - 1, 2, 2);
+    if (this.state.phase === 'done') {
+      const bay = this.lot.bays[this.state.winBay >= 0 ? this.state.winBay : this.state.target];
+      g.fillStyle = `rgba(61,220,132,${0.6 + Math.sin(this.time * 6) * 0.4})`;
+      g.beginPath();
+      g.arc(px(bay.x), pz(bay.z), 5, 0, Math.PI * 2);
+      g.fill();
+    }
     for (const car of this.state.cars) {
       const x = px(car.x);
       const y = pz(car.z);
@@ -848,28 +877,33 @@ export class Game {
     const s = this.state;
     const me = s.cars[0];
     const vF = forwardSpeed(me);
-    const order = standings(s, this.world);
-    const result =
-      s.phase === 'done'
-        ? {
-            winner: s.winner !== null ? s.cars[s.winner].name : null,
-            winnerColor: s.winner !== null ? s.cars[s.winner].color : 0xffffff,
-            won: s.winner === 0,
-            place: order.findIndex((c) => c.id === 0) + 1,
-            time: me.parkedAt ?? s.clock,
-            topSpeed: me.topSpeed * 3.6,
-            bumps: me.bumps,
-            distance: me.distance,
-          }
-        : null;
+    // In the race the list never says who is closest to the free bay: seat order, with the parked ones first.
+    const seats = [...s.cars].sort((x, y) => (x.parkedAt !== null ? 0 : 1) - (y.parkedAt !== null ? 0 : 1) || x.id - y.id);
+    const order = s.phase === 'done' || me.dq !== null ? standings(s, this.world) : seats;
+    const over = s.phase === 'done' || me.dq !== null;
+    const result = over
+      ? {
+          winner: s.winner !== null ? s.cars[s.winner].name : null,
+          winnerColor: s.winner !== null ? s.cars[s.winner].color : 0xffffff,
+          won: s.winner === 0,
+          reason: (me.dq !== null ? 'pedestrian' : s.winner !== null ? 'parked' : 'time') as 'parked' | 'pedestrian' | 'time',
+          incidents: me.incidents,
+          place: order.findIndex((c) => c.id === 0) + 1,
+          time: me.parkedAt ?? me.dq ?? s.clock,
+          topSpeed: me.topSpeed * 3.6,
+          bumps: me.bumps,
+          distance: me.distance,
+        }
+      : null;
     cb({
       phase: s.phase,
       countdown: Math.max(0, Math.ceil(RACE.countdown - s.t)),
       clock: s.clock,
       speed: Math.abs(vF) * 3.6,
       gear: me.parkedAt !== null ? 'P' : me.gear === -1 ? 'R' : 'D',
-      standings: order.map((c) => ({ id: c.id, name: c.name, color: c.color, dist: distanceToTarget(s, this.world, c), parked: c.parkedAt !== null, me: c.id === 0 })),
-      dist: distanceToTarget(s, this.world, me),
+      standings: order.map((c) => ({ id: c.id, name: c.name, color: c.color, bumps: c.bumps, parked: c.parkedAt !== null, out: c.dq !== null, me: c.id === 0 })),
+      chat: s.chat.filter((l) => s.t - l.t < 6.5).slice(-3).map((l) => ({ id: l.id, name: l.name, color: l.color, text: l.text, age: s.t - l.t })),
+      disqualified: me.dq !== null && this.dqAt >= 0 ? this.time - this.dqAt : null,
       park: me.park,
       inBay: me.inBay,
       camera: this.cameraMode,

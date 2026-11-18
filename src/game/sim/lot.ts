@@ -69,8 +69,8 @@ export interface Lot {
 }
 
 export const BAY = {
-  width: 2.7,
-  depth: 5.4,
+  width: 2.85,
+  depth: 5.5,
   /** Angle between the bay and the aisle. */
   angle: (60 * Math.PI) / 180,
 } as const;
@@ -188,6 +188,8 @@ export const buildLot = (seed = 7): Lot => {
   const candidates = bays
     .filter((b) => b.use === 'car' && b.aisle > 0)
     .filter((b) => (approachOf(b, aisles[b.aisle]).a0.x - END_AISLE * -b.flow) * b.flow > 1)
+    // And not in sight of the start: finding it must mean driving and looking.
+    .filter((b) => Math.hypot(b.x, b.z - (bounds.z0 + 3)) > 26)
     .map((b) => b.id);
 
   // Kerbs around the lot: four long walls with the store's pavement on the north.
