@@ -449,14 +449,23 @@ export const buildWorld = (lot: Lot): WorldView => {
   // --- Buildings across the road (simple blocks with window bands) so the world doesn't end.
   const far = new THREE.MeshStandardMaterial({ color: 0xa9a196, roughness: 0.9 });
   const farParts: THREE.BufferGeometry[] = [];
+  const bands: THREE.BufferGeometry[] = [];
+  const roofs: THREE.BufferGeometry[] = [];
   for (let i = 0; i < 9; i++) {
     const w = 14 + r() * 18;
     const h = 6 + r() * 10;
-    farParts.push(block(w, h, 12, -130 + i * 32 + r() * 6, 0, bounds.z0 - 48 - r() * 12));
+    const x = -130 + i * 32 + r() * 6;
+    const z = bounds.z0 - 48 - r() * 12;
+    farParts.push(block(w, h, 12, x, 0, z));
+    // Window bands on the face towards the lot, one per floor, and a roof slab with a parapet.
+    for (let y = 1.6; y + 2.2 < h; y += 3.2) bands.push(block(w - 2.4, 1.5, 0.12, x, y, z + 6.04));
+    roofs.push(block(w + 0.6, 0.5, 12.6, x, h, z));
   }
   const farMesh = new THREE.Mesh(merge(farParts), far);
   farMesh.receiveShadow = true;
   group.add(farMesh);
+  group.add(new THREE.Mesh(merge(bands), new THREE.MeshStandardMaterial({ color: 0x35424d, roughness: 0.2, metalness: 0.4 })));
+  group.add(new THREE.Mesh(merge(roofs), new THREE.MeshStandardMaterial({ color: 0x6d6a66, roughness: 0.9 })));
 
   // Light poles along the road, bollards at the entrance.
   const bollards: THREE.BufferGeometry[] = [];

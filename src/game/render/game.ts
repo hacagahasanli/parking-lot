@@ -732,7 +732,7 @@ export class Game {
       // cars, bays and the store sign (never the road or the empty grass behind the camera).
       const a = Math.sin(this.time * 0.1) * 0.55 + 0.25;
       want = new THREE.Vector3(x - Math.sin(a) * 16, 6.2, z - Math.cos(a) * 16);
-      look = new THREE.Vector3(x + 5 + Math.sin(a) * 4, 2.6, z + 14);
+      look = new THREE.Vector3(x + 5 + Math.sin(a) * 4, 0.9, z + 13);
     } else if (this.cameraMode === 'top') {
       // Straight down, north up: for squeezing into the bay.
       want = new THREE.Vector3(x, 22, z - 0.01);
