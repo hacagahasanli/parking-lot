@@ -162,6 +162,10 @@ export const STYLES: Style[] = [
   scaleStyle(RAW_STYLES[0], 4.45 / 4.68, 1.78 / 1.83, 0.985, 0.335, 1.32, -1.3),
   scaleStyle(RAW_STYLES[1], 0.955, 0.975, 0.97, 0.35, 1.33, -1.29),
   scaleStyle(RAW_STYLES[2], 0.955, 0.975, 0.97, 0.305, 1.22, -1.24),
+  // 3: SUV, 4.72 x 1.92 m and 1.20 times as tall.
+  scaleStyle(RAW_STYLES[1], 4.72 / 4.6, 1.92 / 1.86, 1.2, 0.39, 1.45, -1.4),
+  // 4: van, 4.95 x 1.98 m and 1.6 times as tall: it hides what is behind it.
+  scaleStyle(RAW_STYLES[2], 4.95 / 4.3, 1.98 / 1.8, 1.62, 0.36, 1.45, -1.5),
 ];
 
 // ---------------------------------------------------------------------------
@@ -197,6 +201,52 @@ const smoothCurve = (keys: Key, lo: number, hi: number, passes: number) => {
     const i = Math.floor(f);
     return lerp(v[i], v[i + 1], f - i);
   };
+};
+
+/**
+ * The half-section is authored as nine points; the surface uses these refined, smoothly curved
+ * ones. Points 4, 5 and 6 (character line, shoulder, roof edge) stay real creases, and the flank
+ * and glasshouse bands between them stay dead straight so the glass and the trim lie flush.
+ */
+const SEG_STEPS = [1, 2, 2, 2, 3, 3, 2, 2];
+const I = { crease: 7, shoulder: 10, roof: 13, crown: 15, mid: 17 } as const;
+const HARD_REF = new Set<number>([I.crease, I.shoulder, I.roof]);
+const HARD_SRC = new Set([4, 5, 6]);
+
+const refine = (pts: [number, number][]): [number, number][] => {
+  const out: [number, number][] = [pts[0]];
+  const dir = (a: [number, number], b: [number, number]) => {
+    const dx = b[0] - a[0];
+    const dy = b[1] - a[1];
+    const l = Math.hypot(dx, dy) || 1;
+    return [dx / l, dy / l] as const;
+  };
+  // Unit tangent at source point i as seen from the segment that starts (side=1) or ends (side=0) there.
+  const tan = (i: number, side: 0 | 1) => {
+    if (i === 0 || i === pts.length - 1 || HARD_SRC.has(i)) return side === 1 ? dir(pts[i], pts[Math.min(pts.length - 1, i + 1)]) : dir(pts[Math.max(0, i - 1)], pts[i]);
+    return dir(pts[i - 1], pts[i + 1]);
+  };
+  for (let i = 0; i < pts.length - 1; i++) {
+    const a = pts[i];
+    const b = pts[i + 1];
+    const len = Math.hypot(b[0] - a[0], b[1] - a[1]);
+    const ta = tan(i, 1);
+    const tb = tan(i + 1, 0);
+    const m = SEG_STEPS[i];
+    for (let k = 1; k <= m; k++) {
+      const t = k / m;
+      const t2 = t * t;
+      const t3 = t2 * t;
+      const h00 = 2 * t3 - 3 * t2 + 1;
+      const h10 = t3 - 2 * t2 + t;
+      const h01 = -2 * t3 + 3 * t2;
+      const h11 = t3 - t2;
+      out.push([h00 * a[0] + h10 * len * ta[0] + h01 * b[0] + h11 * len * tb[0], h00 * a[1] + h10 * len * ta[1] + h01 * b[1] + h11 * len * tb[1]]);
+    }
+    out[out.length - 1] = [b[0], b[1]];
+  }
+  for (let i = 1; i < out.length; i++) out[i][1] = Math.max(out[i][1], out[i - 1][1] + 0.002);
+  return out;
 };
 
 const CROWN = 0.007;
@@ -262,7 +312,7 @@ const profile = (style: number): Profile => {
       [0, t + CROWN],
     ];
     for (let i = 1; i < pts.length; i++) pts[i][1] = Math.max(pts[i][1], pts[i - 1][1] + 0.004);
-    return pts;
+    return refine(pts);
   };
   const prof: Profile = { s, half, hw, top, belt, bot, section, shear: (z, y) => shearZ({ half, bot, top, belt }, z, y) };
   return (profiles[style] = prof);
@@ -290,7 +340,7 @@ const xAtY = (pts: [number, number][], y: number) => {
   return pts[pts.length - 1][0];
 };
 
-const HARD = new Set([4, 5, 6]); // the character crease is a real edge
+const HARD = HARD_REF; // the character crease is a real edge
 
 /** The body loft, both halves, per-band normals so the crease stays sharp and the rest stays soft. */
 const bodyLoft = (P: Profile) => {
@@ -301,15 +351,19 @@ const bodyLoft = (P: Profile) => {
   const idx: number[] = [];
   const nj = secs[0].length;
   const vtx = (sx: number, i: number, j: number) => new THREE.Vector3(secs[i][j][0] * sx, secs[i][j][1], zs[i] + P.shear(zs[i], secs[i][j][1]));
+  const bands: number[] = [0, ...[...HARD, nj - 1].sort((a, b) => a - b)];
   for (const sx of [1, -1]) {
-    for (let j = 0; j < nj - 1; j++) {
+    for (let bi = 0; bi < bands.length - 1; bi++) {
+      const j0 = bands[bi];
+      const j1 = bands[bi + 1];
       const base = pos.length / 3;
+      const cols = j1 - j0 + 1;
       for (let i = 0; i < zs.length; i++) {
-        for (const jj of [j, j + 1]) {
+        for (let jj = j0; jj <= j1; jj++) {
           const p = vtx(sx, i, jj);
-          // Tangent across the section (soft unless this is a hard point on the near side).
-          const jA = HARD.has(jj) ? (jj === j ? Math.max(0, jj - 1) : jj) : Math.max(0, jj - 1);
-          const jB = HARD.has(jj) ? (jj === j ? jj : Math.min(nj - 1, jj + 1)) : Math.min(nj - 1, jj + 1);
+          // Tangent across the section: inside a band it is smooth; at a crease it stays within the band.
+          const jA = jj === j0 && HARD.has(jj) ? jj : Math.max(0, jj - 1);
+          const jB = jj === j1 && HARD.has(jj) ? jj : Math.min(nj - 1, jj + 1);
           const dj = vtx(sx, i, jB).sub(vtx(sx, i, jA));
           const dz = vtx(sx, Math.min(zs.length - 1, i + 1), jj).sub(vtx(sx, Math.max(0, i - 1), jj));
           const n = new THREE.Vector3().crossVectors(dj, dz);
@@ -320,16 +374,18 @@ const bodyLoft = (P: Profile) => {
         }
       }
       for (let i = 0; i < zs.length - 1; i++) {
-        const a = base + i * 2;
-        const b = a + 1;
-        const c = a + 2;
-        const d = a + 3;
-        if (sx > 0) idx.push(a, b, c, b, d, c);
-        else idx.push(a, c, b, b, c, d);
+        for (let k = 0; k < cols - 1; k++) {
+          const a = base + i * cols + k;
+          const b = a + 1;
+          const c = a + cols;
+          const d = c + 1;
+          if (sx > 0) idx.push(a, b, c, b, d, c);
+          else idx.push(a, c, b, b, c, d);
+        }
       }
     }
   }
-  // End caps: flat polygons.
+  // End caps: a gently domed disc of rings, its normals blending into the loft's at the rim.
   for (const [i, nz] of [[0, -1], [zs.length - 1, 1]] as [number, number][]) {
     const ring: THREE.Vector3[] = [];
     for (let j = 0; j < nj; j++) ring.push(vtx(1, i, j));
@@ -337,20 +393,43 @@ const bodyLoft = (P: Profile) => {
     const c = ring.reduce((acc, p) => acc.add(p), new THREE.Vector3()).multiplyScalar(1 / ring.length);
     const slope = (ring[nj - 1].z - ring[0].z) / (ring[nj - 1].y - ring[0].y || 1);
     const cn = new THREE.Vector3(0, -nz * slope, nz).normalize();
+    const R2 = Math.max(...ring.map((p) => (p.x - c.x) ** 2 + (p.y - c.y) ** 2));
+    const B = 0.035;
+    const scales = [1, 0.72, 0.45, 0.2];
     const base = pos.length / 3;
-    pos.push(c.x, c.y, c.z);
-    nor.push(cn.x, cn.y, cn.z);
-    ring.forEach((p) => {
-      pos.push(p.x, p.y, p.z);
-      nor.push(cn.x, cn.y, cn.z);
-    });
-    for (let k = 0; k < ring.length; k++) {
-      const a = ring[k];
-      const b = ring[(k + 1) % ring.length];
-      const cr = (a.x - c.x) * (b.y - c.y) - (a.y - c.y) * (b.x - c.x); // z of (a-c)x(b-c)
-      const [i1, i2] = cr * nz > 0 ? [k, (k + 1) % ring.length] : [(k + 1) % ring.length, k];
-      idx.push(base, base + 1 + i1, base + 1 + i2);
+    const n = ring.length;
+    for (const sc of scales) {
+      for (const p of ring) {
+        const dx = (p.x - c.x) * sc;
+        const dy = (p.y - c.y) * sc;
+        pos.push(c.x + dx, c.y + dy, c.z + nz * B * (1 - (dx * dx + dy * dy) / R2));
+        const nn = new THREE.Vector3(((2 * B) / R2) * dx * nz, ((2 * B) / R2) * dy * nz, 0).add(cn).normalize();
+        nor.push(nn.x, nn.y, nn.z);
+      }
     }
+    const centre = pos.length / 3;
+    pos.push(c.x, c.y, c.z + nz * B);
+    nor.push(cn.x, cn.y, cn.z);
+    const tri = (a: number, b: number, d: number) => {
+      const A = new THREE.Vector3(pos[a * 3], pos[a * 3 + 1], pos[a * 3 + 2]);
+      const Bv = new THREE.Vector3(pos[b * 3], pos[b * 3 + 1], pos[b * 3 + 2]);
+      const C = new THREE.Vector3(pos[d * 3], pos[d * 3 + 1], pos[d * 3 + 2]);
+      const cr = Bv.sub(A).cross(C.sub(A));
+      if (cr.z * nz > 0) idx.push(a, b, d);
+      else idx.push(a, d, b);
+    };
+    for (let r = 0; r < scales.length - 1; r++) {
+      for (let k = 0; k < n; k++) {
+        const k2 = (k + 1) % n;
+        const a = base + r * n + k;
+        const b = base + r * n + k2;
+        const d = base + (r + 1) * n + k;
+        const e = base + (r + 1) * n + k2;
+        tri(a, b, d);
+        tri(b, e, d);
+      }
+    }
+    for (let k = 0; k < n; k++) tri(base + (scales.length - 1) * n + k, base + (scales.length - 1) * n + ((k + 1) % n), centre);
   }
   const g = new THREE.BufferGeometry();
   g.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
@@ -400,7 +479,7 @@ const topNormal = (P: Profile, z: number) => {
 
 /** y of the top surface at |x| (between the roof corner, the crown and the centre line). */
 const topY = (pts: [number, number][], x: number) => {
-  const [c, m, e] = [pts[6], pts[7], pts[8]];
+  const [c, m, e] = [pts[I.roof], pts[I.crown], pts[I.mid]];
   const ax = Math.abs(x);
   return ax >= m[0] ? lerp(m[1], c[1], clamp((ax - m[0]) / (c[0] - m[0] || 1), 0, 1)) : lerp(e[1], m[1], clamp(ax / (m[0] || 1), 0, 1));
 };
@@ -409,7 +488,7 @@ const windscreen = (P: Profile, a: number, b: number, inset: number, off: number
   const rows = range(8).map((u) => {
     const z = lerp(a, b, u);
     const pts = P.section(z);
-    const xe = pts[6][0] - inset;
+    const xe = pts[I.roof][0] - inset;
     const n = topNormal(P, z).multiplyScalar(off);
     return range(10).map((v) => {
       const x = (v * 2 - 1) * xe;
@@ -427,8 +506,8 @@ const sideWindow = (P: Profile, w: Style['win'][number], sx: number, off: number
     return range(10).map((u) => {
       const z = lerp(zr, zf, u);
       const pts = P.section(z);
-      const p5 = new THREE.Vector2(pts[5][0], pts[5][1]);
-      const p6 = new THREE.Vector2(pts[6][0], pts[6][1]);
+      const p5 = new THREE.Vector2(pts[I.shoulder][0], pts[I.shoulder][1]);
+      const p6 = new THREE.Vector2(pts[I.roof][0], pts[I.roof][1]);
       const q = p5.clone().lerp(p6, t);
       const dir = p6.clone().sub(p5).normalize();
       return new THREE.Vector3((q.x + dir.y * off) * sx, q.y - dir.x * off, z);
@@ -604,7 +683,7 @@ export const carGeometry = (style: number, wheels: boolean): CarGeometry => {
     if (s.rails) {
       const z = (s.ws[1] + s.rw[0]) / 2;
       const len = s.ws[1] - s.rw[0] - 0.3;
-      const x = P.section(z)[6][0] - 0.1;
+      const x = P.section(z)[I.roof][0] - 0.1;
       parts.trim.push(box(0.04, 0.035, len, sx * x, P.top(z) + 0.03, z));
     }
   }
@@ -622,7 +701,7 @@ export const carGeometry = (style: number, wheels: boolean): CarGeometry => {
   parts.trim.push(windscreen(P, s.rw[1] - 0.03, s.rw[1] - 0.045, 0.03, 0.004));
   {
     const z = -half + 0.3;
-    const x = P.section(z)[6][0] * 0.78;
+    const x = P.section(z)[I.roof][0] * 0.78;
     const lip = new THREE.BoxGeometry(x * 2, 0.022, 0.12);
     lip.rotateX(0.05);
     lip.translate(0, P.top(z) + 0.008, z);
