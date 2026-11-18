@@ -305,7 +305,7 @@ const profile = (style: number): Profile => {
       [w * 0.78, bt],
       [w * 0.945, bt + 0.06],
       [w * 0.985, lerp(bt, y5, 0.4)],
-      [w * 0.925, lerp(bt, y5, lerp(0.5, 0.86, clamp((1.0 - z) / 2.3, 0, 1)))],
+      [w * 0.972, lerp(bt, y5, lerp(0.55, 0.7, clamp((1.0 - z) / 2.3, 0, 1)))],
       [w, y5],
       [w * f, Math.max(b - 0.01, t - 0.045)],
       [w * f * 0.5, t + CROWN],
@@ -394,7 +394,7 @@ const bodyLoft = (P: Profile) => {
     const slope = (ring[nj - 1].z - ring[0].z) / (ring[nj - 1].y - ring[0].y || 1);
     const cn = new THREE.Vector3(0, -nz * slope, nz).normalize();
     const R2 = Math.max(...ring.map((p) => (p.x - c.x) ** 2 + (p.y - c.y) ** 2));
-    const B = 0.035;
+    const B = 0.01;
     const scales = [1, 0.72, 0.45, 0.2];
     const base = pos.length / 3;
     const n = ring.length;
@@ -402,8 +402,8 @@ const bodyLoft = (P: Profile) => {
       for (const p of ring) {
         const dx = (p.x - c.x) * sc;
         const dy = (p.y - c.y) * sc;
-        pos.push(c.x + dx, c.y + dy, c.z + nz * B * (1 - (dx * dx + dy * dy) / R2));
-        const nn = new THREE.Vector3(((2 * B) / R2) * dx * nz, ((2 * B) / R2) * dy * nz, 0).add(cn).normalize();
+        pos.push(c.x + dx, c.y + dy, c.z + (p.z - c.z) * sc + nz * B * (1 - (dx * dx + dy * dy) / R2));
+        const nn = new THREE.Vector3(((2 * B) / R2) * dx, ((2 * B) / R2) * dy, 0).add(cn).normalize();
         nor.push(nn.x, nn.y, nn.z);
       }
     }
@@ -521,7 +521,7 @@ const flankStrip = (P: Profile, z0: number, z1: number, y0: number, y1: number, 
   gridSurface(
     range(12).map((v) =>
       range(nz).map((u) => {
-        const z = lerp(z0, z1, u / nz);
+        const z = lerp(z0, z1, u);
         const y = lerp(y0, y1, v);
         return new THREE.Vector3((xAtY(P.section(z), y) + off) * sx, y, z);
       }),
@@ -547,7 +547,7 @@ const bumperBand = (P: Profile, end: 1 | -1, y: number, h: number, off: number, 
   };
   const right = sideZ.map(at);
   const face = at(zEnd);
-  const cap: Pt[] = range(30).map((u) => ({ x: lerp(face.x, -face.x, u), z: face.z, y: face.y }));
+  const cap: Pt[] = range(30).map((u) => ({ x: lerp(face.x, -face.x, u), z: face.z + end * 0.01, y: face.y }));
   const left = [...right].reverse().map((p) => ({ ...p, x: -p.x }));
   const path = [...right, ...cap.slice(1, -1), ...left];
   const geos: THREE.BufferGeometry[] = [];
@@ -595,43 +595,62 @@ const box = (w: number, h: number, d: number, x: number, y: number, z: number) =
   return g;
 };
 
-/** A tyre as a lathe (rounded shoulders), axis along x. */
+/** A tyre as a lathe: round shoulders, a slight sidewall bulge and a brake disc behind the spokes. Axis along x. */
 export const tyreGeometry = (r: number) => {
-  const w = 0.12;
-  const pts = [
-    new THREE.Vector2(r * 0.66, -w),
-    new THREE.Vector2(r * 0.93, -w),
-    new THREE.Vector2(r, -w * 0.7),
-    new THREE.Vector2(r, w * 0.7),
-    new THREE.Vector2(r * 0.93, w),
-    new THREE.Vector2(r * 0.66, w),
-  ];
-  const g = new THREE.LatheGeometry(pts, 24);
+  const w = 0.115;
+  const pts: THREE.Vector2[] = [new THREE.Vector2(r * 0.7, -w * 0.9)];
+  // Sidewall bulging out a touch, a round shoulder into a slightly crowned tread, and back.
+  const sh = 0.045;
+  pts.push(new THREE.Vector2(r * 0.78, -w * 1.0), new THREE.Vector2(r * 0.88, -w * 1.03));
+  const rs = r - sh;
+  for (let i = 0; i <= 5; i++) {
+    const a = (i / 5) * (Math.PI / 2);
+    pts.push(new THREE.Vector2(rs + Math.sin(a) * sh, -w + sh - Math.cos(a) * sh + sh * 0));
+  }
+  pts.push(new THREE.Vector2(r + 0.002, -w * 0.4), new THREE.Vector2(r + 0.004, 0), new THREE.Vector2(r + 0.002, w * 0.4));
+  for (let i = 5; i >= 0; i--) {
+    const a = (i / 5) * (Math.PI / 2);
+    pts.push(new THREE.Vector2(rs + Math.sin(a) * sh, w - sh + Math.cos(a) * sh));
+  }
+  pts.push(new THREE.Vector2(r * 0.88, w * 1.03), new THREE.Vector2(r * 0.78, w * 1.0), new THREE.Vector2(r * 0.7, w * 0.9));
+  const g = new THREE.LatheGeometry(pts, 48);
   g.rotateZ(Math.PI / 2);
-  return g;
+  const parts: THREE.BufferGeometry[] = [g];
+  // Brake disc set back inside the rim.
+  const disc = new THREE.CylinderGeometry(r * 0.52, r * 0.52, 0.02, 32, 1, false);
+  disc.rotateZ(Math.PI / 2);
+  disc.translate(0.02, 0, 0);
+  parts.push(disc);
+  return mergeGeometries(parts.map((q) => q.toNonIndexed().deleteAttribute('uv')))!;
 };
 
-/** Alloy rim: dish, five spokes and a centre cap, facing +x (flip for the left side). */
+/** Alloy rim: lip, dish, ten slim spokes in five pairs and a centre cap, facing +x (flip for the left side). */
 export const rimGeometry = (r: number) => {
   const parts: THREE.BufferGeometry[] = [];
-  const dish = new THREE.CylinderGeometry(r * 0.68, r * 0.68, 0.16, 20, 1, true);
+  const dish = new THREE.CylinderGeometry(r * 0.7, r * 0.66, 0.16, 40, 1, true);
   dish.rotateZ(Math.PI / 2);
   parts.push(dish);
-  const face = new THREE.CylinderGeometry(r * 0.2, r * 0.2, 0.05, 12);
-  face.rotateZ(Math.PI / 2);
-  face.translate(0.09, 0, 0);
-  parts.push(face);
+  const cap = new THREE.CylinderGeometry(r * 0.17, r * 0.19, 0.045, 24);
+  cap.rotateZ(Math.PI / 2);
+  cap.translate(0.1, 0, 0);
+  parts.push(cap);
+  const hubRing = new THREE.CylinderGeometry(r * 0.27, r * 0.27, 0.03, 24);
+  hubRing.rotateZ(Math.PI / 2);
+  hubRing.translate(0.085, 0, 0);
+  parts.push(hubRing);
   for (let i = 0; i < 5; i++) {
-    const spoke = new THREE.BoxGeometry(0.04, r * 0.5, 0.085);
-    spoke.translate(0.09, r * 0.42, 0);
-    spoke.rotateX((i / 5) * Math.PI * 2);
-    parts.push(spoke);
+    for (const off of [-0.17, 0.17]) {
+      const spoke = new THREE.BoxGeometry(0.034, r * 0.5, 0.04);
+      spoke.translate(0.09 + (off > 0 ? 0.003 : 0), r * 0.45, 0);
+      spoke.rotateX((i / 5) * Math.PI * 2 + off);
+      parts.push(spoke);
+    }
   }
-  const lip = new THREE.TorusGeometry(r * 0.66, 0.018, 6, 24);
+  const lip = new THREE.TorusGeometry(r * 0.69, 0.016, 10, 48);
   lip.rotateY(Math.PI / 2);
-  lip.translate(0.08, 0, 0);
+  lip.translate(0.09, 0, 0);
   parts.push(lip);
-  return mergeGeometries(parts.map((p) => p.toNonIndexed()))!;
+  return mergeGeometries(parts.map((q) => q.toNonIndexed().deleteAttribute('uv')))!;
 };
 
 export type CarGeometry = Record<PartKind, THREE.BufferGeometry | null>;
@@ -670,15 +689,24 @@ export const carGeometry = (style: number, wheels: boolean): CarGeometry => {
   const zs1 = s.front - s.wheelR - 0.1;
   for (const sx of [1, -1]) {
     for (const z of s.doors) parts.trim.push(flankStrip(P, z - 0.004, z + 0.004, P.bot(z) + 0.2, P.belt(z) + 0.0, sx, 0.006, 1));
-    parts.trim.push(flankStrip(P, zs0, zs1, P.bot(0) + 0.07, P.bot(0) + 0.19, sx, 0.007, 8));
+    parts.trim.push(flankStrip(P, zs0, zs1, P.bot(0) + 0.06, P.bot(0) + 0.15, sx, 0.008, 10));
     for (const z of s.handles) {
       const y = P.belt(z) - 0.1;
       parts.chrome.push(box(0.02, 0.028, 0.16, sx * (xAtY(P.section(z), y) + 0.008), y, z));
     }
     const mz = s.mirrorZ;
     const my = P.belt(mz) + 0.03;
-    parts.paint.push(box(0.08, 0.085, 0.15, sx * (hw + 0.07), my, mz - 0.03));
-    parts.trim.push(box(0.1, 0.03, 0.04, sx * (hw + 0.02), my - 0.035, mz));
+    // Mirror: a rounded housing on a short stalk, with a dark glass face looking back.
+    const housing = new THREE.SphereGeometry(0.5, 18, 12);
+    housing.scale(0.085, 0.1, 0.19);
+    housing.translate(sx * (hw + 0.075), my, mz - 0.03);
+    parts.paint.push(housing);
+    const face = new THREE.CircleGeometry(0.04, 14);
+    face.scale(1, 1.1, 1);
+    face.rotateY(Math.PI);
+    face.translate(sx * (hw + 0.075), my, mz - 0.03 - 0.094);
+    parts.glass.push(face);
+    parts.trim.push(box(0.1, 0.03, 0.05, sx * (hw + 0.02), my - 0.04, mz));
     parts.trim.push(archDisc(P, s.front, sx), archDisc(P, s.rear, sx));
     if (s.rails) {
       const z = (s.ws[1] + s.rw[0]) / 2;
@@ -688,14 +716,24 @@ export const carGeometry = (style: number, wheels: boolean): CarGeometry => {
     }
   }
 
+  // A shark-fin antenna on the roof behind the middle, and a thin chrome-free window seal under the glass.
+  {
+    const z = (s.ws[1] + s.rw[0]) / 2 + (s.rw[0] - s.ws[1]) * 0.12;
+    const fin = new THREE.ConeGeometry(0.045, 0.1, 10);
+    fin.scale(0.45, 1, 1.9);
+    fin.rotateX(-0.25);
+    fin.translate(0, P.top(z) + CROWN + 0.04, z);
+    parts.trim.push(fin);
+  }
+
   // Front: a full-width LED strip across the nose, lamp housings at the corners, grille below.
   const hf = bumperBand(P, 1, s.headY, 0.022, 0.009, () => true);
   parts.head.push(...hf);
   parts.trim.push(...bumperBand(P, 1, s.headY - 0.005, 0.085, 0.004, (ax) => ax > 0.18));
   parts.head.push(...bumperBand(P, 1, s.headY - 0.055, 0.025, 0.009, (ax) => ax > 0.5 && ax < 0.8, 0.3));
   parts.trim.push(...bumperBand(P, 1, s.grilleY, 0.12, 0.005, (ax) => ax < 0.62, 0.1));
-  parts.trim.push(...bumperBand(P, 1, P.bot(half) + 0.06, 0.05, 0.004, () => true, 0.7));
-  parts.plate.push(box(0.52, 0.12, 0.02, 0, s.plateY[0], half + P.shear(half, s.plateY[0]) + 0.004));
+  parts.trim.push(...bumperBand(P, 1, P.bot(half) + 0.06, 0.05, 0.01, () => true, 0.2));
+  parts.plate.push(box(0.52, 0.12, 0.02, 0, s.plateY[0], half + P.shear(half, s.plateY[0]) + 0.016));
 
   // The boot: a shut line across the lid and a crisp spoiler lip on its rear edge.
   parts.trim.push(windscreen(P, s.rw[1] - 0.03, s.rw[1] - 0.045, 0.03, 0.004));
@@ -710,9 +748,9 @@ export const carGeometry = (style: number, wheels: boolean): CarGeometry => {
 
   // Rear: one thin bar of light across the whole boot with deeper clusters at the corners.
   parts.tail.push(...bumperBand(P, -1, s.tailY, 0.026, 0.008, () => true, 0.3));
-  parts.tail.push(...bumperBand(P, -1, s.tailY - 0.04, 0.17, 0.007, (ax) => ax > 0.43, 0.3));
-  parts.trim.push(...bumperBand(P, -1, P.bot(-half) + 0.1, 0.17, 0.004, () => true, 0.7));
-  parts.plate.push(box(0.52, 0.12, 0.02, 0, s.plateY[1], -half + P.shear(-half, s.plateY[1]) - 0.004));
+  parts.tail.push(...bumperBand(P, -1, s.tailY - 0.025, 0.075, 0.007, (ax) => ax > 0.5, 0.16));
+  parts.trim.push(...bumperBand(P, -1, P.bot(-half) + 0.1, 0.13, 0.012, () => true, 0.2));
+  parts.plate.push(box(0.52, 0.12, 0.02, 0, s.plateY[1], -half + P.shear(-half, s.plateY[1]) - 0.016));
 
   if (wheels) {
     for (const [wx, wz] of [
@@ -750,25 +788,40 @@ export const carGeometry = (style: number, wheels: boolean): CarGeometry => {
 // Materials
 // ---------------------------------------------------------------------------
 
+/**
+ * three.js ignores a material's envMapIntensity for `scene.environment`, so car materials pick the
+ * scene's environment up on their first render and then honour their own reflection strength.
+ */
+const ownEnv = <M extends THREE.MeshStandardMaterial>(m: M, k: number): M => {
+  m.envMapIntensity = k;
+  m.onBeforeRender = (_r, scene) => {
+    if (scene.environment && m.envMap !== scene.environment) {
+      m.envMap = scene.environment;
+      m.needsUpdate = true;
+    }
+  };
+  return m;
+};
+
 export const carMaterials = () => ({
-  glass: new THREE.MeshPhysicalMaterial({ color: 0x1b2833, metalness: 0.35, roughness: 0.08, clearcoat: 1, envMapIntensity: 1.8 }),
-  trim: new THREE.MeshStandardMaterial({ color: 0x15171a, roughness: 0.55, metalness: 0.1 }),
-  chrome: new THREE.MeshStandardMaterial({ color: 0xd6dadf, roughness: 0.18, metalness: 1 }),
-  tyre: new THREE.MeshStandardMaterial({ color: 0x1b1c1e, roughness: 0.92 }),
-  rim: new THREE.MeshStandardMaterial({ color: 0xb9bec6, roughness: 0.28, metalness: 0.9 }),
+  glass: ownEnv(new THREE.MeshPhysicalMaterial({ color: 0x0a1118, metalness: 0.15, roughness: 0.03, clearcoat: 1, clearcoatRoughness: 0.02, ior: 1.52, specularIntensity: 1, }), 1.5),
+  trim: ownEnv(new THREE.MeshStandardMaterial({ color: 0x16181b, roughness: 0.5, metalness: 0.1 }), 0.12),
+  chrome: ownEnv(new THREE.MeshStandardMaterial({ color: 0xd6dadf, roughness: 0.18, metalness: 1 }), 1),
+  tyre: ownEnv(new THREE.MeshStandardMaterial({ color: 0x08090a, roughness: 1 }), 0.12),
+  rim: ownEnv(new THREE.MeshStandardMaterial({ color: 0xb9bec6, roughness: 0.28, metalness: 0.9 }), 0.9),
   plate: new THREE.MeshStandardMaterial({ color: 0xf1f1ea, roughness: 0.5 }),
 });
 
 /** Deeper, more saturated paint with a real clearcoat: dark base, tight clearcoat highlights. */
-const deepen = (color: number) => {
-  const c = new THREE.Color(color);
+const deepen = (color: number, k = 0.5, out = new THREE.Color()) => {
+  const c = out.setHex(color);
   const hsl = { h: 0, s: 0, l: 0 };
   c.getHSL(hsl);
-  return c.setHSL(hsl.h, Math.min(1, hsl.s * 1.15), hsl.l * 0.52);
+  return c.setHSL(hsl.h, Math.min(1, hsl.s * 1.15), hsl.l * k);
 };
 
 export const paintMaterial = (color: number) =>
-  new THREE.MeshPhysicalMaterial({ color: deepen(color), metalness: 0.35, roughness: 0.4, clearcoat: 0.35, clearcoatRoughness: 0.15, envMapIntensity: 0.2 });
+  ownEnv(new THREE.MeshPhysicalMaterial({ color: deepen(color), metalness: 0.6, roughness: 0.32, clearcoat: 0.8, clearcoatRoughness: 0.04 }), 0.45);
 
 /** Number plate texture with a short word on it. */
 export const plateTexture = (text: string) => {
@@ -829,7 +882,7 @@ export const buildRacer = (color: number, plate: string): RacerRig => {
   root.add(body);
   const paint = paintMaterial(color);
   const head = new THREE.MeshStandardMaterial({ color: 0xffffff, emissive: 0xeaf4ff, emissiveIntensity: 1.6 });
-  const tail = new THREE.MeshStandardMaterial({ color: 0x4a0406, emissive: 0xff0000, emissiveIntensity: 1.3 });
+  const tail = new THREE.MeshStandardMaterial({ color: 0x300204, emissive: 0xe00808, emissiveIntensity: 0.9, roughness: 0.25 });
   const reverse = new THREE.MeshStandardMaterial({ color: 0xdddddd, emissive: 0xffffff, emissiveIntensity: 0 });
   const plateMat = new THREE.MeshStandardMaterial({ map: plateTexture(plate), roughness: 0.5 });
   const add = (g: THREE.BufferGeometry | null, m: THREE.Material) => {
@@ -847,8 +900,8 @@ export const buildRacer = (color: number, plate: string): RacerRig => {
   add(geo.tail, tail);
   // Plates: map the texture onto the outward faces with their own little planes.
   for (const [z, y, ry] of [
-    [s.length / 2 + profile(0).shear(s.length / 2, s.plateY[0]) + 0.006, s.plateY[0], 0],
-    [-s.length / 2 + profile(0).shear(-s.length / 2, s.plateY[1]) - 0.006, s.plateY[1], Math.PI],
+    [s.length / 2 + profile(0).shear(s.length / 2, s.plateY[0]) + 0.018, s.plateY[0], 0],
+    [-s.length / 2 + profile(0).shear(-s.length / 2, s.plateY[1]) - 0.018, s.plateY[1], Math.PI],
   ]) {
     const p = new THREE.Mesh(new THREE.PlaneGeometry(0.52, 0.12), plateMat);
     p.position.set(0, y, z);
@@ -858,7 +911,7 @@ export const buildRacer = (color: number, plate: string): RacerRig => {
   // Reversing lamps: two small white squares low on the tail.
   for (const sx of [-1, 1]) {
     const r = new THREE.Mesh(new THREE.BoxGeometry(0.12, 0.05, 0.02), reverse);
-    r.position.set(sx * 0.42, s.reverseY, -s.length / 2 + profile(0).shear(-s.length / 2, s.reverseY) - 0.004);
+    r.position.set(sx * 0.42, s.reverseY, -s.length / 2 + profile(0).shear(-s.length / 2, s.reverseY) - 0.014);
     body.add(r);
   }
 
@@ -901,7 +954,7 @@ export interface ParkedSpot {
 export const buildParked = (spots: ParkedSpot[]) => {
   const group = new THREE.Group();
   const mats = carMaterials();
-  const paint = new THREE.MeshPhysicalMaterial({ color: 0xdddddd, metalness: 0.3, roughness: 0.38, clearcoat: 1, clearcoatRoughness: 0.08, envMapIntensity: 0.4 });
+  const paint = ownEnv(new THREE.MeshPhysicalMaterial({ color: 0xffffff, metalness: 0.6, roughness: 0.32, clearcoat: 0.8, clearcoatRoughness: 0.04 }), 0.45);
   const head = new THREE.MeshStandardMaterial({ color: 0xc9ced6, emissive: 0x000000, roughness: 0.2, metalness: 0.4 });
   const tail = new THREE.MeshStandardMaterial({ color: 0x8a0d10, emissive: 0x2a0000, roughness: 0.3 });
   const byMat: Record<PartKind, THREE.Material> = { paint, head, tail, ...mats };
@@ -924,7 +977,7 @@ export const buildParked = (spots: ParkedSpot[]) => {
         q.setFromAxisAngle(up, s.h);
         m.compose(new THREE.Vector3(s.x, 0, s.z), q, one);
         inst.setMatrixAt(i, m);
-        if (kind === 'paint') inst.setColorAt(i, color.setHex(s.color));
+        if (kind === 'paint') inst.setColorAt(i, deepen(s.color, 0.78, color));
       });
       group.add(inst);
     }
