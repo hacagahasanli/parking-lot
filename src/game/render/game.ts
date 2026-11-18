@@ -697,11 +697,7 @@ export class Game {
     this.marker.beamMat.uniforms.uTime.value = t;
     (this.marker.beamMat.uniforms.uColor.value as THREE.Color).setHex(color);
     this.marker.sign.position.y = 3.4 + Math.sin(t * 2) * 0.15;
-    // The P is a beacon for far away: fade it out as you get close so it never covers the bay.
-    const away = Math.hypot(s.cars[0].x - bay.x, s.cars[0].z - bay.z);
-    const fade = Math.min(1, Math.max(0, (away - 7) / 6));
-    (this.marker.sign.material as THREE.SpriteMaterial).opacity = fade;
-    this.marker.sign.visible = s.winner === null && fade > 0.01;
+    this.marker.sign.visible = s.winner === null;
 
     // Alarms going off.
     const alarms = Object.entries(s.alarms)
