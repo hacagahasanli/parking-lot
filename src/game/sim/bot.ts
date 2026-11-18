@@ -7,6 +7,8 @@
  * backs out and tries again when it gets stuck.
  */
 import { CAR } from './constants';
+import { hintOf } from './hint';
+import { levelY, sameStorey } from './levels';
 import { locate, roundCorners, routeLength, routeToDock, routeToSweep, shortestPath } from './nav';
 import { pedLimit } from './ped';
 import { bodies, forwardSpeed, freeBays, steerLimit } from './step';
@@ -57,6 +59,13 @@ export interface BotBrain {
   /** Horn state last step and when it last sounded (for honk events). */
   hornOn: boolean;
   lastHonk: number;
+  /** Times in a row this driver has had to back out of the same jam, and where the last one was (a driver that keeps getting stuck re-plans from where it is). */
+  jam: number;
+  jamAt: Vec;
+  /** Passes already driven (aisle and direction), so a re-plan after a hint does not go over them again. */
+  visited: Set<string>;
+  /** The last board hint this driver acted on (stage and decks), so it re-plans its search once per new hint. */
+  hintKey: string;
   /** Things that happened for the radio: spotted the bay, honked, backing out. The caller drains it. */
   outbox: GameEvent[];
 }
@@ -78,7 +87,7 @@ const searchable = (lot: Lot) => lot.aisles.filter((a) => (a.kind === 'road' || 
  * always goes next to whichever remaining pass is nearest (plus a personal bias), so the four
  * cars cover different parts of the lot at the same time.
  */
-export const planSweeps = (lot: Lot, car: Car, seed: number): Sweep[] => {
+export const planSweeps = (lot: Lot, car: Car, seed: number, plan: { from?: number; wanted?: (sw: Sweep) => boolean; preferred?: (sw: Sweep) => boolean; skip?: Set<string> } = {}): Sweep[] => {
   const g = lot.graph;
   const aisles = searchable(lot);
   const first = ['EA', 'WA', 'AVE', 'EB'][(car.id + seed) % 4];
@@ -87,7 +96,9 @@ export const planSweeps = (lot: Lot, car: Car, seed: number): Sweep[] => {
   const pass1: Sweep[] = [];
   const pass2: Sweep[] = [];
   aisles.forEach((a, i) => {
-    if (a.oneWay) pass1.push({ aisle: a.id, dir: 1 });
+    // The road into the car park is only searched on the way in.
+    if (a.name === 'GATE') pass1.push({ aisle: a.id, dir: 1 });
+    else if (a.oneWay) pass1.push({ aisle: a.id, dir: 1 });
     else {
       const flip = bias(i) < 0.5;
       pass1.push({ aisle: a.id, dir: flip ? 1 : -1 });
@@ -95,8 +106,20 @@ export const planSweeps = (lot: Lot, car: Car, seed: number): Sweep[] => {
     }
   });
   const out: Sweep[] = [];
-  let at = lot.entryNode;
-  for (const todo of [pass1, pass2]) {
+  let at = plan.from ?? lot.entryNode;
+  // After a hint: the passes that match it first (nearest first, from where the car is), then the rest.
+  // (passes already driven go last, as a second look.)
+  const fresh = (sw: Sweep) => !plan.skip?.has(`${sw.aisle}:${sw.dir}`);
+  const groups = plan.wanted
+    ? [pass1, pass2]
+        .flatMap((p) => [
+          p.filter((sw) => (plan.preferred ?? plan.wanted!)(sw) && fresh(sw)),
+          p.filter((sw) => plan.wanted!(sw) && !(plan.preferred ?? plan.wanted!)(sw) && fresh(sw)),
+          p.filter((sw) => !plan.wanted!(sw) && fresh(sw)),
+        ])
+        .concat([[...pass1, ...pass2].filter((sw) => !fresh(sw))])
+    : [pass1, pass2];
+  for (const todo of groups) {
     while (todo.length) {
       let best = -1;
       let bestCost = Infinity;
@@ -106,7 +129,7 @@ export const planSweeps = (lot: Lot, car: Car, seed: number): Sweep[] => {
         let cost = path ? path.reduce((d, id) => d + g.edges[id].len, 0) : 999;
         cost += bias(i + out.length * 31) * 40;
         // The first pass is the driver's own choice.
-        if (out.length === 0 && lot.aisles[sw.aisle].name !== first) cost += 500;
+        if (out.length === 0 && !plan.from && lot.aisles[sw.aisle].name !== first) cost += 500;
         if (cost < bestCost) {
           bestCost = cost;
           best = i;
@@ -158,6 +181,10 @@ export const createBrain = (world: World, car: Car, seed: number): BotBrain => {
     held: 0,
     hornOn: false,
     lastHonk: -9,
+    hintKey: '0:',
+    jam: 0,
+    jamAt: { x: car.x, z: car.z },
+    visited: new Set(),
     outbox: [],
   };
   brain.route = sweepRoute(world, car, brain);
@@ -166,8 +193,48 @@ export const createBrain = (world: World, car: Car, seed: number): BotBrain => {
 
 const wrap = (a: number) => Math.atan2(Math.sin(a), Math.cos(a));
 
+/**
+ * The bots read the same board as you. When it gives away the part of the site (and then the decks),
+ * a bot that has not found the bay moves the passes in that part to the front of its own order
+ * (keeping its personal order inside each group), so they do not all arrive in a convoy.
+ */
+const readBoard = (state: GameState, world: World, car: Car, brain: BotBrain) => {
+  const h = hintOf(state, world.lot);
+  const key = `${h.stage}:${h.decks.join(',')}`;
+  if (key === brain.hintKey || h.stage === 0) return;
+  brain.hintKey = key;
+  const lot = world.lot;
+  /** The decks a pass touches. For a ramp, where it takes you (a ramp down to a deck you do not want is no use). */
+  const decksOf = (sw: Sweep) => {
+    const a = lot.aisles[sw.aisle];
+    const levels = a.nodes.map((n) => lot.graph.nodes[n].lvl);
+    if (a.kind === 'ramp') return [sw.dir > 0 ? levels[levels.length - 1] : levels[0]];
+    return [Math.min(...levels)];
+  };
+  const wanted = (sw: Sweep) => {
+    const a = lot.aisles[sw.aisle];
+    const inGarage = a.garage || a.name === 'GATE';
+    if (h.zone === 'lot') return !inGarage;
+    if (!inGarage) return false;
+    if (!h.decks.length || a.name === 'GATE') return true;
+    return decksOf(sw).some((d) => h.decks.includes(d));
+  };
+  // Each driver tries one of the two flickering decks first (not the same one for everybody).
+  const first = h.decks.length ? h.decks[(car.id + state.seed) % h.decks.length] : null;
+  const preferred = (sw: Sweep) => wanted(sw) && (first === null || lot.aisles[sw.aisle].name === 'GATE' || decksOf(sw).includes(first));
+  // A hint for the open lot only moves the drivers who are headed for the car park; the others are already searching.
+  if (h.zone === 'lot' && !brain.spotted && wanted(brain.sweeps[brain.sweep % brain.sweeps.length])) return;
+  if (!brain.spotted) {
+    const here = locate(lot.graph, car.x, car.z, car.h, true, car.y);
+    brain.sweeps = planSweeps(lot, car, state.seed, { from: lot.graph.edges[here.edge].to, wanted, preferred, skip: brain.visited });
+    brain.sweep = 0;
+    brain.route = sweepRoute(world, car, brain);
+    brain.seg = 0;
+  }
+};
+
 /** The aisle a point is on (the nearest one whose width covers it), or -1. */
-export const aisleAt = (lot: Lot, x: number, z: number) => {
+export const aisleAt = (lot: Lot, x: number, z: number, y?: number) => {
   let best = -1;
   let bestD = Infinity;
   for (const a of lot.aisles) {
@@ -179,6 +246,8 @@ export const aisleAt = (lot: Lot, x: number, z: number) => {
       const dz = q.z - p.z;
       const t = Math.max(0, Math.min(1, ((x - p.x) * dx + (z - p.z) * dz) / (dx * dx + dz * dz)));
       const d = Math.hypot(x - (p.x + dx * t), z - (p.z + dz * t));
+      // Decks and ramps are stacked: only the aisle at the car's own height counts.
+      if (y !== undefined && Math.abs(levelY(p.lvl) + (levelY(q.lvl) - levelY(p.lvl)) * t - y) > 1.8) continue;
       if (d < a.width / 2 + 0.3 && d < bestD) {
         bestD = d;
         best = a.id;
@@ -223,12 +292,14 @@ export const canSee = (world: World, car: Car, bayId: number) => {
   const dz = bay.z - car.z;
   const d = Math.hypot(dx, dz);
   if (d > SIGHT.range) return false;
+  // Only the bay on the car's own deck: one floor up is straight overhead, behind a slab.
+  if (Math.abs(bay.y - car.y) > 1.2) return false;
   const inView = d < 4 || Math.abs(wrap(Math.atan2(dx, dz) - car.h)) < SIGHT.cone;
   if (!inView) return false;
-  const here = aisleAt(world.lot, car.x, car.z);
+  const here = aisleAt(world.lot, car.x, car.z, car.y);
   if (!(bay.aisle === here || d < SIGHT.peek)) return false;
   // A van, the truck or a hedge between the car and the bay hides it.
-  for (const o of world.lot.occluders) if (o.kind === 'box' && crosses(car.x, car.z, bay.x, bay.z, o)) return false;
+  for (const o of world.lot.occluders) if (o.kind === 'box' && (o.y0 === undefined || (o.y0 < car.y + 1.5 && (o.y1 ?? Infinity) > car.y)) && crosses(car.x, car.z, bay.x, bay.z, o)) return false;
   return true;
 };
 
@@ -309,7 +380,7 @@ const remaining = (route: Vec[], seg: number, p: Vec) => {
 export const carAhead = (state: GameState, car: Car, fx: number, fz: number) => {
   let best: { gap: number; speed: number; id: number } | null = null;
   for (const o of bodies(state)) {
-    if (o === car || o.parkedAt !== null) continue;
+    if (o === car || o.parkedAt !== null || !sameStorey(o.y, car.y)) continue;
     const dx = o.x - car.x;
     const dz = o.z - car.z;
     const ahead = dx * fx + dz * fz;
@@ -346,6 +417,7 @@ export const botInput = (state: GameState, world: World, car: Car, brain: BotBra
 
   // Looking for the bay: it is only "found" when it is close, ahead and in this aisle.
   if (!brain.spotted) {
+    readBoard(state, world, car, brain);
     const seen = freeBays(state).find((id) => canSee(world, car, id));
     brain.seeing = seen !== undefined ? brain.seeing + dt : Math.max(0, brain.seeing - dt);
     const route = seen !== undefined && brain.seeing > SIGHT.react ? spotRoute(world, car, seen) : null;
@@ -400,6 +472,8 @@ export const botInput = (state: GameState, world: World, car: Car, brain: BotBra
 
   // Still searching and at the end of the sweep: on to the next aisle in this driver's order.
   if (!brain.spotted && brain.seg >= brain.route.length - 2 && remaining(brain.route, brain.seg, car) < 6) {
+    const done = brain.sweeps[brain.sweep % brain.sweeps.length];
+    brain.visited.add(`${done.aisle}:${done.dir}`);
     brain.sweep++;
     brain.route = sweepRoute(world, car, brain);
     brain.seg = 0;
@@ -453,7 +527,7 @@ export const botInput = (state: GameState, world: World, car: Car, brain: BotBra
   const mine = bay ? Math.hypot(bay.x - car.x, bay.z - car.z) : 0;
   const rival = bay
     ? state.cars.find((o) => {
-        if (o === car || o.dq !== null) return false;
+        if (o === car || o.dq !== null || !sameStorey(o.y, car.y)) return false;
         const theirs = Math.hypot(bay.x - o.x, bay.z - o.z);
         return theirs < mine - 0.3 && theirs < 9 && Math.hypot(o.x - car.x, o.z - car.z) < 6;
       })
@@ -488,7 +562,7 @@ export const botInput = (state: GameState, world: World, car: Car, brain: BotBra
   // Crossing traffic: give way to a moving car that is on the right and will reach the same spot (priority to the right).
   if (!lineUp && !fighting) {
     for (const o of bodies(state)) {
-      if (o === car || o.parkedAt !== null || o.dq !== null) continue;
+      if (o === car || o.parkedAt !== null || o.dq !== null || !sameStorey(o.y, car.y)) continue;
       const ov = Math.hypot(o.vx, o.vz);
       if (ov < 1.5) continue;
       const px = o.x - car.x;
@@ -563,6 +637,18 @@ export const botInput = (state: GameState, world: World, car: Car, brain: BotBra
     brain.reverseSteer = -Math.sign(steer || 1);
     brain.stuck = 0;
     brain.outbox.push({ type: 'recover', car: car.id });
+    // Stuck again in the same place: back out further and plan the way afresh from here (a corner taken too wide in the car park).
+    brain.jam = Math.hypot(car.x - brain.jamAt.x, car.z - brain.jamAt.z) < 6 ? brain.jam + 1 : 1;
+    brain.jamAt = { x: car.x, z: car.z };
+    if (brain.jam >= 2) {
+      brain.reverse = 1.6 + Math.min(1.4, brain.jam * 0.3);
+      if (brain.jam % 2 === 0) brain.reverseSteer = -brain.reverseSteer;
+      const fresh = brain.spotted ? spotRoute(world, car, brain.target) : sweepRoute(world, car, brain);
+      if (fresh) {
+        brain.route = fresh;
+        brain.seg = 0;
+      }
+    }
   }
   const leanOn = (fighting && Math.sin(state.t * 2.3 + brain.wobble) > 0.2) || tailHorn;
   return finish({ throttle, brake, steer, handbrake, horn: leanOn });

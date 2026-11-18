@@ -12,6 +12,8 @@ import { Sky } from 'three/examples/jsm/objects/Sky.js';
 import { createSfx } from '../sfx';
 import { botInput, createBrain } from '../sim/bot';
 import { CAR, DT, PED, RACE } from '../sim/constants';
+import { hintLines, hintOf } from '../sim/hint';
+import { LEVELS, LEVEL_COLOR, LEVEL_H, levelName, levelOf, levelY } from '../sim/levels';
 import { BAY, buildLot } from '../sim/lot';
 import { radio } from '../sim/radio';
 import { createRound, distanceToTarget, forwardSpeed, standings, step } from '../sim/step';
@@ -20,6 +22,7 @@ import { NO_INPUT } from '../sim/types';
 import { buildParked, buildRacer } from './car';
 import { buildAmbience } from './ambience';
 import { buildPeds } from './peds';
+import { circleHit, boxHit } from './sight';
 import { buildTargetMarker, buildWorld } from './world';
 
 import type { BotBrain } from '../sim/bot';
@@ -88,6 +91,16 @@ export interface HudState {
   endedFor: number;
   fps: number;
   volumes: Record<VolumeKind, number>;
+  /** The level you are on (-1 underground .. 2 the roof), its name, whether you are inside the car park, and the colour of the level. */
+  level: number;
+  levelName: string;
+  inGarage: boolean;
+  levelColor: number;
+  /** The free-spaces board: the two lines of text, and the deck colour of the second line when it names a deck. */
+  board: { free: number; line: string; deckColor: number | null };
+  /** The minimap's tabs and the one being shown. */
+  mapLevel: number;
+  mapLevels: { level: number; name: string; color: number }[];
 }
 
 export interface GameOptions {
@@ -287,7 +300,16 @@ export class Game {
   private brains: (BotBrain | null)[] = [];
   private rigs: RacerRig[] = [];
   private pedView = buildPeds(PED.count);
-  private prev: { x: number; z: number; h: number }[] = [];
+  private prev: { x: number; y: number; z: number; h: number }[] = [];
+  private slope: number[] = [];
+  private deckParked: THREE.Group[] = [];
+  private camSolids: { s: World['solids'][number] }[] = [];
+  private hemi!: THREE.HemisphereLight;
+  private fill!: THREE.PointLight;
+  /** 0 outdoors .. 1 deep underground: how dark and how artificially lit the scene is round the player. */
+  private dark = 0;
+  private mapPick: number | null = null;
+  private mapShown = 0;
   private parked: THREE.Group | null = null;
   private marker = buildTargetMarker();
   private worldView;
@@ -369,7 +391,11 @@ export class Game {
     this.sun.shadow.bias = -0.0004;
     this.sun.shadow.normalBias = 0.03;
     this.scene.add(this.sun, this.sun.target);
-    this.scene.add(new THREE.HemisphereLight(0xffdca8, 0x5a4026, 0.55));
+    this.hemi = new THREE.HemisphereLight(0xffdca8, 0x5a4026, 0.55);
+    this.scene.add(this.hemi);
+    // The light of the car park's strip lamps, moving with the player: off in the open air.
+    this.fill = new THREE.PointLight(0xfff0d8, 0, 20, 1.5);
+    this.scene.add(this.fill);
 
     this.lot = buildLot();
     this.worldView = buildWorld(this.lot);
@@ -404,7 +430,8 @@ export class Game {
     this.state = state;
     this.world = world;
     this.brains = state.cars.map((c) => (c.bot ? createBrain(world, c, seed) : null));
-    this.prev = this.allCars().map((c) => ({ x: c.x, z: c.z, h: c.h }));
+    this.prev = this.allCars().map((c) => ({ x: c.x, y: c.y, z: c.z, h: c.h }));
+    this.slope = this.allCars().map(() => 0);
     this.wheelPrev = this.allCars().map(() => []);
     this.endedAt = -1;
     this.dqAt = -1;
@@ -415,14 +442,27 @@ export class Game {
       this.scene.remove(this.parked);
       this.parked.traverse((o) => (o as THREE.Mesh).geometry?.dispose());
     }
-    const spots = this.lot.bays
-      .filter((b) => b.use === 'car' && b.id !== state.target && b.id !== state.leaver?.bay)
-      .map((b) => ({ x: b.x + Math.sin(b.h) * 0.12, z: b.z + Math.cos(b.h) * 0.12, h: b.h, style: b.variant, color: b.color }));
+    const spotOf = (b: Lot['bays'][number]) => ({ x: b.x + Math.sin(b.h) * 0.12, z: b.z + Math.cos(b.h) * 0.12, h: b.h, style: b.variant, color: b.color });
+    const open = this.lot.bays.filter((b) => !b.garage && b.use === 'car' && b.id !== state.target && b.id !== state.leaver?.bay).map(spotOf);
     // The delivery van in the yard is a tall van like the ones in the bays.
-    for (const p of this.lot.props) if (p.kind === 'van') spots.push({ x: p.x, z: p.z, h: p.h, style: 4, color: p.color ?? 0x2a4d8f });
-    this.parked = buildParked(spots);
+    for (const p of this.lot.props) if (p.kind === 'van') open.push({ x: p.x, z: p.z, h: p.h, style: 4, color: p.color ?? 0x2a4d8f });
+    this.parked = buildParked(open);
     this.parked.add(this.bayProps());
     this.scene.add(this.parked);
+    // Each deck of the car park has its own group of parked cars (hidden with the deck, so the ones out of sight cost nothing).
+    for (const g of this.deckParked) {
+      g.parent?.remove(g);
+      g.traverse((o) => (o as THREE.Mesh).geometry?.dispose());
+    }
+    this.deckParked = [];
+    for (const L of LEVELS) {
+      const spots = this.lot.bays.filter((b) => b.garage && b.lvl === L && b.use === 'car' && b.id !== state.target && b.id !== state.leaver?.bay).map(spotOf);
+      const g = buildParked(spots);
+      g.position.y = levelY(L);
+      this.worldView.garage.decks.get(L)?.add(g);
+      this.deckParked.push(g);
+    }
+    this.camSolids = world.solids.map((sh, i) => ({ sh, i })).filter(({ sh, i }) => sh.y0 !== undefined && world.owner[i] === -1).map(({ sh }) => ({ s: sh }));
 
     this.marker.group.visible = false;
 
@@ -479,7 +519,7 @@ export class Game {
           t.position.set(0, 0.65, z);
           c.add(t);
         }
-        c.position.set(b.x, 0, b.z);
+        c.position.set(b.x, b.y, b.z);
         c.rotation.y = b.h;
         c.traverse((o) => (o.castShadow = true));
         g.add(c);
@@ -493,7 +533,7 @@ export class Game {
           const foot = new THREE.Mesh(new THREE.BoxGeometry(0.5, 0.04, 0.5), cone);
           foot.position.y = 0.02;
           k.add(body, band, foot);
-          k.position.set(b.x - b.ax * (1.8 - d * 0.4) + b.az * d * 0.3, 0, b.z - b.az * (1.8 - d * 0.4) - b.ax * d * 0.3);
+          k.position.set(b.x - b.ax * (1.8 - d * 0.4) + b.az * d * 0.3, b.y, b.z - b.az * (1.8 - d * 0.4) - b.ax * d * 0.3);
           k.traverse((o) => (o.castShadow = true));
           g.add(k);
         }
@@ -601,7 +641,7 @@ export class Game {
 
   private tick() {
     const s = this.state;
-    this.prev = this.allCars().map((c) => ({ x: c.x, z: c.z, h: c.h }));
+    this.prev = this.allCars().map((c) => ({ x: c.x, y: c.y, z: c.z, h: c.h }));
     const inputs = s.cars.map((c, i) => {
       const brain = this.brains[i];
       if (brain) return botInput(s, this.world, c, brain);
@@ -664,9 +704,14 @@ export class Game {
       const p = this.prev[i] ?? c;
       const x = p.x + (c.x - p.x) * alpha;
       const z = p.z + (c.z - p.z) * alpha;
+      const y = p.y + (c.y - p.y) * alpha;
       const h = lerpAngle(p.h, c.h, alpha);
-      rig.root.position.set(x, 0, z);
+      rig.root.position.set(x, y, z);
+      rig.root.rotation.order = 'YXZ';
       rig.root.rotation.y = h;
+      // On a ramp the whole car leans with the slope (the nose lifts going up, dips going down).
+      this.slope[i] += ((c.grade || 0) - (this.slope[i] ?? 0)) * Math.min(1, dt * 8);
+      rig.root.rotation.x = -Math.atan(this.slope[i]);
       const vF = forwardSpeed(c);
       // Wheels: spin with the road speed, front pair turned by the steering.
       rig.roll += (vF / 0.32) * dt;
@@ -749,7 +794,7 @@ export class Game {
     this.marker.group.visible = reveal;
     if (reveal) {
       const bay = this.lot.bays[s.winBay >= 0 ? s.winBay : s.target];
-      this.marker.group.position.set(bay.x, 0, bay.z);
+      this.marker.group.position.set(bay.x, bay.y, bay.z);
       this.marker.group.rotation.y = bay.h;
       this.marker.group.scale.set(bay.w / BAY.width, 1, bay.d / BAY.depth);
       const fade = Math.min(1, (this.time - this.endedAt) * 2) * Math.min(1, (6 - (this.time - this.endedAt)) * 2);
@@ -760,6 +805,7 @@ export class Game {
       (this.marker.sign.material as THREE.SpriteMaterial).opacity = fade;
     }
     this.pedView.update(s.peds, t);
+    this.updateGarage(dt);
 
     // Alarms going off.
     const alarms = Object.entries(s.alarms)
@@ -777,13 +823,48 @@ export class Game {
     const nearExit = lv && lv.phase === 'out' ? Math.hypot(lv.car.x - (exit.px + exit.tx) / 2, lv.car.z - exit.z) < 13 : false;
     this.exitOpen += ((nearExit ? 1 : 0) - this.exitOpen) * Math.min(1, dt * 2.2);
     this.worldView.setGates(s.gate.open, this.exitOpen);
-    // The board over the gate: how many bays are free. The number blinks like a real LED sign while the cars wait.
-    const lit = this.state.phase === 'countdown' ? Math.floor(this.time * 2) % 2 === 0 : Math.floor(this.time * 1.2) % 6 !== 0;
-    this.worldView.setGantryBoard([{ text: `FREE SPACES: ${lit ? 1 : ' '}`, size: 16 }]);
 
     this.updateCamera(dt);
     this.drawMinimap();
     this.renderer.render(this.scene, this.camera);
+  }
+
+  /** Is the car inside the car park's footprint (the walls), and on which level? */
+  private garageOf(x: number, z: number, y: number) {
+    const g = this.lot.garage;
+    const inside = x > g.x0 && x < g.x1 && z > g.z0 && z < g.z1;
+    return { inside, level: levelOf(y) };
+  }
+
+  /**
+   * The car park round the player: only the decks next to the player's are drawn, the light inside
+   * is the strip lamps (the sky light is turned down and a lamp follows the car), and underground is darker.
+   */
+  private updateGarage(dt: number) {
+    const car = this.focusCar();
+    const rig = this.rigs[car.id];
+    const { inside, level } = this.garageOf(rig.root.position.x, rig.root.position.z, rig.root.position.y);
+    const high = this.cameraMode !== 'chase' || this.opts.mode === 'showcase';
+    this.worldView.garage.showAround(inside ? level : null, inside && high);
+    // How enclosed the player is: nothing on the open roof or outside, most on P-1.
+    const enclosed = !inside ? 0 : level === 2 ? 0 : level === 1 ? 0.55 : level === 0 ? 0.75 : 1;
+    this.dark += (enclosed - this.dark) * Math.min(1, dt * 4);
+    const d = this.dark;
+    this.hemi.intensity = 0.55 * (1 - 0.72 * d);
+    this.scene.environmentIntensity = 0.6 * (1 - 0.8 * d);
+    this.fill.position.set(rig.root.position.x, rig.root.position.y + 2.6, rig.root.position.z);
+    this.fill.intensity = d * 38;
+    this.fill.color.setHex(level < 0 ? 0xcfe0ff : 0xfff0d8);
+    // The boards: the one over the gate, and the one at the car park's door.
+    const hint = hintOf(this.state, this.lot);
+    const [head, tail] = hintLines(hint);
+    // The number blinks like a real LED sign while the cars wait, and once a second afterwards.
+    const blink = this.state.phase === 'countdown' ? Math.floor(this.time * 2) % 2 === 0 : Math.floor(this.time * 1.2) % 6 !== 0;
+    const lit = head.replace(/\d+$/, (n) => (blink ? n : ' '.repeat(n.length)));
+    const color = hint.showing !== null ? '#' + LEVEL_COLOR[hint.showing].toString(16).padStart(6, '0') : '#ff7a2e';
+    const rows = [{ text: lit, size: tail ? 12 : 16 }, ...(tail ? [{ text: tail, size: 13, color }] : [])];
+    this.worldView.setGantryBoard(rows);
+    this.worldView.garage.setBoard([{ text: 'GARAGE', size: 9, color: '#ffffff' }, ...rows.map((r) => ({ ...r, size: Math.min(r.size, 11) }))]);
   }
 
   private updateCamera(dt: number) {
@@ -791,21 +872,25 @@ export class Game {
     const car = this.focusCar();
     const rig = this.rigs[car.id];
     const x = rig.root.position.x;
+    const y = rig.root.position.y;
     const z = rig.root.position.z;
     const h = rig.root.rotation.y;
     const showcase = this.opts.mode === 'showcase';
+    const { inside, level } = this.garageOf(x, z, y);
+    // Under a deck the ceiling is 3.1 m up: the camera stays under it.
+    const ceil = inside && level < 2 && this.cameraMode === 'chase' ? levelY(level) + LEVEL_H - 0.5 - 0.3 : Infinity;
     let want: THREE.Vector3;
     let look: THREE.Vector3;
     if (showcase) {
       // A slow sway behind and above the leader, always looking north up the lot so the frame is
       // cars, bays and the store sign (never the road or the empty grass behind the camera).
       const a = Math.sin(this.time * 0.1) * 0.55 + 0.25;
-      want = new THREE.Vector3(x - Math.sin(a) * 16, 6.2, z - Math.cos(a) * 16);
-      look = new THREE.Vector3(x + 5 + Math.sin(a) * 4, 0.9, z + 13);
+      want = new THREE.Vector3(x - Math.sin(a) * 16, y + 6.2, z - Math.cos(a) * 16);
+      look = new THREE.Vector3(x + 5 + Math.sin(a) * 4, y + 0.9, z + 13);
     } else if (this.cameraMode === 'top') {
-      // Straight down, north up: for squeezing into the bay.
-      want = new THREE.Vector3(x, 22, z - 0.01);
-      look = new THREE.Vector3(x, 0, z);
+      // Straight down, north up: for squeezing into the bay (the decks above are hidden so you can see in).
+      want = new THREE.Vector3(x, y + 22, z - 0.01);
+      look = new THREE.Vector3(x, y, z);
     } else {
       // Chase: behind the car, the yaw catching up with the heading on a spring so turns feel
       // like turns (a camera bolted to the car makes the world spin instead).
@@ -814,8 +899,24 @@ export class Game {
       this.cam.yaw = lerpAngle(this.cam.yaw, h, Math.min(1, dt * follow));
       const dist = this.cameraMode === 'high' ? 10.5 : 6.4 + Math.min(1.6, Math.abs(vF) * 0.09);
       const height = this.cameraMode === 'high' ? 6.5 : 2.55;
-      want = new THREE.Vector3(x - Math.sin(this.cam.yaw) * dist, height, z - Math.cos(this.cam.yaw) * dist);
-      look = new THREE.Vector3(x + Math.sin(h) * 2.4, 1.05, z + Math.cos(h) * 2.4);
+      want = new THREE.Vector3(x - Math.sin(this.cam.yaw) * dist, y + height, z - Math.cos(this.cam.yaw) * dist);
+      look = new THREE.Vector3(x + Math.sin(h) * 2.4, y + 1.05, z + Math.cos(h) * 2.4);
+    }
+    // Inside the car park: keep under the ceiling, and pull in so the camera never ends up inside a wall, a column or a ramp's side.
+    if (!showcase && inside) {
+      want.y = Math.min(want.y, ceil);
+      let t = 1;
+      for (const { s: sh } of this.camSolids) {
+        if (y + 1.2 < (sh.y0 ?? -Infinity) || y > (sh.y1 ?? Infinity)) continue;
+        if (Math.abs(sh.x - x) > 14 + (sh.kind === 'box' ? sh.hl : 0) || Math.abs(sh.z - z) > 14 + (sh.kind === 'box' ? sh.hl : 0)) continue;
+        const hit = sh.kind === 'circle' ? circleHit(x, z, want.x, want.z, sh.x, sh.z, sh.r + 0.3) : boxHit(x, z, want.x, want.z, sh);
+        if (hit !== null) t = Math.min(t, Math.max(0.28, hit - 0.04));
+      }
+      if (t < 1) {
+        want.x = x + (want.x - x) * t;
+        want.z = z + (want.z - z) * t;
+        want.y = y + 1.6 + (want.y - y - 1.6) * Math.max(0.5, t);
+      }
     }
     const k = Math.min(1, dt * (showcase ? 1.5 : this.cameraMode === 'top' ? 5 : 8));
     this.cam.x += (want.x - this.cam.x) * k;
@@ -825,7 +926,7 @@ export class Game {
     // Shake from crashes: trauma squared, smooth noise, fades in about a second.
     const shake = this.trauma * this.trauma;
     const n = (f: number, p: number) => Math.sin(this.time * f + p) * 0.6 + Math.sin(this.time * f * 2.3 + p) * 0.4;
-    this.camera.position.set(this.cam.x + n(23, 1.3) * 0.25 * shake, this.cam.y + n(19, 4.1) * 0.18 * shake, this.cam.z + n(17, 2.2) * 0.25 * shake);
+    this.camera.position.set(this.cam.x + n(23, 1.3) * 0.25 * shake, Math.min(this.cam.y + n(19, 4.1) * 0.18 * shake, ceil), this.cam.z + n(17, 2.2) * 0.25 * shake);
     this.camera.lookAt(this.cam.look);
     if (this.cameraMode === 'top' && !showcase) this.camera.up.set(0, 1, 0);
     this.trauma = Math.max(0, this.trauma - dt * 1.4);
@@ -837,28 +938,66 @@ export class Game {
     const fx = Math.round(x / texel) * texel;
     const fz = Math.round(z / texel) * texel;
     const dir = this.sun.position.clone().sub(this.sun.target.position).normalize();
-    this.sun.target.position.set(fx, 0, fz);
-    this.sun.position.set(fx, 0, fz).addScaledVector(dir, 80);
+    this.sun.target.position.set(fx, y, fz);
+    this.sun.position.set(fx, y, fz).addScaledVector(dir, 80);
   }
 
-  /** The map's fixed layer (tarmac, roads, islands, the shops, the carport, the gates), drawn once and blitted each frame. */
-  private mapLayer: HTMLCanvasElement | null = null;
+  /** The map's fixed layers, one per level (tarmac, roads, islands, shops, the carport, the gates, or a deck's bays and walls), drawn once and blitted each frame. */
+  private mapLayers = new Map<number, HTMLCanvasElement>();
 
-  private buildMapLayer(W: number, H: number, px: (x: number) => number, pz: (z: number) => number, sc: number) {
+  /** The part of the site a map tab shows: the whole site on P0 (lot and ground floor), the car park alone on the other decks. */
+  private mapView(level: number) {
+    const g = this.lot.garage;
+    const b = this.lot.bounds;
+    const x0 = level === 0 ? b.x0 - 6 : g.x0 - 1.5;
+    const x1 = g.x1 + 1.5;
+    const z0 = level === 0 ? b.z0 - 4 : g.z0 - 1.5;
+    const z1 = level === 0 ? b.z1 + 6 : g.z1 + 1.5;
+    return { x0, x1, z0, z1 };
+  }
+
+  /** Metres to canvas pixels for a level's view: north at the top, x flipped so the map matches the chase view from the entrance. */
+  private mapScale(level: number, W: number, H: number) {
+    const v = this.mapView(level);
+    const pad = 6;
+    const sc = Math.min((W - pad * 2) / (v.x1 - v.x0), (H - pad * 2) / (v.z1 - v.z0));
+    const cx = (v.x0 + v.x1) / 2;
+    const cz = (v.z0 + v.z1) / 2;
+    return { sc, px: (x: number) => W / 2 - (x - cx) * sc, pz: (z: number) => H / 2 - (z - cz) * sc };
+  }
+
+  private buildMapLayer(level: number, W: number, H: number) {
     const layer = document.createElement('canvas');
     layer.width = W;
     layer.height = H;
     const g = layer.getContext('2d')!;
+    const { px, pz, sc } = this.mapScale(level, W, H);
     const { bounds, graph, aisles } = this.lot;
-    g.fillStyle = 'rgba(58,138,60,0.92)';
-    g.fillRect(0, 0, W, H);
-    // Tarmac.
-    g.fillStyle = 'rgba(52,56,68,0.97)';
-    g.fillRect(px(bounds.x1), pz(bounds.z1), (bounds.x1 - bounds.x0) * sc, (bounds.z1 - bounds.z0) * sc);
-    // Roads and aisles, at their real width.
+    const gar = this.lot.garage;
+    const accent = '#' + LEVEL_COLOR[level].toString(16).padStart(6, '0');
+    const rect = (x0: number, x1: number, z0: number, z1: number) => g.fillRect(px(x1), pz(z1), (x1 - x0) * sc, (z1 - z0) * sc);
+    if (level === 0) {
+      g.fillStyle = 'rgba(58,138,60,0.92)';
+      g.fillRect(0, 0, W, H);
+      // Tarmac.
+      g.fillStyle = 'rgba(52,56,68,0.97)';
+      rect(bounds.x0, bounds.x1, bounds.z0, bounds.z1);
+    } else {
+      g.fillStyle = 'rgba(14,22,40,0.96)';
+      g.fillRect(0, 0, W, H);
+    }
+    // A deck's floor.
+    const lvl = gar.levels.find((l) => l.lvl === level)!;
+    g.fillStyle = level === 0 ? 'rgba(66,70,84,0.98)' : 'rgba(54,60,78,0.98)';
+    for (const f of lvl.floors) rect(f.x0, f.x1, f.z0, f.z1);
+    // Roads and aisles, at their real width: the open lot's on P0, a deck's own aisles, and the ramps that start or end on it.
     g.lineCap = 'butt';
     for (const a of aisles) {
-      g.strokeStyle = a.kind === 'aisle' ? 'rgba(98,106,122,1)' : 'rgba(128,138,156,1)';
+      const levels = a.nodes.map((n) => graph.nodes[n].lvl);
+      const here = a.garage ? levels.includes(level) : level === 0;
+      if (!here) continue;
+      g.strokeStyle = a.kind === 'ramp' ? accent : a.kind === 'aisle' ? 'rgba(98,106,122,1)' : 'rgba(128,138,156,1)';
+      g.globalAlpha = a.kind === 'ramp' ? 0.85 : 1;
       g.lineWidth = a.width * sc;
       g.beginPath();
       a.nodes.forEach((id, i) => {
@@ -867,82 +1006,117 @@ export class Game {
         else g.lineTo(px(n.x), pz(n.z));
       });
       g.stroke();
+      g.globalAlpha = 1;
     }
     // Bay rows as short ticks (every bay looks the same, so nothing is given away).
     g.strokeStyle = 'rgba(255,255,255,0.4)';
     g.lineWidth = 1;
     g.beginPath();
     for (const s of this.lot.stripes) {
+      if ((s.lvl ?? 0) !== level) continue;
       g.moveTo(px(s.a.x), pz(s.a.z));
       g.lineTo(px(s.b.x), pz(s.b.z));
     }
     g.stroke();
-    // Islands, lawns and the carport.
-    for (const isl of this.lot.islands) {
-      g.fillStyle = isl.kind === 'lawn' || isl.kind === 'planter' || isl.kind === 'hedge' ? 'rgb(64,160,64)' : isl.kind === 'chargers' ? 'rgb(40,200,120)' : 'rgb(190,184,170)';
-      g.fillRect(px(isl.x1), pz(isl.z1), (isl.x1 - isl.x0) * sc, (isl.z1 - isl.z0) * sc);
+    if (level === 0) {
+      // Islands, lawns and the carport.
+      for (const isl of this.lot.islands) {
+        g.fillStyle = isl.kind === 'lawn' || isl.kind === 'planter' || isl.kind === 'hedge' ? 'rgb(64,160,64)' : isl.kind === 'chargers' ? 'rgb(40,200,120)' : 'rgb(190,184,170)';
+        rect(isl.x0, isl.x1, isl.z0, isl.z1);
+      }
+      for (const c of this.lot.canopies) {
+        g.fillStyle = 'rgba(70,110,230,0.8)';
+        rect(c.x0, c.x1, c.z0, c.z1);
+      }
+      // The shops along the top, the gates (the entry bottom centre) as short bars.
+      for (const shop of this.lot.shops) {
+        g.fillStyle = shop.name === 'MERGE MART' ? 'rgb(238,184,98)' : 'rgb(222,100,62)';
+        g.fillRect(px(shop.x1), pz(bounds.z1) - 8, (shop.x1 - shop.x0) * sc, 7);
+      }
+      g.fillStyle = 'rgba(255,210,63,0.95)';
+      for (const gate of this.lot.gates) g.fillRect(px((gate.px + gate.tx) / 2) - 3, pz(gate.z) - 1, 6, 2);
     }
-    for (const c of this.lot.canopies) {
-      g.fillStyle = 'rgba(70,110,230,0.8)';
-      g.fillRect(px(c.x1), pz(c.z1), (c.x1 - c.x0) * sc, (c.z1 - c.z0) * sc);
-    }
-    // The shops along the top, the gates (the entry bottom centre) as short bars.
-    for (const shop of this.lot.shops) {
-      g.fillStyle = shop.name === 'MERGE MART' ? 'rgb(238,184,98)' : 'rgb(222,100,62)';
-      g.fillRect(px(shop.x1), pz(bounds.z1) - 8, (shop.x1 - shop.x0) * sc, 7);
-    }
-    g.fillStyle = 'rgba(255,210,63,0.95)';
-    for (const gate of this.lot.gates) g.fillRect(px((gate.px + gate.tx) / 2) - 3, pz(gate.z) - 1, 6, 2);
+    // Walls and columns of the deck, and its name.
+    g.fillStyle = 'rgba(200,204,214,0.95)';
+    for (const w of lvl.walls) rect(w.x0, w.x1, w.z0, w.z1);
+    for (const c of lvl.columns) g.fillRect(px(c.x) - 1.5, pz(c.z) - 1.5, 3, 3);
+    g.strokeStyle = accent;
+    g.lineWidth = 2;
+    g.strokeRect(1, 1, W - 2, H - 2);
+    g.fillStyle = accent;
+    g.font = 'bold 22px "Arial Narrow", Arial, sans-serif';
+    g.textAlign = 'right';
+    g.fillText(levelName(level), W - 8, 24);
     return layer;
   }
+
+  /** Which level the minimap shows: the one picked with a tab, until you change level yourself. */
+  setMapLevel = (level: number | null) => {
+    this.mapPick = level;
+  };
 
   private drawMinimap() {
     const c = this.minimap;
     if (!c) return;
     const g = c.getContext('2d');
     if (!g) return;
-    const { bounds } = this.lot;
     const W = c.width;
     const H = c.height;
-    const pad = 8;
-    const sx = (W - pad * 2) / (bounds.x1 - bounds.x0);
-    const sz = (H - pad * 2) / (bounds.z1 - bounds.z0);
-    const sc = Math.min(sx, sz);
-    // North (the shops) at the top; x flipped so the map matches the chase view from the entrance.
-    const px = (x: number) => W / 2 - x * sc;
-    const pz = (z: number) => H - pad - (z - bounds.z0) * sc;
-    if (!this.mapLayer || this.mapLayer.width !== W || this.mapLayer.height !== H) this.mapLayer = this.buildMapLayer(W, H, px, pz, sc);
+    const me = this.state.cars[0];
+    const myLevel = levelOf(me.y);
+    if (myLevel !== this.mapSeenLevel) {
+      this.mapSeenLevel = myLevel;
+      this.mapPick = null;
+    }
+    // Once the round is over the map goes to the level where the bay was (and shows it); until then it follows you, or the tab you picked.
+    const done = this.state.phase === 'done';
+    const revealed = this.lot.bays[this.state.winBay >= 0 ? this.state.winBay : this.state.target].lvl;
+    const level = this.mapPick ?? (done ? revealed : myLevel);
+    this.mapShown = level;
+    let layer = this.mapLayers.get(level);
+    if (!layer || layer.width !== W || layer.height !== H) {
+      if (layer && (layer.width !== W || layer.height !== H)) this.mapLayers.clear();
+      layer = this.buildMapLayer(level, W, H);
+      this.mapLayers.set(level, layer);
+    }
+    const { px, pz } = this.mapScale(level, W, H);
     g.clearRect(0, 0, W, H);
-    g.drawImage(this.mapLayer, 0, 0);
-    // Shoppers as small pale dots; the free bay only once the round is over.
+    g.drawImage(layer, 0, 0);
+    const here = (y: number) => Math.abs(y - levelY(level)) < LEVEL_H * 0.6;
+    // Shoppers as small bright dots on this level; the free bay only once the round is over.
     g.fillStyle = 'rgba(255,214,90,0.95)';
-    for (const p of this.state.peds) g.fillRect(px(p.x) - 1, pz(p.z) - 1, 2, 2);
+    for (const p of this.state.peds) if (here(p.y)) g.fillRect(px(p.x) - 1.2, pz(p.z) - 1.2, 2.4, 2.4);
     if (this.state.phase === 'done') {
       const bay = this.lot.bays[this.state.winBay >= 0 ? this.state.winBay : this.state.target];
-      g.fillStyle = `rgba(61,220,132,${0.6 + Math.sin(this.time * 6) * 0.4})`;
-      g.beginPath();
-      g.arc(px(bay.x), pz(bay.z), 5, 0, Math.PI * 2);
-      g.fill();
+      if (here(bay.y)) {
+        g.fillStyle = `rgba(61,220,132,${0.6 + Math.sin(this.time * 6) * 0.4})`;
+        g.beginPath();
+        g.arc(px(bay.x), pz(bay.z), 5, 0, Math.PI * 2);
+        g.fill();
+      }
     }
     for (const car of this.state.cars) {
-      const x = px(car.x);
-      const y = pz(car.z);
+      // Cars on other levels are not drawn: that would show who is where upstairs. (On a ramp, a car shows on both ends' maps.)
+      const onRamp = Math.abs(car.y / LEVEL_H - Math.round(car.y / LEVEL_H)) > 0.15;
+      if (!here(car.y) && !(onRamp && Math.abs(car.y - levelY(level)) < LEVEL_H)) continue;
+      const mine = car.id === 0 && this.opts.mode === 'race';
       g.save();
-      g.translate(x, y);
+      g.translate(px(car.x), pz(car.z));
       g.rotate(-car.h);
       g.fillStyle = '#' + car.color.toString(16).padStart(6, '0');
-      g.strokeStyle = car.id === 0 && this.opts.mode === 'race' ? '#ffd23f' : 'rgba(0,0,0,0.6)';
-      g.lineWidth = car.id === 0 ? 2 : 1;
+      g.strokeStyle = mine ? '#ffd23f' : 'rgba(0,0,0,0.7)';
+      g.lineWidth = mine ? 2.2 : 1.2;
       g.beginPath();
-      g.moveTo(0, -5);
-      g.lineTo(3.2, 4);
-      g.lineTo(-3.2, 4);
+      g.moveTo(0, -6);
+      g.lineTo(4, 5);
+      g.lineTo(-4, 5);
       g.closePath();
       g.fill();
       g.stroke();
       g.restore();
     }
   }
+  private mapSeenLevel = 0;
 
   private emitHud(force: boolean) {
     const cb = this.opts.onHud;
@@ -985,6 +1159,17 @@ export class Game {
       endedFor: this.endedAt < 0 ? 0 : this.time - this.endedAt,
       fps: this.fps,
       volumes: { ...this.sfx.volumes },
+      level: levelOf(me.y),
+      levelName: levelName(levelOf(me.y)),
+      inGarage: this.garageOf(me.x, me.z, me.y).inside,
+      levelColor: LEVEL_COLOR[levelOf(me.y)] ?? 0xffffff,
+      board: (() => {
+        const h = hintOf(s, this.lot);
+        const [head, tail] = hintLines(h);
+        return { free: h.free, line: tail || head.replace(/^FREE SPACES: \d+$/, ''), deckColor: h.showing !== null ? LEVEL_COLOR[h.showing] : null };
+      })(),
+      mapLevel: this.mapShown,
+      mapLevels: LEVELS.map((l) => ({ level: l, name: levelName(l), color: LEVEL_COLOR[l] })),
     });
     void force;
   }

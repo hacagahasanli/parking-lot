@@ -119,7 +119,7 @@ export const buildPeds = (count: number) => {
       }
       const s = p.look.height;
       q.setFromAxisAngle(up, p.h);
-      root.compose(pos.set(p.x, 0, p.z), q, scl.set(s, s, s));
+      root.compose(pos.set(p.x, p.y, p.z), q, scl.set(s, s, s));
 
       // Pose: hip height, torso lean, leg and arm swing.
       let hipY = 0.9;

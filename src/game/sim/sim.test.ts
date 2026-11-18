@@ -2,7 +2,11 @@ import { DT, DRIVE } from './constants';
 import { botInput, canSee, createBrain, SIGHT } from './bot';
 import { CAR, PED, RACE } from './constants';
 import { collide } from './collide';
+import { HINT, hintLines, hintOf } from './hint';
+import { LEVEL_H, LEVELS, levelOf, levelY } from './levels';
 import { buildLot, LAYOUT } from './lot';
+
+import type { Shape } from './lot';
 import { routeToDock, shortestPath } from './nav';
 import { radio } from './radio';
 import { bayBox, carBox, createRound, createWorld, drive, forwardSpeed, step } from './step';
@@ -10,6 +14,8 @@ import { bayBox, carBox, createRound, createWorld, drive, forwardSpeed, step } f
 import type { Input } from './types';
 
 const lot = buildLot();
+/** Does a car box at height `y` touch this solid? (Decks and ramps are stacked: a solid only counts at the heights it stands at.) */
+const touches = (box: ReturnType<typeof carBox>, y: number, s: Shape) => (s.y0 === undefined || (y + 1.5 > s.y0 && y < (s.y1 ?? Infinity))) && collide(box, s);
 const press = (p: Partial<Input>): Input => ({ throttle: 0, brake: 0, steer: 0, handbrake: false, horn: false, ...p });
 
 describe('the lot', () => {
@@ -45,7 +51,7 @@ describe('the lot', () => {
       const world = createWorld(id, lot);
       const bay = lot.bays[id];
       const box = carBox({ x: bay.x, z: bay.z, h: bay.h });
-      for (const s of world.solids) expect(collide(box, s), `bay ${id}`).toBeNull();
+      for (const s of world.solids) expect(touches(box, bay.y, s), `bay ${id}`).toBeFalsy();
     }
   });
 
@@ -74,10 +80,11 @@ describe('the lot', () => {
       const h = Math.atan2(e.ux, e.uz);
       for (let t = lot.aisles[e.aisle].kind === 'entry' ? 4 : 0; t <= e.len; t += 1) {
         const box = carBox({ x: e.a.x + e.ux * t, z: e.a.z + e.uz * t, h });
-        world.solids.forEach((s, i) => world.owner[i] >= -1 && expect(collide(box, s), `${lot.aisles[e.aisle].name} at ${t.toFixed(0)} m`).toBeNull());
+        const y = e.yA + ((e.yB - e.yA) * t) / e.len;
+        world.solids.forEach((s, i) => world.owner[i] >= -1 && expect(touches(box, y, s), `${lot.aisles[e.aisle].name} at ${t.toFixed(0)} m`).toBeFalsy());
       }
     }
-  });
+  }, 60000);
 });
 
 describe('posts, signs and poles', () => {
@@ -270,16 +277,19 @@ describe('a round', () => {
     expect(state.winner).toBeNull();
   });
 
+  /** Seconds a round may take with bots alone: the open lot takes about a minute, a bay on a deck up to three. */
+  const BOT_LIMIT = 180;
+  const where = (id: number) => (lot.bays[id].garage ? `deck P${lot.bays[id].lvl}` : 'open lot');
   it.each(Array.from({ length: 24 }, (_, i) => i + 1))('bots search, find and park in the free bay (seed %i)', (seed) => {
     const { state, world } = createRound(lot, { seed, bots: [true, true, true, true] });
     const brains = state.cars.map((c) => createBrain(world, c, seed));
-    for (let i = 0; i < 60 * 150 && state.phase !== 'done'; i++) {
+    for (let i = 0; i < 60 * BOT_LIMIT && state.phase !== 'done'; i++) {
       const inputs = state.cars.map((c) => botInput(state, world, c, brains[c.id]));
       step(state, world, inputs);
       radio(state, [...state.events, ...brains.flatMap((b) => b.outbox.splice(0))]);
     }
-    expect(state.winner, `target ${state.target}`).not.toBeNull();
-    expect(state.clock).toBeLessThan(150);
+    expect(state.winner, `target ${state.target} (${where(state.target)})`).not.toBeNull();
+    expect(state.clock).toBeLessThan(BOT_LIMIT);
   }, 60000);
 
   it.each(Array.from({ length: 24 }, (_, i) => i + 1))('a bot never heads for the bay before it has spotted it (seed %i)', (seed) => {
@@ -288,7 +298,7 @@ describe('a round', () => {
     // The points that only the bay's own approach uses: where the car turns in, the mouth, the stop.
     const approaches = (id: number) => lot.bays[id].approach.flatMap((ap) => ap.tail);
     const spots: number[] = [];
-    for (let i = 0; i < 60 * 150 && state.phase !== 'done'; i++) {
+    for (let i = 0; i < 60 * BOT_LIMIT && state.phase !== 'done'; i++) {
       step(state, world, state.cars.map((c) => botInput(state, world, c, brains[c.id])));
       for (const b of brains) {
         for (const e of b.outbox.splice(0)) if (e.type === 'spot') spots.push(e.dist);
@@ -557,31 +567,238 @@ describe('the radio', () => {
 });
 
 describe('the car that pulls out', () => {
-  it('drives away along the aisle graph to the exit gate and is gone', () => {
-    const { state, world } = createRound(lot, { seed: 2, bots: [false] });
+  const outside = lot.candidates.find((id) => !lot.bays[id].garage && lot.bays[id].type === 'angled' && lot.bays[id].variant < 3)!;
+  const upstairs = lot.candidates.find((id) => lot.bays[id].garage && lot.bays[id].lvl === 1 && lot.bays[id].variant < 3)!;
+  const target = lot.candidates.find((id) => id !== outside && id !== upstairs)!;
+  const round = (leaver: number) => createRound(lot, { seed: 2, bots: [false], target, leaver });
+
+  it.each([
+    ['in the open lot', outside],
+    ['on deck P1', upstairs],
+  ])('drives away along the aisle graph to the exit gate and is gone (%s)', (_name, bay) => {
+    const { state, world } = round(bay);
     const l = state.leaver!;
     state.phase = 'race';
     state.clock = l.at;
     let steps = 0;
-    for (let i = 0; i < 60 * 120 && l.phase !== 'gone'; i++, steps++) step(state, world, [press({ handbrake: true })]);
+    for (let i = 0; i < 60 * 150 && l.phase !== 'gone'; i++, steps++) step(state, world, [press({ handbrake: true })]);
     expect(l.phase).toBe('gone');
-    expect(steps / 60).toBeLessThan(110);
+    expect(steps / 60).toBeLessThan(140);
     // It went by road: the route it followed ended at the exit lane.
     const end = l.route[l.route.length - 1];
     expect(Math.hypot(end.x - lot.graph.nodes[lot.exitNode].x, end.z - lot.graph.nodes[lot.exitNode].z)).toBeLessThan(1);
   });
 
-  it('leaves its bay, which is then free to win in', () => {
-    const { state, world } = createRound(lot, { seed: 2, bots: [false] });
+  it.each([
+    ['in the open lot', outside],
+    ['on deck P1', upstairs],
+  ])('leaves its bay, which is then free to win in (%s)', (_name, bay) => {
+    const { state, world } = round(bay);
     const l = state.leaver!;
     state.phase = 'race';
     state.clock = l.at;
-    for (let i = 0; i < 60 * 30 && state.extra < 0; i++) step(state, world, [press({ handbrake: true })]);
+    const events: string[] = [];
+    for (let i = 0; i < 60 * 40 && state.extra < 0; i++) {
+      step(state, world, [press({ handbrake: true })]);
+      for (const e of state.events) if (e.type === 'leave') events.push(`leave:${e.lvl}:${e.garage}`);
+    }
     expect(state.extra).toBe(l.bay);
-    const bay = bayBox(world, l.bay);
-    Object.assign(state.cars[0], { x: bay.x, z: bay.z, h: bay.h, vx: 0, vz: 0, w: 0 });
+    // The announcement says which deck (the radio uses it).
+    expect(events).toEqual([`leave:${lot.bays[bay].lvl}:${lot.bays[bay].garage}`]);
+    const box = bayBox(world, l.bay);
+    Object.assign(state.cars[0], { x: box.x, z: box.z, y: lot.bays[bay].y, h: box.h, vx: 0, vz: 0, w: 0 });
     for (let i = 0; i < 90 && state.phase === 'race'; i++) step(state, world, [press({ handbrake: true })]);
     expect(state.winner).toBe(0);
     expect(state.winBay).toBe(l.bay);
+  });
+});
+
+describe('the car park', () => {
+  const deckBays = (lvl: number) => lot.bays.filter((b) => b.garage && b.lvl === lvl);
+  const ramp = lot.garage.ramps[1]; // P0 up to P1, rising towards +x
+  const driveUp = (seconds: number) => {
+    const { state, world } = createRound(lot, { seed: 1, bots: [false] });
+    const car = state.cars[0];
+    const z = (ramp.z0 + ramp.z1) / 2;
+    Object.assign(car, { x: ramp.x0 - 6, z, y: 0, h: Math.PI / 2 });
+    state.phase = 'race';
+    state.gate.open = 1;
+    const ys: number[] = [];
+    for (let i = 0; i < 60 * seconds; i++) {
+      step(state, world, [press({ throttle: 1 })]);
+      ys.push(car.y);
+    }
+    return { state, car, ys };
+  };
+
+  it('has four decks of bays and plenty of candidates on every one', () => {
+    for (const lvl of LEVELS) {
+      expect(deckBays(lvl).length, `deck ${lvl}`).toBeGreaterThanOrEqual(30);
+      expect(lot.candidates.filter((id) => lot.bays[id].garage && lot.bays[id].lvl === lvl).length, `candidates on ${lvl}`).toBeGreaterThan(10);
+    }
+    for (const b of lot.bays) expect(b.y).toBeCloseTo(levelY(b.lvl));
+  });
+
+  it('puts every car, ramp and deck at the right height: a ramp changes level by position', () => {
+    const { car, ys } = driveUp(8);
+    // Up the whole climb, without a step, to the next deck.
+    expect(ys[0]).toBeCloseTo(0, 1);
+    expect(car.y).toBeCloseTo(LEVEL_H, 1);
+    expect(levelOf(car.y)).toBe(1);
+    for (let i = 1; i < ys.length; i++) expect(Math.abs(ys[i] - ys[i - 1])).toBeLessThan(0.06);
+    // It slowed on the way up (gravity along the slope).
+    expect(car.grade).toBeLessThanOrEqual(0.001);
+  });
+
+  it('slows a car on the way up a ramp and lets it run on the way down', () => {
+    const slope = (r: (typeof lot.garage.ramps)[number], dir: 1 | -1) => {
+      const { state, world } = createRound(lot, { seed: 1, bots: [false] });
+      const car = state.cars[0];
+      const z = (r.z0 + r.z1) / 2;
+      const midY = (levelY(r.lo) + levelY(r.hi)) / 2;
+      Object.assign(car, { x: (r.x0 + r.x1) / 2, z, y: midY, h: dir * (Math.PI / 2), vx: dir * 8, vz: 0 });
+      state.phase = 'race';
+      for (let i = 0; i < 30; i++) step(state, world, [press({ throttle: 0 })]);
+      return forwardSpeed(car);
+    };
+    // Heading +x on a ramp that rises towards +x: uphill. The opposite way: downhill.
+    const up = slope(ramp, 1);
+    const down = slope(ramp, -1);
+    expect(up).toBeLessThan(down);
+    expect(up).toBeLessThan(8);
+  });
+
+  it('never lets things on different levels touch, though they share the same x and z', () => {
+    const { state, world } = createRound(lot, { seed: 1, bots: [false, false] });
+    const lower = lot.bays.find((b) => b.garage && b.lvl === 0 && b.use === 'car')!;
+    // A car on deck P1 straight over a parked car on P0 (and over the car on P2 below... the roof): nothing happens.
+    Object.assign(state.cars[0], { x: lower.x, z: lower.z, y: levelY(1), h: lower.h });
+    Object.assign(state.cars[1], { x: lower.x, z: lower.z, y: levelY(2), h: lower.h });
+    state.phase = 'race';
+    let bumps = 0;
+    for (let i = 0; i < 120; i++) {
+      step(state, world, [press({ handbrake: true }), press({ handbrake: true })]);
+      bumps += state.events.filter((e) => e.type === 'bump').length;
+    }
+    expect(bumps).toBe(0);
+    expect(state.cars[0].y).toBeCloseTo(levelY(1));
+    expect(state.cars[1].y).toBeCloseTo(levelY(2));
+    // And on the same deck they do collide.
+    Object.assign(state.cars[1], { x: state.cars[0].x, z: state.cars[0].z, y: levelY(1) });
+    for (let i = 0; i < 10; i++) step(state, world, [press({ handbrake: true }), press({ handbrake: true })]);
+    expect(Math.hypot(state.cars[0].x - state.cars[1].x, state.cars[0].z - state.cars[1].z)).toBeGreaterThan(0.3);
+  });
+
+  it('keeps cars on their deck: the walls and parked cars stop them, and the deck above has its own', () => {
+    const { state, world } = createRound(lot, { seed: 1, bots: [false] });
+    const car = state.cars[0];
+    state.phase = 'race';
+    // Drive east along the P2 roof aisle at full throttle: the roof parapet and the wall stop it, it never falls off.
+    Object.assign(car, { x: lot.garage.rows[0], z: lot.garage.aisleZ[1], y: levelY(2), h: Math.PI / 2 });
+    for (let i = 0; i < 60 * 14; i++) step(state, world, [press({ throttle: 1 })]);
+    expect(car.y).toBeCloseTo(levelY(2), 1);
+    expect(car.x).toBeLessThan(lot.garage.x1);
+  });
+
+  it('does not count a car parked on the wrong deck, straight over the free bay', () => {
+    const target = lot.candidates.find((id) => lot.bays[id].garage && lot.bays[id].lvl === 1)!;
+    const { state, world } = createRound(lot, { seed: 3, bots: [false], target });
+    const bay = bayBox(world, target);
+    while (state.phase === 'countdown') step(state, world, [press({})]);
+    // The deck above (P2), exactly over it.
+    Object.assign(state.cars[0], { x: bay.x, z: bay.z, y: levelY(2), h: bay.h, vx: 0, vz: 0 });
+    for (let i = 0; i < 180; i++) step(state, world, [press({ handbrake: true })]);
+    expect(state.winner).toBeNull();
+    // On the right deck it counts.
+    Object.assign(state.cars[0], { x: bay.x, z: bay.z, y: levelY(1), h: bay.h, vx: 0, vz: 0, park: 0 });
+    for (let i = 0; i < 120 && state.phase === 'race'; i++) step(state, world, [press({ handbrake: true })]);
+    expect(state.winner).toBe(0);
+  });
+
+  it('is only seen from its own deck, never through a slab', () => {
+    const target = lot.candidates.find((id) => lot.bays[id].garage && lot.bays[id].lvl === 1)!;
+    const { state, world } = createRound(lot, { seed: 3, bots: [true], target });
+    const bay = lot.bays[target];
+    const [p, q] = bay.approach[0].tail;
+    const car = state.cars[0];
+    const at = { x: p.x, z: p.z, h: Math.atan2(q.x - p.x, q.z - p.z) };
+    Object.assign(car, at, { y: bay.y });
+    expect(canSee(world, car, target)).toBe(true);
+    car.y = levelY(2);
+    expect(canSee(world, car, target)).toBe(false);
+    car.y = levelY(0);
+    expect(canSee(world, car, target)).toBe(false);
+  });
+
+  it('keeps every wall, column and ramp side wall at the heights of its own deck or ramp', () => {
+    for (const s of lot.solids) {
+      if (s.y0 === undefined) continue;
+      expect(s.y1!).toBeGreaterThan(s.y0);
+      expect(s.y1! - s.y0).toBeLessThan(LEVEL_H * 2 + 3.2);
+    }
+    // Overhead signs hang above the roof of a car, and the clear height under a deck is over 3 m.
+    for (const p of lot.garage.plaques) expect(p.y - levelY(p.lvl)).toBeGreaterThan(1.8);
+    expect(LEVEL_H - 0.5).toBeGreaterThan(3);
+  });
+
+  it('puts the free bay on every deck across many rounds, and on the open lot too', () => {
+    const seen = new Set<string>();
+    for (let seed = 1; seed <= 80; seed++) {
+      const b = lot.bays[createRound(lot, { seed, bots: [true] }).state.target];
+      seen.add(b.garage ? `P${b.lvl}` : 'lot');
+    }
+    expect([...seen].sort()).toEqual(['P-1', 'P0', 'P1', 'P2', 'lot']);
+  });
+
+  it('has shoppers on every deck, who stay on their floor and never get run over by a car on another', () => {
+    const { state, world } = createRound(lot, { seed: 4, bots: [false] });
+    const ys = new Set(state.peds.map((p) => p.y));
+    for (const lvl of LEVELS) expect(ys.has(levelY(lvl)), `deck ${lvl}`).toBe(true);
+    // A car on P0 driving over the plan position of a shopper on P1: no incident.
+    const ped = state.peds.find((p) => p.y === levelY(1))!;
+    Object.assign(state.cars[0], { x: ped.x - 3, z: ped.z, y: 0, h: Math.PI / 2, vx: 6, vz: 0 });
+    state.phase = 'race';
+    for (let i = 0; i < 90; i++) step(state, world, [press({ throttle: 1 })]);
+    // (the car may meet a shopper on its own deck; the one a floor above is untouched)
+    expect(ped.mode).not.toBe('down');
+    expect(ped.immune).toBe(0);
+  });
+});
+
+describe('the free-spaces board', () => {
+  const garageTarget = lot.candidates.find((id) => lot.bays[id].garage && lot.bays[id].lvl === 2)!;
+  const lotTarget = lot.candidates.find((id) => !lot.bays[id].garage)!;
+
+  it('says only how many are free at first, then the part of the site, then two decks (one of them wrong)', () => {
+    const { state } = createRound(lot, { seed: 5, bots: [true], target: garageTarget });
+    state.clock = 3;
+    expect(hintOf(state, lot)).toMatchObject({ free: 1, stage: 0, zone: null, decks: [], showing: null });
+    expect(hintLines(hintOf(state, lot))).toEqual(['FREE SPACES: 1', '']);
+    state.clock = HINT.zoneAt + 1;
+    expect(hintOf(state, lot)).toMatchObject({ stage: 1, zone: 'garage' });
+    state.clock = HINT.deckAt + 1;
+    const h = hintOf(state, lot);
+    expect(h.stage).toBe(2);
+    expect(h.decks).toHaveLength(2);
+    expect(h.decks).toContain(2);
+    // The board flickers between the two, so the first one shown is no clue.
+    const shown = new Set<number>();
+    for (let t = HINT.deckAt; t < HINT.deckAt + 10; t += 0.3) {
+      state.clock = t;
+      shown.add(hintOf(state, lot).showing!);
+    }
+    expect([...shown].sort()).toEqual(h.decks);
+  });
+
+  it('only names the open lot when the bay is outdoors, and counts two once a car has pulled out', () => {
+    const { state } = createRound(lot, { seed: 5, bots: [true], target: lotTarget });
+    state.clock = HINT.deckAt + 5;
+    const h = hintOf(state, lot);
+    expect(h.zone).toBe('lot');
+    expect(h.decks).toEqual([]);
+    expect(hintLines(h)[1]).toBe('IN THE OPEN LOT');
+    state.extra = 7;
+    expect(hintOf(state, lot).free).toBe(2);
+    expect(hintLines(hintOf(state, lot))[0]).toBe('FREE SPACES: 2');
   });
 });

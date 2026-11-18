@@ -85,9 +85,45 @@ const Intro = () => (
       ONE SPACE LEFT
     </div>
     <div className="text-cream/90 max-w-md text-xs drop-shadow-[0_2px_8px_rgba(0,0,0,0.8)] sm:text-base" style={{ animation: 'fadeIn 0.8s ease-out both' }}>
-      Somewhere in this car park, one bay is empty. Three rivals are looking too. Read the board over the gate.
+      Somewhere on this site, in the open or up and down the garage, one bay is empty. Three rivals are looking too.
     </div>
     <div className="text-orange/90 font-mono text-[10px] tracking-[0.3em] sm:text-xs">&gt;&gt;&gt;&gt;&gt;&gt;&gt; EVERYONE ELSE</div>
+  </div>
+);
+
+/** The free-spaces board as a HUD panel: the same words as the LED sign over the gate and at the garage door. */
+const Board = ({ hud }: { hud: HudState }) => (
+  <div className="panel-cut bg-ink-deep/85 pointer-events-none flex flex-col items-center px-3 py-1 font-mono tracking-widest" aria-label="Free spaces board" role="status">
+    <span className="text-[11px] font-bold text-[#ffb02e] sm:text-sm">FREE SPACES: {hud.board.free}</span>
+    {hud.board.line && (
+      <span className="text-[10px] font-bold sm:text-xs" style={{ color: hud.board.deckColor !== null ? hex(hud.board.deckColor) : '#ff7a2e' }}>
+        {hud.board.line}
+      </span>
+    )}
+  </div>
+);
+
+/** One tab per level above the minimap; a dot marks the level you are on. */
+const MapTabs = ({ hud, game }: { hud: HudState; game: Game | null }) => (
+  <div className="pointer-events-auto flex gap-0.5" role="tablist" aria-label="Minimap level">
+    {hud.mapLevels.map((l) => {
+      const on = hud.mapLevel === l.level;
+      return (
+        <button
+          key={l.level}
+          type="button"
+          role="tab"
+          aria-selected={on}
+          aria-label={`Level ${l.name}${hud.level === l.level ? ', you are here' : ''}`}
+          onClick={() => game?.setMapLevel(l.level)}
+          className="font-display relative min-w-9 px-1.5 py-0.5 text-[11px] leading-4 transition sm:min-w-11 sm:py-1 sm:text-xs"
+          style={{ background: on ? hex(l.color) : 'rgba(10,13,24,0.8)', color: on ? (l.level === 2 ? '#15161a' : '#fff') : hex(l.color), outline: on ? 'none' : `1px solid ${hex(l.color)}66` }}
+        >
+          {l.name}
+          {hud.level === l.level && <span className="absolute -top-0.5 -right-0.5 h-2 w-2 rounded-full bg-[#ffd23f] ring-1 ring-black/60" />}
+        </button>
+      );
+    })}
   </div>
 );
 
@@ -210,14 +246,15 @@ export const Race = () => {
     <main className="fixed inset-0 overflow-hidden bg-ink-deep select-none" onPointerDown={() => gameRef.current?.unlockAudio()}>
       <canvas ref={canvas} className="absolute inset-0 h-full w-full touch-none" />
       <div
-        className="pointer-events-none absolute z-10"
+        className="absolute z-10 flex flex-col gap-1"
         style={{
           left: 'calc(10px + env(safe-area-inset-left))',
           ...(touch ? { top: 'calc(112px + env(safe-area-inset-top))' } : { bottom: 'calc(10px + env(safe-area-inset-bottom))' }),
           visibility: hud ? 'visible' : 'hidden',
         }}
       >
-        <canvas ref={minimap} width={264} height={208} className={`border-cream/20 border ${touch ? 'h-24 w-[7.6rem]' : 'h-32 w-40 sm:h-[13.5rem] sm:w-[17rem]'}`} aria-label="Minimap" />
+        {hud && <MapTabs hud={hud} game={gameRef.current} />}
+        <canvas ref={minimap} width={360} height={216} className={`border-cream/25 pointer-events-none border-2 ${touch ? 'h-[4.8rem] w-32' : 'h-28 w-[11.7rem] sm:h-44 sm:w-[18.3rem]'}`} aria-label="Minimap" />
       </div>
 
       {!hud && (
@@ -235,7 +272,8 @@ export const Race = () => {
             </div>
           </div>
           {touch && (
-            <div className="pointer-events-none absolute z-10" style={{ top: 'calc(176px + env(safe-area-inset-top))', left: 'calc(10px + env(safe-area-inset-left))' }}>
+            <div className="pointer-events-none absolute z-10 flex flex-col items-start gap-1" style={{ top: 'calc(232px + env(safe-area-inset-top))', left: 'calc(10px + env(safe-area-inset-left))' }}>
+              {hud.phase === 'race' && !hud.result && <Board hud={hud} />}
               <Radio hud={hud} compact />
             </div>
           )}
@@ -247,8 +285,13 @@ export const Race = () => {
           </div>
 
           {hud.phase === 'countdown' && <Intro />}
+          {!touch && hud.phase === 'race' && !hud.result && (
+            <div className="pointer-events-none absolute left-1/2 z-10 -translate-x-1/2" style={{ top: 'calc(54px + env(safe-area-inset-top))' }}>
+              <Board hud={hud} />
+            </div>
+          )}
           {hud.phase === 'countdown' && hud.countdown > 0 && (
-            <div className="pointer-events-none absolute inset-0 z-10 flex items-end justify-center pb-[18%] sm:items-center sm:pb-0 sm:pt-[22vh]">
+            <div className="pointer-events-none absolute inset-0 z-10 flex items-end justify-center pb-[40%] sm:items-center sm:pb-0 sm:pt-[22vh]">
               <div key={hud.countdown} className="font-display text-gold text-8xl drop-shadow-lg sm:text-9xl" style={{ animation: 'countPop 1s ease-out both' }}>{hud.countdown}</div>
             </div>
           )}
@@ -270,6 +313,11 @@ export const Race = () => {
           <div className="pointer-events-none absolute z-10 text-right" style={{ right: 'calc(14px + env(safe-area-inset-right))', ...(touch ? { top: 'calc(92px + env(safe-area-inset-top))' } : { bottom: 'calc(14px + env(safe-area-inset-bottom))' }) }}>
             <div className={`font-display text-cream tabular-nums drop-shadow-lg ${touch ? 'text-3xl' : 'text-5xl'}`}>{Math.round(hud.speed)}<span className="text-lilac ml-1 text-base">km/h</span></div>
             <div className="font-display text-gold text-2xl drop-shadow-lg">{hud.gear}</div>
+            {(hud.inGarage || hud.level !== 0) && (
+              <div className="font-display mt-1 inline-block px-2 py-0.5 text-lg" style={{ background: hex(hud.levelColor), color: hud.level === 2 ? '#15161a' : '#fff' }} aria-label={`Level ${hud.levelName}`}>
+                {hud.levelName}
+              </div>
+            )}
           </div>
 
           {showMeter && (

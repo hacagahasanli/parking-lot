@@ -11,10 +11,12 @@ import { mergeVertices } from 'three/examples/jsm/utils/BufferGeometryUtils.js';
 import { BAY, rng } from '../sim/lot';
 
 import { block, canvasTexture, flat, merge, scaleUV } from './geo';
+import { buildGarage } from './garage';
 import { animateGates, buildBayPaint, buildCanopy, buildChargers, buildGantry, buildGates, buildMarkings, buildSigns, buildTruck, buildYardProps } from './scenery';
 
-import type { BoardRow } from './board';
+import type { GarageView } from './garage';
 import type { GateViews } from './scenery';
+import type { BoardRow } from './board';
 import type { Lot, Shop } from '../sim/lot';
 
 // ---------------------------------------------------------------------------
@@ -227,7 +229,8 @@ export interface WorldView {
   /** The neon letters on the shops, for a flicker. */
   signs: THREE.MeshStandardMaterial[];
   gates: GateViews;
-  /** The LED board over the entry gate (call `setGantryBoard` with its rows). */
+  /** The multi-storey car park, and the board over the entry gate (call `setBoard` with its rows). */
+  garage: GarageView;
   setGantryBoard: (rows: BoardRow[]) => void;
   /** Lifts the barriers: entry by the sim's gate (0..1), exit by how close the pulling-out car is. */
   setGates: (entryOpen: number, exitOpen: number) => void;
@@ -262,7 +265,7 @@ export const buildWorld = (lot: Lot): WorldView => {
   // The roads (main road, avenue, side roads, entry and exit lanes) are newer, darker tarmac than the old parking aisles.
   const roadGeos: THREE.BufferGeometry[] = [];
   for (const a of lot.aisles) {
-    if (a.kind === 'aisle') continue;
+    if (a.kind === 'aisle' || a.garage) continue;
     for (let i = 0; i < a.nodes.length - 1; i++) {
       const p = nodes[a.nodes[i]];
       const q = nodes[a.nodes[i + 1]];
@@ -316,10 +319,21 @@ export const buildWorld = (lot: Lot): WorldView => {
     group.add(drive);
   }
 
+  // The road into the car park crosses the east pavement flush, like the entry and exit lanes.
+  {
+    const gz = lot.garage.entrance.z;
+    const gate = new THREE.Mesh(scaleUV(new THREE.PlaneGeometry(10, 8), 10 / 9, 8 / 9), new THREE.MeshStandardMaterial({ map: roadTex2, roughness: 0.93 }));
+    gate.rotation.x = -Math.PI / 2;
+    gate.position.set(bounds.x1 + 3, 0.16, gz);
+    gate.receiveShadow = true;
+    group.add(gate);
+  }
+
   // --- Paint: bay stripes, one-way arrows, centre lines, words.
   const paint = new THREE.MeshStandardMaterial({ color: 0xffffff, roughness: 0.65, polygonOffset: true, polygonOffsetFactor: -2 });
   const lines: THREE.BufferGeometry[] = [];
   for (const s of lot.stripes) {
+    if (s.lvl !== undefined) continue;
     const len = Math.hypot(s.b.x - s.a.x, s.b.z - s.a.z);
     const h = Math.atan2(s.b.x - s.a.x, s.b.z - s.a.z);
     lines.push(flat(0.12, len, (s.a.x + s.b.x) / 2, (s.a.z + s.b.z) / 2, h, 0.012));
@@ -344,7 +358,7 @@ export const buildWorld = (lot: Lot): WorldView => {
   const dashes: THREE.BufferGeometry[] = [];
   for (const e of lot.graph.edges) {
     const aisle = lot.aisles[e.aisle];
-    if (aisle.kind === 'entry' || aisle.kind === 'exit' || aisle.kind === 'pocket') continue;
+    if (aisle.kind === 'entry' || aisle.kind === 'exit' || aisle.kind === 'pocket' || aisle.garage) continue;
     const mx = (e.a.x + e.b.x) / 2;
     const mz = (e.a.z + e.b.z) / 2;
     if (aisle.oneWay) {
@@ -473,7 +487,8 @@ export const buildWorld = (lot: Lot): WorldView => {
 
   // --- Hedges and trees round the outside of the lot.
   const hedge: THREE.BufferGeometry[] = [];
-  for (const x of [bounds.x0 - 5.5, bounds.x1 + 5.5]) hedge.push(block(1.4, 1.1, lotD - 2, x, 0, cz));
+  hedge.push(block(1.4, 1.1, lotD - 2, bounds.x0 - 5.5, 0, cz));
+  // (the east side has the car park: no hedge there)
   hedge.push(block(52, 1.1, 1.4, -34, 0, bounds.z0 - 2));
   hedge.push(block(34, 1.1, 1.4, 25, 0, bounds.z0 - 2));
   const outerHedge = new THREE.Mesh(merge(hedge.map((g) => scaleUV(g, 20, 1))), hedgeMat);
@@ -482,7 +497,10 @@ export const buildWorld = (lot: Lot): WorldView => {
   group.add(outerHedge);
   for (let z = bounds.z0 + 2; z < bounds.z1 + 6; z += 9 + r() * 3) {
     treeSpots.push({ x: bounds.x0 - 9 - r() * 4, z, s: 1.1 + r() * 0.5 });
-    treeSpots.push({ x: bounds.x1 + 9 + r() * 4, z: z + 4, s: 1.1 + r() * 0.5 });
+    {
+      const t = { x: bounds.x1 + 9 + r() * 4, z: z + 4, s: 1.1 + r() * 0.5 };
+      if (!(t.x > lot.garage.x0 - 4 && t.z > lot.garage.z0 - 6 && t.z < lot.garage.z1 + 6)) treeSpots.push(t);
+    }
   }
   for (let x = -90; x < 90; x += 10 + r() * 4) {
     if (Math.abs(x) < 10 || Math.abs(x - 58) < 6) continue;
@@ -504,6 +522,8 @@ export const buildWorld = (lot: Lot): WorldView => {
   for (const p of lot.props) if (p.kind === 'truck') group.add(buildTruck(p));
   group.add(buildYardProps(lot));
   group.add(buildSigns(lot.signs));
+  const garage = buildGarage(lot);
+  group.add(garage.group);
   const gantry = buildGantry(lot);
   group.add(gantry.group);
 
@@ -541,7 +561,7 @@ export const buildWorld = (lot: Lot): WorldView => {
   }
   group.add(new THREE.Mesh(merge(bollards), new THREE.MeshStandardMaterial({ color: 0xe0b72e, roughness: 0.5 })));
 
-  return { group, trees, signs, gates, setGantryBoard: gantry.setBoard, setGates: (entry, exit) => animateGates(gates, entry, exit) };
+  return { group, trees, signs, gates, garage, setGantryBoard: gantry.setBoard, setGates: (entry, exit) => animateGates(gates, entry, exit) };
 };
 
 /** A shop: stucco box, a glass front under a canopy, the lit sign, trolleys by the door. The second one is smaller, brick-coloured, with an awning. */

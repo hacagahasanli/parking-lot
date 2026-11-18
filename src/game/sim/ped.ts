@@ -9,6 +9,7 @@
  */
 import { DT, PED } from './constants';
 import { collide } from './collide';
+import { levelY, sameStorey } from './levels';
 import { bayShape, rng } from './lot';
 
 import type { Box, Lot } from './lot';
@@ -107,6 +108,18 @@ export const buildWalks = (lot: Lot, seed: number): { walks: Walk[]; trolley: bo
     });
     trolley.push(rand() < 0.5);
   }
+  // The car park: on every deck one person crosses the aisle by the bays and one walks along a row.
+  const [x0, x1] = lot.garage.rows;
+  const [gz1, gz2] = lot.garage.aisleZ;
+  for (const level of lot.garage.levels) {
+    const y = levelY(level.lvl);
+    const x = between(x0 + 4, x1 - 8);
+    walks.push({ y, points: [{ x, z: gz2 - 3, dwell: 1.5 + rand() * 2 }, { x: x + between(-3, 3), z: gz2 + 3, dwell: 1.5 + rand() * 2.5 }] });
+    trolley.push(false);
+    const x2 = between(x0 + 2, x1 - 18);
+    walks.push({ y, points: [{ x: x2, z: gz1 + 3, dwell: 1.5 + rand() * 2 }, { x: x2 + between(8, 14), z: gz1 + 3, dwell: 2 + rand() * 2.5 }] });
+    trolley.push(rand() < 0.3);
+  }
   return { walks, trolley };
 };
 
@@ -123,6 +136,7 @@ export const createPeds = (world: World, trolley: boolean[], seed: number): Ped[
       id: i,
       x,
       z,
+      y: w.y ?? 0,
       h: Math.atan2(w.points[b].x - x, w.points[b].z - z),
       vx: 0,
       vz: 0,
@@ -147,9 +161,9 @@ const movers = (state: GameState): Car[] => (state.leaver && state.leaver.phase 
 const carFrame = (c: Car) => ({ fx: Math.sin(c.h), fz: Math.cos(c.h) });
 
 /** Seconds until a car moving in a straight line gets near this spot (99 if it won't within the look-ahead). */
-const timeToThreat = (c: Car, x: number, z: number) => {
+const timeToThreat = (c: Car, x: number, z: number, y: number) => {
   const speed = Math.hypot(c.vx, c.vz);
-  if (speed < 0.5) return 99;
+  if (speed < 0.5 || !sameStorey(c.y, y)) return 99;
   const { fx, fz } = carFrame(c);
   for (let tau = 0; tau <= 1.6; tau += 0.1) {
     const dx = x - (c.x + c.vx * tau);
@@ -173,7 +187,7 @@ export const stepPeds = (state: GameState, world: World) => {
     if (p.mode !== 'down' && p.immune <= 0) {
       for (const c of cars) {
         // The car pulling out is scenery that moves: it never takes anyone down (and waits for shoppers).
-        if (c.id >= 10 || Math.hypot(c.x - p.x, c.z - p.z) > 4) continue;
+        if (c.id >= 10 || Math.hypot(c.x - p.x, c.z - p.z) > 4 || !sameStorey(c.y, p.y)) continue;
         const box: Box = { kind: 'box', x: c.x, z: c.z, hw: 0.89, hl: 2.22, h: c.h };
         const k = collide(box, circle(p));
         if (!k) continue;
@@ -213,7 +227,7 @@ export const stepPeds = (state: GameState, world: World) => {
     let threat = 99;
     let from: Car | null = null;
     for (const c of cars) {
-      const tau = timeToThreat(c, p.x, p.z);
+      const tau = timeToThreat(c, p.x, p.z, p.y);
       if (tau < threat) {
         threat = tau;
         from = c;
@@ -299,6 +313,7 @@ export const stepPeds = (state: GameState, world: World) => {
 export const pedLimit = (state: GameState, car: Car, vF: number, fx: number, fz: number) => {
   let limit = Infinity;
   for (const p of state.peds) {
+    if (!sameStorey(car.y, p.y)) continue;
     const rx = p.x - car.x;
     const rz = p.z - car.z;
     const ahead = rx * fx + rz * fz;

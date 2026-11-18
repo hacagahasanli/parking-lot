@@ -1,9 +1,10 @@
 # Parking Lot: design
 
-A Merge Conflict game. **A four-car race to the one free bay in a full supermarket car park
-(rounds of a minute or two).** Nobody is told where the bay is: you find it by driving the aisles and
-looking, at the same time as the bots do. First to park, straight and still, wins. Hit a shopper
-and you are out.
+A Merge Conflict game. **A four-car race to the one free bay on a full supermarket site: an open
+lot and a four-storey car park (rounds of one to three minutes).** Nobody is told where the bay is:
+you find it by driving the aisles, the ramps and the decks and looking, at the same time as the bots
+do. The only clue is the FREE SPACES board, and it gives away a little more every few seconds, to
+everybody. First to park, straight and still, wins. Hit a shopper and you are out.
 
 Everything here is original: names, art, sounds, rules. Racing and parking games are a common
 genre; nothing specific to any one of them is copied. Numbers below come from
@@ -15,10 +16,11 @@ genre; nothing specific to any one of them is copied. Numbers below come from
 Home (four bots race behind the title) ──▶ /play
         │
         ▼
-Countdown 3 s: four cars queued behind the closed entry barriers, handbrake held, steering and revving allowed
+Countdown 5 s: title card "ONE SPACE LEFT", four cars queued behind the closed entry barriers under the
+        │  LED board "FREE SPACES: 1", handbrake held, steering and revving allowed
         │  GO: the barriers lift (0.9 s)
         ▼
-Race: one bay is empty and unmarked. Search, spot it, shove for it, park. Watch the shoppers.
+Race: one bay is empty and unmarked, somewhere on the lot or on one of four decks. Search, read the board, spot it, shove for it, park. Watch the shoppers.
         │  first car parked and still (or 240 s pass, or you hit a pedestrian: out for you)
         ▼
 Result: winner and your place; the free bay is revealed ──▶ next round (new free bay)
@@ -29,10 +31,12 @@ Result: winner and your place; the free bay is revealed ──▶ next round (ne
 | Rule | Value | Source |
 | --- | --- | --- |
 | Cars | 4 (you plus 3 bots offline) | `RoundOptions.bots` in `step.ts` |
-| Countdown | 3 s | `RACE.countdown` |
-| Free bay | 1 per round, random among the candidate bays (160 in the shipped lot): angled and 90 degree bays a bot can really drive into, never within 38 m of a start; that car is removed; **not marked in any way** | `createRound`, `Lot.candidates` |
-| Second free bay | one parked car (an ordinary car in an angled bay) pulls out at 12 to 28 s and drives off to the exit gate; once it has driven clear, the bay it left is free too and counts for the win | `Leaver` in `step.ts` |
-| Pedestrians | 22 shoppers; contact with a car moving over 1 m/s disqualifies that driver for the round | `PED`, `ped.ts` |
+| Countdown | 5 s (the title card and the board are on screen) | `RACE.countdown` |
+| Free bay | 1 per round. First a zone (open lot 40 %, each of the four decks 15 %), then a candidate bay in it: angled and 90 degree bays a bot can really drive into (160 outdoors, 52 on the decks), never within 38 m of a start; that car is removed; **not marked in any way** | `pickTarget`, `Lot.candidates` |
+| Levels | a car, shopper or bay is on one level (P-1, P0, P1, P2, or the open lot, which is P0); things on different levels never touch, even straight over each other; a ramp joins two levels and your height follows your position on it. To win, you must be on the free bay's level | `levels.ts`, `step.ts` |
+| The board | "FREE SPACES: 1" from the start; from 12 s the part of the site (open lot or garage); from 32 s, if the bay is in the garage, two decks flicker, one right and one a decoy (the first one flashed is no clue); when a car pulls out the count goes to 2. Shown over the gate, at the garage door and in the HUD, to the bots too | `hint.ts` |
+| Second free bay | one parked car (an ordinary car, in the open lot or on a deck) pulls out at 12 to 28 s and drives off to the exit gate; once it has driven clear, the bay it left is free too and counts for the win. When it is on a deck the radio says which one | `Leaver` in `step.ts` |
+| Pedestrians | 30 shoppers (22 outdoors, 8 on the decks); contact with a car on their level moving over 1 m/s disqualifies that driver for the round | `PED`, `ped.ts` |
 | Round limit | 240 s, then no winner | `RACE.maxTime` |
 | Parked: position | all 4 corners of the car inside the bay rectangle plus 0.22 m of slack | `PARK.slack` |
 | Parked: angle | within 22° of the bay's angle, nose in or reversed in | `PARK.maxAngle`, `aligned()` |
@@ -119,8 +123,61 @@ gate.
   3 % hold a trolley corral and 3 % are coned off. Neither can be the target.
 - **Islands and lawns**: planted strips with trees and lamp posts, lawns round the south and the edges. Posts, lamps,
   kerbs, hedges and the booth are colliders; the collider of an angled island is narrower than the kerb so a
-  car parked deep in a bay may overhang it, as in life.
+  car parked deep in a bay may overhang it, as in life. Signs, ticket machines, chargers, lamps, posts and columns stand on kerbs,
+  islands and pavements beside the road, never in a lane or an aisle (a test checks every one against every aisle corridor).
+- The car park (above) is east of the lot and joined to it; the open lot's own size and layout are as described here.
+- **Look**: a late-afternoon golden light (neutral tone mapping, a warm low sun, a deep-blue sky), dark tarmac with white and
+  yellow paint that stands out, saturated foliage and lawns, shop fronts in gold and brick red with colour bands, a car paint
+  palette of eleven real colours (red, blue, orange, teal, yellow, purple, raspberry, navy, lime and only white, silver
+  and black as neutrals), coloured buildings across the road, and a minimap in the same colours.
 - The same seed gives the same lot in every browser (`rng` in `lot.ts`), which online play will need.
+
+## The car park
+
+A multi-storey car park joined to the east side of the open lot by a two-way road (`GATE`, from the side road CE at
+the middle aisle, through a gap in the east wall). It makes the site 1.6 times as big and gives the round a second
+and third dimension: where to look, and which way up.
+
+```
+ plan (north up, the open lot is to the left)             levels, west to east
+                                                           P2  roof, open sky, parapet and rail
+  west     rows of bays (8 per row)    cross     ramps       P1  open sides under the roof
+  connector  N row | Z2 aisle | 2 rows | Z1 aisle | S row  connector  RAMP UP 2 (P1 to P2) above
+  (W)                    one-way ring                      P0  ground floor, the way in
+                                                           P-1 underground
+```
+
+- **Four decks, identical in plan**, 36 m deep: a one-way **ring** (anticlockwise, like a real car park) of two 8 m aisles
+  (Z2 north, Z1 south), the west connector (W) and the cross connector (X), a single row of bays along each outer wall and a
+  double row between the aisles: 32 bays a deck, 128 in all, plus the columns (every third bay, standing between bays).
+  Three **two-way ramps** of 26 m (13.6 % grade): P0 down to P-1 along the south strip, P0 up to P1 and P1 up to P2 stacked
+  along the north strip, and a connector plaza at the east end where a ramp meets a deck. Everything that is not the ring is
+  two-way, so you meet oncoming cars on the ramps and in the plaza.
+- **You come in on P0** (the road from the lot crosses the east pavement, a lintel with a yellow-and-black height bar
+  "MAX 2.1 m" and a free-spaces board over the way in). Going up or down you take a ramp from the end of an aisle.
+- **Look of each deck**: concrete floor, walls and ceiling (strip lights hung 3.05 m up; 3.1 m clear under a deck), a painted
+  colour per level (P-1 blue, P0 orange, P1 green, P2 yellow) on a band along the walls, the columns, the ramp caps, the
+  ramp ends and a big number on the floor of the west connector, signs hung over the aisles (UP, DOWN, EXIT, the level), and
+  a steel crash rail on the parapets of the open decks.
+- **Light**: outdoors it is the sun and sky. Inside, the sky light is turned down (more on P-1: 100 %, P0 75 %, P1 55 %,
+  open roof 0 %) and a warm lamp follows your car (cold blue underground), so the decks read as lit by their own strip lamps.
+- **Camera**: the chase camera stays under the ceiling and is pulled in towards the car if a column, wall or ramp side is
+  between them; the high and overhead cameras hide the decks above you so you can see in.
+- **Minimap**: one tab per level (P-1 to P2), a dot on the tab you are on. It follows you, or the tab you pick until you
+  change level yourself. The tab shows that level's aisles, bays, walls and columns, the shoppers on it, and the cars on it (and
+  those on a ramp that touches it); never a car on another level and never the free bay until the round is over, when
+  the map jumps to the level where it was. The HUD also shows your level beside the speed.
+
+### The board and what keeps it exciting
+
+"One space left" is a lot of site to search, so the board gives a little away, to everyone at once (`hint.ts`): the part of
+the site at 12 s, two flickering decks (one a decoy) at 32 s, and the count going to 2 when a car pulls out (the radio says "A car
+is pulling out on P1!"). The bots read it too: when it names the garage they move the passes in it to the front of
+their search (each driver picks one of the two decks first, so they do not arrive in a convoy), and a hint for the open lot only
+moves the drivers who were headed for the garage. The result is a race with a shape: a quiet first ten seconds, a scramble up
+the ramps when the board flickers, and then two or three cars arriving at the same bay at once (and the contest rules from the open
+lot decide it). A bay on the roof, one underground and one outdoors are not equally far from the gate, but each is equally likely
+(`pickTarget`), the board tells everyone the same thing, and a deck that is a decoy costs the bots time as well.
 
 ## How the car feels
 
@@ -145,7 +202,10 @@ not drive on rails, a temper (`aggr`, 0 to 1) that decides how hard they shove, 
 honk, and a start delay after GO (0.15, 0.7, 1.9 and 2.6 s by seat: they leave the gate one pair at a
 time instead of all meeting in the first junction) (`src/game/sim/bot.ts`, `nav.ts`).
 
-**They search too.** A bot does not know where the bay is (`brain.target` is -1 until it sees it).
+**They search too.** A bot does not know where the bay is (`brain.target` is -1 until it sees it). The aisles of the car park
+(every deck's ring, the ramps and the way in) are part of the same graph, so a search is just more passes: each deck is
+one lap of the ring, and a pass up or down a ramp is how a bot changes deck. A bot sees a bay only on its own level
+(a bay straight overhead is behind a slab) and only cars on its own level are traffic to it.
 
 1. Search: drive *sweeps* of the aisle graph, one pass along an aisle in one direction. A driver starts at a
    different aisle for each seat, then always goes next to the nearest pass it has not driven
@@ -175,17 +235,19 @@ time instead of all meeting in the first junction) (`src/game/sim/bot.ts`, `nav.
 - Angled bay: one approach, in the direction it is angled for: the dock is 8 m upstream of the point 3.6 m in
   front of the mouth, then in along the bay's axis (as the old lot).
 - 90 degree bay (two-way aisle): an approach each way along the aisle. Drive along the far side of the aisle, then a
-  quarter circle of radius 4.4 m (the car's tightest turn is 3.4 m) onto the bay's axis, then in.
+  quarter circle of radius 4.4 m (the car's tightest turn is 3.4 m) onto the bay's axis, then in. On a deck the aisles are the
+  one-way ring, so a bay has one approach, the way the ring flows. A deck bay whose swing in would start inside the corner before
+  it (the first dock is less than 3 m along its aisle) is a bay for the player, never the free bay.
 - Parallel bay and pocket bay: none. Bots skip them, and they are never the free bay.
 
 The final line-up is the same Stanley controller for all of them.
 
-They do not attack you deliberately, but they will not wait for you either. In the 24 test seeds a bot
-parks within 123 s (median about 70 s, quickest 47 s).
+They do not attack you deliberately, but they will not wait for you either. In the 24 test seeds a bot parks
+within 149 s (median about 76 s, quickest 53 s; the open lot takes about a minute, a deck up to two and a half).
 
 ## Pedestrians
 
-22 shoppers (`src/game/sim/ped.ts`), in the sim so a host and a guest see the same people.
+30 shoppers (22 outdoors and two on each deck, one crossing the aisle and one walking along a row; `src/game/sim/ped.ts`), in the sim so a host and a guest see the same people. A shopper is on a floor: a car on another level neither scares nor hits them.
 
 - Each walks a fixed loop at about 1.3 m/s (a little different for each), made from the layout: out of a
   shop door and over the zebra crossing to a car in the row by the door, back and forth over each zebra crossing, across an aisle to the car
@@ -203,8 +265,11 @@ parks within 123 s (median about 70 s, quickest 47 s).
 
 ## The car that pulls out
 
-One parked car (an ordinary car in an angled bay, never the target) starts to reverse out of its bay between 12 and 28 s,
-tooting its horn, and drives off along the aisle graph to the exit gate (the barrier lifts for it) and is gone. Once it is
+One parked car (an ordinary car, never the target) starts to leave its bay between 12 and 28 s, tooting its horn, and drives
+off along the aisle graph to the exit gate (the barrier lifts for it) and is gone. Outdoors it is an angled bay and the car reverses
+straight out. On a deck it was parked nose-out and drives straight out, round the ring, down the ramps and out through the gate
+(slowly: it takes a minute), and the radio says which deck ("A car is pulling out on P1!"); the board's count goes to 2.
+It tends to be in the other part of the site from the free bay (outdoors 70 % of the time when the free bay is on a deck, on a deck 70 % when it is outdoors), so a second chance appears somewhere you were not looking. Once it is
 clear of its bay, that bay is a second free bay: anyone can win in it, and bots can spot it like the first. It is a
 moving body while it leaves, so it shoves and gets shoved, and shoppers keep clear of it.
 
@@ -212,7 +277,7 @@ moving body while it leaves, so it shoves and gets shoved, and shoppers keep cle
 
 Short chatter lines from the bots (`src/game/sim/radio.ts`), shown as bubbles under the standings.
 Triggered by: spotting the bay, getting bumped (over 3 m/s), being honked at (or a taunt when they
-honk at you), backing out of a jam (another bot comments), hitting a shopper, a car pulling out,
+honk at you), backing out of a jam (another bot comments), hitting a shopper, a car pulling out (and which deck),
 and the end of the round (winner and a loser). Rate limits keep it readable: at least 1.7 s between
 lines, 6 s before the same bot speaks again, at most three lines shown, each gone after 6.5 s. The
 lines are original office jokes ("Revert! Revert!", "That one's mine, I saw it in code review.").
@@ -227,9 +292,8 @@ Not built. The owner's list, with what each would touch.
 - **Sliding / oil**: oil patches that cut grip (`DRIVE.grip`) for cars on them.
 - **Blur / smoke power-up**: a cloud that hides the free bay or the screen from rivals.
 - **Back-in manoeuvres for bots**: reversing into parallel bays and out of the dead-end pocket, which would let them be the free bay.
-- **Multi-storey car park inside a building**: ramps, pillars, tight turns, several floors. The
-  sim is 2D, so floors would be separate lots joined by ramp zones.
-- **More maps**: an underground garage, a rooftop, a festival field. A map is a `buildLot()`
-  variant; the rules stay the same.
+- **A ramp barrier or a car stopped on a ramp**: closing the way to a deck for a few seconds (a boom barrier like the gate's, or a hazard-lights van). Not built; the bots would need the gate rule generalised.
+- **Horn echo underground**: a longer reverb tail on the horn and bumps when the listener is on P-1 (`sfx.ts`). Not built.
+- **More maps**: a festival field, a harbour. A map is a `buildLot()` variant; the rules stay the same.
 - **Online play**: the sim is pure functions over plain objects with a fixed 60 Hz step, so a host
   can run it and send inputs. Next on the list; there is no networking code today.

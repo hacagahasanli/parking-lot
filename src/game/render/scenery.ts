@@ -669,12 +669,12 @@ export const buildGantry = (lot: Lot) => {
   const parts: THREE.BufferGeometry[] = [];
   for (const sx of [-6.6, 6.6]) parts.push(block(0.4, 5.9, 0.4, sx, 0, g.z));
   parts.push(block(13.8, 0.4, 0.5, 0, 5.5, g.z));
-  parts.push(block(7.9, 2.35, 0.3, 0, 2.05, g.z + 0.3));
+  parts.push(block(7.9, 2.35, 0.3, 0, 3.15, g.z + 0.3));
   const frame = new THREE.Mesh(merge(parts), steelDark);
   frame.castShadow = true;
   group.add(frame);
   // Faces south, towards the cars waiting in the queue.
-  board.mesh.position.set(0, 3.2, g.z - 0.2);
+  board.mesh.position.set(0, 4.3, g.z - 0.2);
   board.mesh.rotation.y = Math.PI;
   group.add(board.mesh);
   return { group, setBoard: board.set };

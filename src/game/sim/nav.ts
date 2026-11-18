@@ -8,6 +8,8 @@
  * seen (shortest path to the bay's docking point on an edge). It knows nothing about any particular
  * layout: `buildLot()` hands it the nodes and aisles.
  */
+import { levelY } from './levels';
+
 import type { Aisle, Vec } from './lot';
 import type { Car, Input } from './types';
 
@@ -16,6 +18,8 @@ export interface GNode {
   name: string;
   x: number;
   z: number;
+  /** The level this junction is on (a ramp joins nodes on two levels). */
+  lvl: number;
 }
 
 export interface GEdge {
@@ -34,6 +38,9 @@ export interface GEdge {
   uz: number;
   /** Edges that bots never use (the entry lanes, the exit lane, the dead-end pocket). */
   avoid: boolean;
+  /** Heights of the two ends (they differ on a ramp). */
+  yA: number;
+  yB: number;
 }
 
 export interface Graph {
@@ -62,7 +69,7 @@ export const buildGraph = (nodes: GNode[], aisles: Aisle[]): Graph => {
         const a = { x: from.x - uz * L, z: from.z + ux * L };
         const b = { x: to.x - uz * L, z: to.z + ux * L };
         const id = edges.length;
-        edges.push({ id, aisle: aisle.id, from: from.id, to: to.id, dir, len, a, b, ux, uz, avoid: aisle.avoid });
+        edges.push({ id, aisle: aisle.id, from: from.id, to: to.id, dir, len, a, b, ux, uz, avoid: aisle.avoid, yA: levelY(from.lvl), yB: levelY(to.lvl) });
         out[from.id].push(id);
       }
     }
@@ -142,7 +149,7 @@ export const reachableFrom = (g: Graph, s: number): Set<number> => {
 };
 
 /** Where on the graph a point is: the edge whose lane it is nearest to (and heading along, if given), and how far along (metres). */
-export const locate = (g: Graph, x: number, z: number, h?: number, allowAvoid = true) => {
+export const locate = (g: Graph, x: number, z: number, h?: number, allowAvoid = true, y?: number) => {
   let best: { edge: number; s: number; off: number } | null = null;
   let bestScore = Infinity;
   const fx = h === undefined ? 0 : Math.sin(h);
@@ -156,6 +163,8 @@ export const locate = (g: Graph, x: number, z: number, h?: number, allowAvoid = 
     const past = s < 0 ? -s : s > e.len ? s - e.len : 0;
     let score = off + past * 1.5;
     if (h !== undefined && fx * e.ux + fz * e.uz < 0) score += 7;
+    // Decks and ramps are stacked: the lane at the car's own height is the one it is on.
+    if (y !== undefined) score += Math.abs(y - (e.yA + ((e.yB - e.yA) * Math.max(0, Math.min(e.len, s))) / e.len)) * 3;
     if (score < bestScore) {
       bestScore = score;
       best = { edge: e.id, s: Math.max(0, Math.min(e.len, s)), off };
@@ -233,8 +242,8 @@ export const roundCorners = (input: Vec[], r = 5.5): Vec[] => {
 };
 
 /** The unrounded way from a car to a point on an edge (`s` metres along it): the rest of its own lane, the shortest path, then the target lane. */
-const rawToEdge = (g: Graph, car: { x: number; z: number; h: number }, edge: number, s: number): Vec[] | null => {
-  const here = locate(g, car.x, car.z, car.h, false);
+const rawToEdge = (g: Graph, car: { x: number; z: number; h: number; y?: number }, edge: number, s: number): Vec[] | null => {
+  const here = locate(g, car.x, car.z, car.h, false, car.y);
   const e = g.edges[here.edge];
   const target = g.edges[edge];
   const start: Vec = { x: car.x + Math.sin(car.h) * 3, z: car.z + Math.cos(car.h) * 3 };
@@ -250,13 +259,13 @@ const rawToEdge = (g: Graph, car: { x: number; z: number; h: number }, edge: num
 };
 
 /** The way from a car to a docking point on an edge, corners rounded. Null when the point cannot be reached. */
-export const routeToDock = (g: Graph, car: { x: number; z: number; h: number }, edge: number, s: number): Vec[] | null => {
+export const routeToDock = (g: Graph, car: { x: number; z: number; h: number; y?: number }, edge: number, s: number): Vec[] | null => {
   const raw = rawToEdge(g, car, edge, s);
   return raw && roundCorners(raw);
 };
 
 /** The way from a car to the start of a chain of edges and along all of them (a sweep of an aisle). */
-export const routeToSweep = (g: Graph, car: { x: number; z: number; h: number }, edges: number[]): Vec[] | null => {
+export const routeToSweep = (g: Graph, car: { x: number; z: number; h: number; y?: number }, edges: number[]): Vec[] | null => {
   const raw = rawToEdge(g, car, edges[0], 0);
   if (!raw) return null;
   for (let i = 0; i < edges.length; i++) {
@@ -274,8 +283,8 @@ export const routeLength = (pts: Vec[]) => {
 };
 
 /** Route from a car to a node (the exit, say), rounded. */
-export const routeToNode = (g: Graph, car: { x: number; z: number; h: number }, node: number): Vec[] | null => {
-  const here = locate(g, car.x, car.z, car.h);
+export const routeToNode = (g: Graph, car: { x: number; z: number; h: number; y?: number }, node: number): Vec[] | null => {
+  const here = locate(g, car.x, car.z, car.h, true, car.y);
   const e = g.edges[here.edge];
   const path = pathFrom(g, e.to, e.id, node, -1, true);
   if (!path) return null;
@@ -335,6 +344,9 @@ export const followRoute = (car: Car, route: Vec[], st: { seg: number }, speed: 
   let wheel = -Math.atan(curvature * 2.62);
   if (ahead < 0) wheel = side > 0 ? -wheelLimit : wheelLimit;
   const v = car.vx * fx + car.vz * fz;
+  // Slow for a turn: the further the way ahead points off the nose, the slower (a corner at full speed runs wide into a wall).
+  const off = Math.abs(Math.atan2(side, Math.max(0.01, ahead)));
+  if (ahead < 0 || off > 0.45) speed = Math.min(speed, off > 0.9 || ahead < 0 ? 2.2 : 3.2);
   return {
     throttle: v < speed ? Math.min(1, (speed - v) * 0.5 + 0.2) : 0,
     brake: v > speed + 1 ? 0.3 : 0,

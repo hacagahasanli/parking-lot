@@ -5,6 +5,7 @@
 import { CAR, DRIVE, DRIVERS, DT, IMPACT, PARK, RACE } from './constants';
 import { collide, corners, insideBox, nearShape } from './collide';
 import { bayShape, buildLot, rng } from './lot';
+import { LEVELS, LEVEL_H, rampUnder, sameStorey, surfaceAt } from './levels';
 import { followRoute, routeToNode } from './nav';
 import { buildWalks, createPeds, pedLimit, stepPeds } from './ped';
 
@@ -66,6 +67,8 @@ export const makeCar = (id: number, name: string, color: number, bot: boolean, x
   bot,
   x,
   z,
+  y: 0,
+  grade: 0,
   h,
   vx: 0,
   vz: 0,
@@ -97,28 +100,60 @@ export interface RoundOptions {
   names?: string[];
   /** Force the free bay (tests); otherwise random among the candidates. */
   target?: number;
+  /** Force the bay the pulling-out car leaves (tests). */
+  leaver?: number;
 }
+
+/**
+ * The free bay: first a zone (the open lot, or one of the four decks), then a bay in it. The car park is
+ * most of the lot's new area, so it gets most of the rounds, and no deck is more likely than another.
+ */
+export const pickTarget = (lot: Lot, rand: () => number): number => {
+  const zones: { weight: number; ids: number[] }[] = [
+    { weight: 0.4, ids: lot.candidates.filter((id) => !lot.bays[id].garage) },
+    ...LEVELS.map((l) => ({ weight: 0.15, ids: lot.candidates.filter((id) => lot.bays[id].garage && lot.bays[id].lvl === l) })),
+  ].filter((z) => z.ids.length);
+  let r = rand() * zones.reduce((a, z) => a + z.weight, 0);
+  let zone = zones[zones.length - 1];
+  for (const z of zones) {
+    if (r < z.weight) {
+      zone = z;
+      break;
+    }
+    r -= z.weight;
+  }
+  return zone.ids[Math.floor(rand() * zone.ids.length)];
+};
 
 export const createRound = (lot: Lot, opts: RoundOptions): { state: GameState; world: World } => {
   const rand = rng(opts.seed * 7919 + 13);
-  const target = opts.target ?? lot.candidates[Math.floor(rand() * lot.candidates.length)];
+  const target = opts.target ?? pickTarget(lot, rand);
   const cars: Car[] = opts.bots.map((bot, i) => {
     const s = lot.starts[i];
     return makeCar(i, opts.names?.[i] ?? DRIVERS[i].name, DRIVERS[i].color, bot, s.x, s.z, s.h);
   });
   // One parked car will pull out part-way through the round, and the bay it leaves is free too.
-  // (Only an angled bay with an ordinary car in it: the car backs straight out and drives away along the aisle.)
-  const others = lot.candidates.filter((id) => id !== target && lot.bays[id].type === 'angled' && lot.bays[id].variant < 3);
-  const leaveBay = lot.bays[others[Math.floor(rand() * others.length)]];
+  // In the open lot it is an ordinary car in an angled bay and backs straight out; in the car park it
+  // is a car that was parked nose-out and drives away along the deck, down the ramps and out. It is
+  // often upstairs when the free bay is outdoors, and the other way round.
+  const ordinary = lot.candidates.filter((id) => id !== target && lot.bays[id].variant < 3);
+  const upstairs = ordinary.filter((id) => lot.bays[id].garage);
+  const outside = ordinary.filter((id) => !lot.bays[id].garage && lot.bays[id].type === 'angled');
+  const wantGarage = lot.bays[target].garage ? rand() < 0.3 : rand() < 0.7;
+  const pool = wantGarage && upstairs.length ? upstairs : outside;
+  const leaveBay = lot.bays[opts.leaver ?? pool[Math.floor(rand() * pool.length)]];
+  const forward = leaveBay.garage;
   const leaver: Leaver = {
-    car: makeCar(10, 'Parked car', leaveBay.color, true, leaveBay.x + Math.sin(leaveBay.h) * 0.12, leaveBay.z + Math.cos(leaveBay.h) * 0.12, leaveBay.h),
+    car: makeCar(10, 'Parked car', leaveBay.color, true, leaveBay.x + Math.sin(leaveBay.h) * 0.12, leaveBay.z + Math.cos(leaveBay.h) * 0.12, forward ? leaveBay.h + Math.PI : leaveBay.h),
     bay: leaveBay.id,
     at: 12 + rand() * 16,
     phase: 'wait',
     t: 0,
     route: [],
     seg: 0,
+    forward,
   };
+  leaver.car.y = leaveBay.y;
   const world = createWorld(target, lot, leaveBay.id, opts.seed);
   const { trolley } = buildWalks(lot, opts.seed);
   const state: GameState = {
@@ -211,6 +246,8 @@ export const drive = (c: Car, input: Input, dt = DT) => {
   c.throttle = c.gear === 1 ? input.throttle : input.brake;
 
   vF += engine * dt;
+  // A ramp: gravity along the slope slows the climb and speeds the descent (only once rolling, so a stopped car holds still).
+  if (c.grade !== 0 && Math.abs(vF) > 0.5) vF -= 9.81 * c.grade * dt;
   // Resistance only slows the car; it never pushes it backwards.
   const drop = resist * dt;
   if (Math.abs(vF) <= drop && engine === 0) vF = 0;
@@ -346,6 +383,8 @@ const crashes = (state: GameState, world: World) => {
         if (world.owner[i] === OWNER_ENTRY && state.gate.open >= 0.55) continue;
         if (world.owner[i] === OWNER_EXIT && car.id >= 10) continue;
         const solid = world.solids[i];
+        // Decks and ramps are stacked: a solid only matters at the heights it stands at.
+        if (solid.y0 !== undefined && (car.y + 1.5 < solid.y0 || car.y > (solid.y1 ?? Infinity))) continue;
         const box = carBox(car);
         if (!nearShape(box, solid)) continue;
         const k = collide(box, solid);
@@ -354,6 +393,7 @@ const crashes = (state: GameState, world: World) => {
     }
     for (let i = 0; i < cars.length; i++) {
       for (let j = i + 1; j < cars.length; j++) {
+        if (!sameStorey(cars[i].y, cars[j].y)) continue;
         const a = carBox(cars[i]);
         const b = carBox(cars[j]);
         if (!nearShape(a, b)) continue;
@@ -361,6 +401,16 @@ const crashes = (state: GameState, world: World) => {
         if (k) resolve(state, cars[i], cars[j], k, -1);
       }
     }
+  }
+};
+
+/** Puts every moving body on the road surface under it (a ramp, a deck or the ground) and works out the slope it is climbing. */
+const settle = (state: GameState, world: World) => {
+  const surf = world.lot.surfaces;
+  for (const car of bodies(state)) {
+    car.y = surfaceAt(surf, car.x, car.z, car.y);
+    const r = rampUnder(surf, car.x, car.z, car.y);
+    car.grade = r ? (((r.hi - r.lo) * LEVEL_H) / (r.x1 - r.x0)) * r.rise * Math.sin(car.h) : 0;
   }
 };
 
@@ -409,6 +459,8 @@ const parking = (state: GameState, world: World) => {
     let best = -1;
     let share = 0;
     for (const id of free) {
+      // A bay one floor up is not this car's bay, even though it is straight overhead.
+      if (Math.abs(world.lot.bays[id].y - car.y) > 1) continue;
       const n = pts.filter((p) => insideBox(p, bayBox(world, id), PARK.slack)).length / 4;
       if (n > share) {
         share = n;
@@ -449,9 +501,13 @@ const stepLeaver = (state: GameState, world: World): Input => {
   const out = (car.x - bay.x) * -bay.ax + (car.z - bay.z) * -bay.az;
   if (l.phase === 'wait') {
     if (state.phase === 'race' && state.clock >= l.at) {
-      l.phase = 'reverse';
+      l.phase = l.forward ? 'out' : 'reverse';
       l.t = 0;
-      state.events.push({ type: 'leave', bay: l.bay });
+      if (l.forward) {
+        l.route = routeToNode(world.lot.graph, car, world.lot.exitNode) ?? [];
+        l.seg = 0;
+      }
+      state.events.push({ type: 'leave', bay: l.bay, lvl: bay.lvl, garage: bay.garage });
     }
     return idle;
   }
@@ -470,7 +526,7 @@ const stepLeaver = (state: GameState, world: World): Input => {
     state.events.push({ type: 'vacated', bay: l.bay });
   }
   const end = l.route[l.route.length - 1];
-  if (!end || Math.hypot(car.x - end.x, car.z - end.z) < 3.5 || l.t > 90) {
+  if (!end || Math.hypot(car.x - end.x, car.z - end.z) < 3.5 || l.t > 150) {
     l.phase = 'gone';
     if (state.extra < 0) {
       state.extra = l.bay;
@@ -542,6 +598,7 @@ export const step = (state: GameState, world: World, inputs: Input[]) => {
     }
   }
   crashes(state, world);
+  settle(state, world);
   bumpsRoad(state, world);
   stepPeds(state, world);
   parking(state, world);
@@ -557,7 +614,7 @@ export const distanceToTarget = (state: GameState, world: World, car: Car) => {
   let best = Infinity;
   for (const id of freeBays(state)) {
     const bay = world.lot.bays[id];
-    best = Math.min(best, Math.hypot(bay.x - car.x, bay.z - car.z));
+    best = Math.min(best, Math.hypot(bay.x - car.x, bay.z - car.z) + Math.abs(bay.y - car.y) * 4);
   }
   return best;
 };

@@ -6,6 +6,8 @@
  *
  * Part of the sim (no browser calls, seeded picks) so online play can show the same chatter.
  */
+import { levelName } from './levels';
+
 import type { ChatLine, GameEvent, GameState } from './types';
 
 type Kind = ChatLine['kind'];
@@ -25,6 +27,7 @@ const LINES: Record<Kind, string[]> = {
   win: ['Merged to main.', 'Shipped. No rollback needed.', 'LGTM. Engine off.'],
   incident: ['Not in the sprint plan!', 'Shopper down. Filing the incident report.', 'Sorry, sorry! Watch your step!', 'Please log that as a minor bug.'],
   leave: ["Someone's pulling out. Hot desk!", 'A bay just opened up. Race condition!', 'That car is deploying out of its bay.'],
+  leaveUp: ['A car is pulling out on {name}!', 'Brake lights on {name}: a bay is opening up.', '{name}: someone is leaving. Race condition on the ramp!', 'Engine just started up on {name}. Anyone close?'],
   recover: ['{name} is reversing into prod.', '{name} is rolling back the release.', '{name} just force-pushed in reverse.'],
 };
 
@@ -82,7 +85,8 @@ export const radio = (state: GameState, events: GameEvent[]) => {
       if (who >= 0) say(state, who, 'incident');
     } else if (e.type === 'leave') {
       const who = otherBot(state, -1);
-      if (who >= 0) say(state, who, 'leave');
+      // Upstairs or underground the radio says which deck; outdoors it is the usual joke.
+      if (who >= 0) say(state, who, e.garage ? 'leaveUp' : 'leave', e.garage ? levelName(e.lvl) : '');
     } else if (e.type === 'end') {
       if (e.winner !== null && state.cars[e.winner]?.bot) say(state, e.winner, 'win', '', true);
       const losers = state.cars.filter((c) => c.bot && c.id !== e.winner);

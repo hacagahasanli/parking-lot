@@ -11,19 +11,21 @@
 import { CAR } from './constants';
 import { collide } from './collide';
 import { buildGraph, reachableFrom } from './nav';
+import { LEVELS, LEVEL_COLOR, LEVEL_H, SLAB, levelName, levelY } from './levels';
 
 import type { GNode, Graph } from './nav';
+import type { Floor, Ramp, Surfaces } from './levels';
 
 export interface Vec { x: number; z: number }
 
 /** An oriented box: centre, half sizes along its own axes, and heading (see constants.ts). */
-export interface Box { kind: 'box'; x: number; z: number; hw: number; hl: number; h: number }
-export interface Circle { kind: 'circle'; x: number; z: number; r: number }
+export interface Box { kind: 'box'; x: number; z: number; hw: number; hl: number; h: number; /** Vertical extent: only bodies at these heights touch it (undefined: every height, the open lot). */ y0?: number; y1?: number }
+export interface Circle { kind: 'circle'; x: number; z: number; r: number; y0?: number; y1?: number }
 export type Shape = Box | Circle;
 
 export type BayUse = 'car' | 'free' | 'corral' | 'cones';
 export type BayType = 'angled' | 'perp' | 'parallel';
-export type BayTag = 'ev' | 'disabled' | 'parent' | 'canopy' | 'pocket' | 'kerb';
+export type BayTag = 'ev' | 'disabled' | 'parent' | 'canopy' | 'pocket' | 'kerb' | 'garage';
 
 /**
  * One way of driving into a bay. `dock` is the point on a lane (`edge`, `s` metres along it) where
@@ -58,6 +60,10 @@ export interface Bay {
   aisle: number;
   flow: 1 | -1;
   use: BayUse;
+  /** The level this bay is on (0 for the open lot and the ground floor of the car park), its floor height, and whether it is in the car park. */
+  lvl: number;
+  y: number;
+  garage: boolean;
   /** For parked cars: body style (0-2 cars, 3 SUV, 4 van) and paint. */
   variant: number;
   color: number;
@@ -74,7 +80,10 @@ export interface Aisle {
   oneWay: boolean;
   /** Not for bots (entry and exit lanes, the dead end). */
   avoid: boolean;
-  kind: 'road' | 'aisle' | 'entry' | 'exit' | 'pocket';
+  kind: 'road' | 'aisle' | 'entry' | 'exit' | 'pocket' | 'ramp';
+  /** Level of its first node (a ramp climbs from there), and whether it is inside the car park. */
+  lvl: number;
+  garage: boolean;
 }
 
 export type IslandKind = 'planter' | 'hedge' | 'canopy' | 'chargers' | 'lawn';
@@ -105,8 +114,48 @@ export interface Word { text: string; x: number; z: number; h: number; w: number
 
 export interface Shop { name: string; x0: number; x1: number; z0: number; z1: number; doorX: number; accent: number }
 
+export interface Rect { x0: number; x1: number; z0: number; z1: number }
+/** A wall or parapet of the car park: `h` is its height above the floor (a full wall reaches the ceiling). */
+export interface GarageWall extends Rect { h: number }
+export interface GarageLevel {
+  lvl: number;
+  floors: Rect[];
+  walls: GarageWall[];
+  columns: Vec[];
+  /** Roofed over (a ceiling above): every level but the top deck. */
+  roofed: boolean;
+}
+/** Signs hung from the ceiling or fixed to a wall inside the car park (always above head height of a car). */
+export interface Plaque {
+  kind: 'up' | 'down' | 'exit' | 'level' | 'height';
+  lvl: number;
+  x: number;
+  y: number;
+  z: number;
+  /** Heading the plate faces; it is drawn on both sides. */
+  h: number;
+}
+export interface Garage {
+  x0: number;
+  x1: number;
+  z0: number;
+  z1: number;
+  levels: GarageLevel[];
+  ramps: Ramp[];
+  plaques: Plaque[];
+  /** Where the road from the lot meets the ground floor. */
+  entrance: Vec;
+  /** z of the two aisles on every deck, and the x span of the bay rows. */
+  aisleZ: [number, number];
+  rows: [number, number];
+  /** The centre lines of the aisles at each deck, for ceiling strip lights. */
+  lightLines: { lvl: number; x0: number; x1: number; z: number }[];
+}
+
 export interface Lot {
   bays: Bay[];
+  garage: Garage;
+  surfaces: Surfaces;
   aisles: Aisle[];
   graph: Graph;
   islands: Island[];
@@ -120,7 +169,7 @@ export interface Lot {
   /** Canopy posts (render + collision). */
   posts: Vec[];
   /** Bay painting: each stripe from a to b. */
-  stripes: { a: Vec; b: Vec }[];
+  stripes: { a: Vec; b: Vec; lvl?: number }[];
   props: Prop[];
   signs: Sign[];
   crossings: Crossing[];
@@ -200,12 +249,13 @@ export const isTall = (variant: number) => variant >= 4;
 /** Collider for a parked car or other bay contents. */
 export const bayShape = (bay: Bay): Shape | null => {
   if (bay.use === 'free') return null;
+  const ext = bay.garage ? { y0: bay.y - 0.1, y1: bay.y + 2.4 } : {};
   if (bay.use === 'car') {
     const v = VARIANT_SIZE[bay.variant];
-    return { kind: 'box', x: bay.x, z: bay.z, hw: v.w / 2 - 0.02, hl: v.l / 2 - 0.02, h: bay.h };
+    return { kind: 'box', x: bay.x, z: bay.z, hw: v.w / 2 - 0.02, hl: v.l / 2 - 0.02, h: bay.h, ...ext };
   }
-  if (bay.use === 'corral') return { kind: 'box', x: bay.x, z: bay.z, hw: 0.9, hl: 2.4, h: bay.h };
-  return { kind: 'circle', x: bay.x - bay.ax * 1.8, z: bay.z - bay.az * 1.8, r: 0.35 };
+  if (bay.use === 'corral') return { kind: 'box', x: bay.x, z: bay.z, hw: 0.9, hl: 2.4, h: bay.h, ...ext };
+  return { kind: 'circle', x: bay.x - bay.ax * 1.8, z: bay.z - bay.az * 1.8, r: 0.35, ...ext };
 };
 
 /** An axis-aligned rectangle as a box shape. */
@@ -233,7 +283,7 @@ export const buildLot = (seed = 7): Lot => {
   const EXIT_Z = -46;
 
   const bays: Bay[] = [];
-  const stripes: { a: Vec; b: Vec }[] = [];
+  const stripes: { a: Vec; b: Vec; lvl?: number }[] = [];
   const solids: Shape[] = [];
   const occluders: Shape[] = [];
   const islands: Island[] = [];
@@ -250,9 +300,9 @@ export const buildLot = (seed = 7): Lot => {
   // --- Graph: nodes at junctions and aisle ends, aisles as chains of them -----------------------
   const nodes: GNode[] = [];
   const nodeId: Record<string, number> = {};
-  const N = (name: string, x: number, z: number) => {
+  const N = (name: string, x: number, z: number, lvl = 0) => {
     nodeId[name] = nodes.length;
-    nodes.push({ id: nodes.length, name, x, z });
+    nodes.push({ id: nodes.length, name, x, z, lvl });
   };
   N('M_W', XW, ZM);
   N('M_PK', -42, ZM);
@@ -280,8 +330,8 @@ export const buildLot = (seed = 7): Lot => {
   N('ENT_B1', -LANE, -34.4);
 
   const aisles: Aisle[] = [];
-  const A = (name: string, kind: Aisle['kind'], names: string[], width: number, oneWay: boolean, avoid = false) => {
-    aisles.push({ id: aisles.length, name, nodes: names.map((n) => nodeId[n]), width, oneWay, avoid, kind });
+  const A = (name: string, kind: Aisle['kind'], names: string[], width: number, oneWay: boolean, avoid = false, garage = false) => {
+    aisles.push({ id: aisles.length, name, nodes: names.map((n) => nodeId[n]), width, oneWay, avoid, kind, lvl: nodes[nodeId[names[0]]].lvl, garage });
     return aisles.length - 1;
   };
   const aM = A('M', 'road', ['M_W', 'M_PK', 'M_EB', 'M_C', 'M_EA', 'M_E'], 8, false);
@@ -299,11 +349,66 @@ export const buildLot = (seed = 7): Lot => {
   A('EXIT', 'exit', ['M_E', 'X_END'], 3.8, true, true);
   A('ENTRY A', 'entry', ['ENT_A0', 'ENT_A1', 'M_EA'], 3.8, true);
   A('ENTRY B', 'entry', ['ENT_B0', 'ENT_B1', 'M_EB'], 3.8, true);
+
+  // --- The multi-storey car park, east of the lot -------------------------------------------------
+  // Four identical decks (P-1 underground, P0 ground, P1, P2 the open roof) joined by three two-way
+  // ramps: P0 down to P-1 along the south strip, P0 up to P1 and P1 up to P2 stacked along the north
+  // strip. Each deck: a west connector, two aisles with a double row of bays between and a single row
+  // along each outer wall, and at the east end the strips and a connector plaza.
+  const GX0 = 70; // west wall
+  const GXB = 116.1; // end of the decks proper, start of the ramps
+  const GXR = 142.5; // top (or bottom) of the ramps
+  const GXE = 150.5; // east wall of the connector plaza
+  const HALF = 4; // half the width of a car park aisle (8 m, like the lot's: a 90 degree swing into a bay needs the room)
+  const Z2C = LAYOUT.ZB;
+  const Z1C = Z2C - 18.2;
+  const GZ0 = Z2C - 27.3;
+  const GZ1 = Z2C + 9.1;
+  const ROW_X0 = 84; // the first bay is a run-up away from the west connector, so a car has room to straighten out
+  const WCX = 74; // the west connector's centre line
+  const KCX = 146.5; // the east connector's centre line
+  const CCX = 109.6; // the cross connector at the east end of the bay rows (a deck is a ring, so a car can turn round)
+  const ROW_N = 8;
+  const GW = 8;
+  for (const L of LEVELS) {
+    N(`W1_${L}`, WCX, Z1C, L);
+    N(`W2_${L}`, WCX, Z2C, L);
+    N(`C1_${L}`, CCX, Z1C, L);
+    N(`C2_${L}`, CCX, Z2C, L);
+    if (L !== -1) N(`B1_${L}`, GXB, Z1C, L);
+    if (L !== 2) N(`B2_${L}`, GXB, Z2C, L);
+    if (L !== 0) {
+      N(`E1_${L}`, GXR, Z1C, L);
+      N(`E2_${L}`, GXR, Z2C, L);
+      N(`K1_${L}`, KCX, Z1C, L);
+      N(`K2_${L}`, KCX, Z2C, L);
+    }
+  }
+  const deckAisle: Record<string, number> = {};
+  for (const L of LEVELS) {
+    const P = levelName(L);
+    // Each deck is a one-way ring, anticlockwise like a real car park: along the north aisle (Z2) to the east, south across the
+    // cross connector (X), west along the south aisle (Z1) and north up the west connector (W). Everything that is not a ring
+    // (the ramps, the strips and the plaza) is two-way.
+    deckAisle[`${P} Z1`] = A(`${P} Z1`, 'aisle', [`C1_${L}`, `W1_${L}`], GW, true, false, true);
+    deckAisle[`${P} Z2`] = A(`${P} Z2`, 'aisle', [`W2_${L}`, `C2_${L}`], GW, true, false, true);
+    A(`${P} W`, 'road', [`W1_${L}`, `W2_${L}`], GW, true, false, true);
+    A(`${P} X`, 'road', [`C2_${L}`, `C1_${L}`], GW, true, false, true);
+    if (L === 1 || L === 2) A(`${P} S1`, 'road', [`C1_${L}`, `B1_${L}`, `E1_${L}`], GW, false, false, true);
+    if (L === -1) A(`${P} S2`, 'road', [`C2_${L}`, `B2_${L}`, `E2_${L}`], GW, false, false, true);
+    if (L !== 0) A(`${P} E`, 'road', [`E1_${L}`, `K1_${L}`, `K2_${L}`, `E2_${L}`], GW, false, false, true);
+  }
+  A('RAMP DOWN', 'ramp', ['C1_0', 'B1_0', 'E1_-1'], GW, false, false, true);
+  A('RAMP UP 1', 'ramp', ['C2_0', 'B2_0', 'E2_1'], GW, false, false, true);
+  A('RAMP UP 2', 'ramp', ['C2_1', 'B2_1', 'E2_2'], GW, false, false, true);
+  A('GATE', 'road', ['CE_B', 'W2_0'], GW, false);
   const graph = buildGraph(nodes, aisles);
 
   // --- Bays --------------------------------------------------------------------------------------
-  const addBay = (b: Omit<Bay, 'id' | 'use' | 'variant' | 'color' | 'approach' | 'tags'> & { tags?: BayTag[] }) => {
-    const bay: Bay = { ...b, tags: b.tags ?? [], id: bays.length, use: 'car', variant: 0, color: 0, approach: [] };
+  /** Set while the car park's bays are being laid out: the deck they belong to. */
+  let deck: number | null = null;
+  const addBay = (b: Omit<Bay, 'id' | 'use' | 'variant' | 'color' | 'approach' | 'tags' | 'lvl' | 'y' | 'garage'> & { tags?: BayTag[] }) => {
+    const bay: Bay = { ...b, tags: b.tags ?? [], id: bays.length, use: 'car', variant: 0, color: 0, approach: [], lvl: deck ?? 0, y: levelY(deck ?? 0), garage: deck !== null };
     bays.push(bay);
     return bay;
   };
@@ -431,6 +536,109 @@ export const buildLot = (seed = 7): Lot => {
     if (i === 7) stripes.push({ a: { x: PRX - PARALLEL.width / 2, z: z0 + PARALLEL.depth }, b: { x: PRX + PARALLEL.width / 2, z: z0 + PARALLEL.depth } });
   }
 
+
+  // --- The car park: bays, columns, walls ---------------------------------------------------------
+  const garageLevels: GarageLevel[] = [];
+  const mainDeck: Rect = { x0: GX0, x1: GXB, z0: GZ0, z1: GZ1 };
+  const strip1: Rect = { x0: GXB, x1: GXR, z0: Z1C - HALF, z1: Z1C + HALF };
+  const strip2: Rect = { x0: GXB, x1: GXR, z0: Z2C - HALF, z1: Z2C + HALF };
+  const plaza: Rect = { x0: GXR, x1: GXE, z0: Z1C - HALF, z1: Z2C + HALF };
+  /** Which decks have a floor in each part (the strips are ramps where a deck has none). */
+  const hasStrip1 = (L: number) => L === 1 || L === 2;
+  const hasStrip2 = (L: number) => L === -1;
+  const hasPlaza = (L: number) => L !== 0;
+  /** Does the deck open onto the strip at the end of its aisle? (a ramp, a floor, or a wall) */
+  const openAt1 = (L: number) => L !== -1;
+  const openAt2 = (L: number) => L !== 2;
+  const T = 0.4;
+  const pushWall = (lv: GarageLevel, r: Rect, full: boolean) => {
+    if (r.x1 - r.x0 < 0.01 || r.z1 - r.z0 < 0.01) return;
+    const h = full ? LEVEL_H - SLAB : 1.1;
+    lv.walls.push({ ...r, h });
+    const y = levelY(lv.lvl);
+    solids.push({ ...rect(r.x0, r.x1, r.z0, r.z1), y0: y - 0.2, y1: y + 2.9 });
+  };
+  for (const L of LEVELS) {
+    deck = L;
+    const lv: GarageLevel = { lvl: L, floors: [mainDeck], walls: [], columns: [], roofed: L < 2 };
+    if (hasStrip1(L)) lv.floors.push(strip1);
+    if (hasStrip2(L)) lv.floors.push(strip2);
+    if (hasPlaza(L)) lv.floors.push(plaza);
+    const full = L <= 0;
+    const z1 = deckAisle[`${levelName(L)} Z1`];
+    const z2 = deckAisle[`${levelName(L)} Z2`];
+    const nStripes = stripes.length;
+    const row = (aisle: number, z: number, n: number) => perpRow(aisle, { x: ROW_X0, z }, { x: 1, z: 0 }, { x: 0, z: n }, uniform(ROW_N), () => ['garage']);
+    row(z2, Z2C + HALF, 1);
+    row(z2, Z2C - HALF, -1);
+    row(z1, Z1C + HALF, 1);
+    row(z1, Z1C - HALF, -1);
+    for (let i = nStripes; i < stripes.length; i++) stripes[i].lvl = L;
+    // Columns on the line where the two middle rows meet, every third bay (they stand between bays).
+    for (const k of [3, 6]) {
+      const c = { x: ROW_X0 + PERP.width * k, z: Z2C - HALF - PERP.depth };
+      lv.columns.push(c);
+      solids.push({ kind: 'circle', x: c.x, z: c.z, r: 0.28, y0: levelY(L) - 0.2, y1: levelY(L) + 2.9 });
+    }
+    // The outer walls of the main deck (a gap in the west wall on the ground floor: the way in and out).
+    pushWall(lv, { x0: GX0 - T, x1: GXB, z0: GZ0 - T, z1: GZ0 }, full);
+    pushWall(lv, { x0: GX0 - T, x1: GXB, z0: GZ1, z1: GZ1 + T }, full);
+    if (L === 0) {
+      pushWall(lv, { x0: GX0 - T, x1: GX0, z0: GZ0, z1: Z2C - HALF }, full);
+      pushWall(lv, { x0: GX0 - T, x1: GX0, z0: Z2C + HALF, z1: GZ1 }, full);
+    } else pushWall(lv, { x0: GX0 - T, x1: GX0, z0: GZ0, z1: GZ1 }, full);
+    // The east edge: open where an aisle runs on into a ramp or a strip, wall elsewhere.
+    const east = (z0: number, z1: number) => pushWall(lv, { x0: GXB, x1: GXB + T, z0, z1 }, full);
+    east(GZ0, Z1C - HALF);
+    if (!openAt1(L)) east(Z1C - HALF, Z1C + HALF);
+    east(Z1C + HALF, Z2C - HALF);
+    if (!openAt2(L)) east(Z2C - HALF, Z2C + HALF);
+    east(Z2C + HALF, GZ1);
+    // Strips with a floor: a wall (tunnel) or a parapet on each side.
+    for (const [on, st] of [[hasStrip1(L), strip1], [hasStrip2(L), strip2]] as const) {
+      if (!on) continue;
+      pushWall(lv, { x0: st.x0, x1: st.x1, z0: st.z0 - T, z1: st.z0 }, full);
+      pushWall(lv, { x0: st.x0, x1: st.x1, z0: st.z1, z1: st.z1 + T }, full);
+    }
+    if (hasPlaza(L)) {
+      pushWall(lv, { x0: GXE, x1: GXE + T, z0: plaza.z0 - T, z1: plaza.z1 + T }, full);
+      pushWall(lv, { x0: GXR, x1: GXE + T, z0: plaza.z0 - T, z1: plaza.z0 }, full);
+      pushWall(lv, { x0: GXR, x1: GXE + T, z0: plaza.z1, z1: plaza.z1 + T }, full);
+      pushWall(lv, { x0: GXR - T, x1: GXR, z0: Z1C + HALF, z1: Z2C - HALF }, full);
+    }
+    garageLevels.push(lv);
+  }
+  deck = null;
+  // The ramps: a wall along each side (the collider covers the whole climb).
+  const ramps: Ramp[] = [
+    { id: 0, ...strip1, lo: -1, hi: 0, rise: -1 },
+    { id: 1, ...strip2, lo: 0, hi: 1, rise: 1 },
+    { id: 2, ...strip2, lo: 1, hi: 2, rise: 1 },
+  ];
+  for (const r of ramps) {
+    for (const [z0, z1] of [[r.z0 - T, r.z0], [r.z1, r.z1 + T]]) {
+      solids.push({ ...rect(r.x0, r.x1, z0, z1), y0: levelY(r.lo) - 0.2, y1: levelY(r.hi) + 2.9 });
+    }
+  }
+  // Plaques: where to go. Hung over the aisle just before each ramp, and by the way out.
+  const plaques: Plaque[] = [];
+  for (const L of LEVELS) {
+    const hang = (kind: Plaque['kind'], x: number, z: number, h: number, y = levelY(L) + 2.35) => plaques.push({ kind, lvl: L, x, y, z, h });
+    hang('level', WCX + 3.6, Z1C + HALF + 0.2, Math.PI);
+    hang('level', WCX + 3.6, Z2C + HALF + 0.2, Math.PI);
+    if (L < 2) hang('up', CCX - 6, Z2C, -Math.PI / 2);
+    if (L > -1) hang('down', CCX - 6, Z1C, -Math.PI / 2);
+    if (L === 0) hang('exit', WCX + 3.2, Z2C, Math.PI / 2);
+    if (L === 0) hang('height', GX0 - 0.1, Z2C, -Math.PI / 2, 2.2);
+  }
+  const lightLines: Garage['lightLines'] = [];
+  for (const L of LEVELS) for (const z of [Z1C, Z2C]) lightLines.push({ lvl: L, x0: GX0 + 1, x1: GXB - 1, z });
+  const garage: Garage = { x0: GX0 - T, x1: GXE + T, z0: GZ0 - T, z1: GZ1 + T, levels: garageLevels, ramps, plaques, entrance: { x: GX0, z: Z2C }, aisleZ: [Z1C, Z2C], rows: [ROW_X0, ROW_X0 + ROW_N * PERP.width], lightLines };
+  // The open ground ends at the car park's west wall: inside it only the decks and ramps are floors.
+  const floors: Floor[] = [{ x0: -400, x1: GX0, z0: -400, z1: 400, lvl: 0 }];
+  for (const lv of garageLevels) for (const f of lv.floors) floors.push({ ...f, lvl: lv.lvl });
+  const surfaces: Surfaces = { ramps, floors };
+
   // --- Landscaping that blocks driving: lawns round the south and the east and west edges --------
   const lawn = (x0: number, x1: number, z0: number, z1: number, hedge = false) => {
     islands.push({ x0, x1, z0, z1, kind: 'lawn' });
@@ -447,7 +655,9 @@ export const buildLot = (seed = 7): Lot => {
   lawn(50.6, XE - 2.4, bounds.z0, southEdge);
   lawn(XE + 2.4, bounds.x1, bounds.z0, southEdge, true);
   lawn(bounds.x0, XW - 3.1 - PARALLEL.width - 0.2, southEdge + 0.4, bounds.z1);
-  lawn(XE + 3.7, bounds.x1, southEdge + 0.4, bounds.z1);
+  // (the opening to the car park is wider than its road, so a car swinging in off the side road does not catch a corner)
+  lawn(XE + 3.7, bounds.x1, southEdge + 0.4, Z2C - 6.8);
+  lawn(XE + 3.7, bounds.x1, Z2C + 6.8, bounds.z1);
 
   // --- The gates ----------------------------------------------------------------------------------
   const gates: Gate[] = [];
@@ -522,7 +732,7 @@ export const buildLot = (seed = 7): Lot => {
   for (const lamp of lamps) solids.push({ kind: 'circle', x: lamp.x, z: lamp.z, r: 0.25 });
   for (const p of posts) solids.push({ kind: 'circle', x: p.x, z: p.z, r: 0.24 });
   // Walls round the lot: the street side is closed (the entry and exit lanes end at it), the store kerb on the north.
-  solids.push(rect(bounds.x0 - 1, bounds.x0, bounds.z0 - 1, kerb + 1), rect(bounds.x1, bounds.x1 + 1, bounds.z0 - 1, kerb + 1));
+  solids.push(rect(bounds.x0 - 1, bounds.x0, bounds.z0 - 1, kerb + 1), rect(bounds.x1, bounds.x1 + 1, bounds.z0 - 1, Z2C - 6.5), rect(bounds.x1, bounds.x1 + 1, Z2C + 6.5, kerb + 1));
   solids.push(rect(bounds.x0 - 1, bounds.x1 + 1, bounds.z0 - 1, bounds.z0), rect(bounds.x0 - 1, bounds.x1 + 1, kerb, kerb + 1));
 
   // --- Markings and signs --------------------------------------------------------------------------
@@ -576,7 +786,7 @@ export const buildLot = (seed = 7): Lot => {
     // Tall vans hide what is behind them.
     if (bay.use === 'car' && isTall(bay.variant)) {
       const v2 = VARIANT_SIZE[bay.variant];
-      occluders.push({ kind: 'box', x: bay.x, z: bay.z, hw: v2.w / 2, hl: v2.l / 2, h: bay.h });
+      occluders.push({ kind: 'box', x: bay.x, z: bay.z, hw: v2.w / 2, hl: v2.l / 2, h: bay.h, ...(bay.garage ? { y0: bay.y, y1: bay.y + 2.4 } : {}) });
     }
   }
 
@@ -639,8 +849,10 @@ export const buildLot = (seed = 7): Lot => {
   const reach = new Set([...reachableFrom(graph, nodeId.M_EA), ...reachableFrom(graph, nodeId.M_EB)]);
   const sweepClear = (bay: Bay, ap: Approach) => {
     const pts = [ap.dock, ...ap.tail];
-    const others = bays.filter((b) => b.id !== bay.id && Math.hypot(b.x - bay.x, b.z - bay.z) < 24).map(bayShape).filter((s): s is Shape => !!s);
-    const near = [...solids.filter((s) => Math.hypot(s.x - bay.x, s.z - bay.z) < 24 + (s.kind === 'box' ? s.hl : 0)), ...others];
+    const others = bays.filter((b) => b.id !== bay.id && Math.hypot(b.x - bay.x, b.z - bay.z) < 24 && b.y === bay.y).map(bayShape).filter((s): s is Shape => !!s);
+    // Only what is on the bay's own level (decks and ramps are stacked in plan).
+    const here = (s: Shape) => s.y0 === undefined || (s.y0 < bay.y + 1.5 && (s.y1 ?? Infinity) > bay.y);
+    const near = [...solids.filter((s) => here(s) && Math.hypot(s.x - bay.x, s.z - bay.z) < 24 + (s.kind === 'box' ? s.hl : 0)), ...others];
     const check = (x: number, z: number, h: number) => {
       const box: Box = { kind: 'box', x, z, hw: CAR.width / 2 + 0.22, hl: CAR.length / 2 + 0.15, h };
       for (const s of near) if (collide(box, s)) return false;
@@ -659,6 +871,8 @@ export const buildLot = (seed = 7): Lot => {
   for (const bay of bays) bay.approach = bay.approach.filter((ap) => reach.has(ap.edge) && sweepClear(bay, ap));
   const candidates = bays
     .filter((b) => b.use === 'car' && b.approach.length > 0 && !b.tags.includes('disabled') && !b.tags.includes('parent'))
+    // A deck's bay too close to the corner before it (the swing in would start inside the corner) is a bay for the player, not the free bay.
+    .filter((b) => !b.garage || b.approach.some((ap) => ap.s > 3))
     // Not in sight of the start: finding it must mean driving and looking.
     .filter((b) => starts.every((st) => Math.hypot(b.x - st.x, b.z - st.z) > 38))
     .map((b) => b.id);
@@ -690,5 +904,7 @@ export const buildLot = (seed = 7): Lot => {
     store,
     shops,
     candidates,
+    garage,
+    surfaces,
   };
 };

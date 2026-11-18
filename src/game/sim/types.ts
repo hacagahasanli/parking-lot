@@ -21,6 +21,10 @@ export interface Car {
   bot: boolean;
   x: number;
   z: number;
+  /** Height of the road under the car (m): the level it is on, or part way up a ramp. */
+  y: number;
+  /** Slope along the nose (rise over run, positive uphill), for the engine and the body pitch. */
+  grade: number;
   h: number;
   vx: number;
   vz: number;
@@ -66,6 +70,8 @@ export interface Ped {
   id: number;
   x: number;
   z: number;
+  /** Height of the floor the shopper is on. */
+  y: number;
   /** Facing: like a car's heading, (sin h, cos h). */
   h: number;
   vx: number;
@@ -92,6 +98,8 @@ export interface Ped {
 /** A walk loop: waypoints with how long the person lingers at each (opening a boot, loading bags). */
 export interface Walk {
   points: { x: number; z: number; dwell: number }[];
+  /** Floor height (0 for the open lot). */
+  y?: number;
 }
 
 /** A shopper's chatter line on the radio, or a driver's. */
@@ -104,7 +112,7 @@ export interface ChatLine {
   name: string;
   color: number;
   text: string;
-  kind: 'spot' | 'bumped' | 'honked' | 'honker' | 'lost' | 'incident' | 'leave' | 'recover' | 'win';
+  kind: 'spot' | 'bumped' | 'honked' | 'honker' | 'lost' | 'incident' | 'leave' | 'leaveUp' | 'recover' | 'win';
 }
 
 /** The parked car that pulls out of its bay mid-round (a free bay appears where it was). */
@@ -114,6 +122,8 @@ export interface Leaver {
   /** Race clock at which it starts to pull out. */
   at: number;
   phase: 'wait' | 'reverse' | 'out' | 'gone';
+  /** Parked nose-out in the car park: it drives straight out instead of reversing. */
+  forward: boolean;
   /** Seconds in this phase. */
   t: number;
   /** The way to the exit gate once it is out in the aisle, and the segment it is on. */
@@ -137,7 +147,7 @@ export type GameEvent =
   /** A bot is backing out of a jam. */
   | { type: 'recover'; car: number }
   /** The parked car starts to pull out, and the bay it leaves is free from now on. */
-  | { type: 'leave'; bay: number }
+  | { type: 'leave'; bay: number; lvl: number; garage: boolean }
   | { type: 'vacated'; bay: number };
 
 export interface GameState {
