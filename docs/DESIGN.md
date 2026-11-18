@@ -1,8 +1,9 @@
 # Parking Lot: design
 
 A Merge Conflict game. **A four-car race to the one free bay on a full supermarket site: an open
-lot and a four-storey car park (rounds of one to three minutes).** Nobody is told where the bay is:
-you find it by driving the aisles, the ramps and the decks and looking, at the same time as the bots
+lot and a four-storey car park (rounds of one to three minutes), played in six stages: you start in the
+open lot, and each stage you win opens one more floor of the car park.** Nobody is told exactly where the bay
+is: you find it by driving the aisles, the ramps and the decks and looking, at the same time as the bots
 do. The only clue is the FREE SPACES board, and it gives away a little more every few seconds, to
 everybody. First to park, straight and still, wins. Hit a shopper and you are out.
 
@@ -13,18 +14,56 @@ genre; nothing specific to any one of them is copied. Numbers below come from
 ## The flow
 
 ```
-Home (four bots race behind the title) ──▶ /play
+Home (four bots race behind the title) ──▶ /play, always at stage 1
         │
         ▼
-Countdown 5 s: title card "ONE SPACE LEFT", four cars queued behind the closed entry barriers under the
-        │  LED board "FREE SPACES: 1", handbrake held, steering and revving allowed
+Intro card + countdown 5 s: "STAGE 2 OF 6 · P0 — Ground floor", one sentence on what is new, six progress
+        │  dots, the number counting down under it; four cars queued behind the closed entry barriers (the little
+        │  FREE SPACES board is on the booth), handbrake held, steering and revving allowed
         │  GO: the barriers lift (0.9 s)
         ▼
 Race: one bay is empty and unmarked, somewhere on the lot or on one of four decks. Search, read the board, spot it, shove for it, park. Watch the shoppers.
         │  first car parked and still (or 240 s pass, or you hit a pedestrian: out for you)
         ▼
-Result: winner and your place; the free bay is revealed ──▶ next round (new free bay)
+Result: winner and your place; the free bay is revealed
+        │  you parked first: "Next stage →" (Enter) opens the following stage; Retry; Home
+        │  you lost or were disqualified: Retry (Enter); Home
+        ▼
+next round (new free bay)
 ```
+
+## Stages
+
+The whole site from the first minute was too much to take in, so a visit climbs (`src/game/sim/stages.ts`). A stage is the
+same lot with some ways shut: the **car park's door** (stage 1) and the **foot of each ramp** are closed with a low red-and-white
+barrier and cones, which are solid; the aisles behind a barrier are closed to every bot and every route; shoppers are only on
+floors that are open; and the free bay is picked from the floor that has just opened. Floors opened before stay open (you drive
+through them, they are where the board's flicker puts its decoy, and the car that pulls out may be parked on any open floor).
+
+| Stage | Name | Open | The free bay is |
+| --- | --- | --- | --- |
+| 1 | The open lot | the open lot (car park door shut) | in the open lot |
+| 2 | P0 — Ground floor | + P0 (both ramps shut) | on P0 |
+| 3 | P1 — First floor | + P1 (the ramp up opens) | on P1 |
+| 4 | P2 — The roof | + P2 | on P2 |
+| 5 | P-1 — Underground | + P-1 (the ramp down opens) | on P-1 |
+| 6 | The whole site | everything | anywhere (as rounds used to be) |
+
+The order is the order of difficulty: the ground floor is the easy way in, the first floor and the open roof need the ramps (the roof
+needs two), and the dark underground goes last because the light is the hardest to read and its ramp is the one that goes away
+from the sky. Every stage starts at the entry gate, as before: stages 2 to 5 mean driving across the lot to the car park door first
+(about ten seconds), which keeps one start line and one fair queue.
+
+- **Progress** is in memory only (`Progress` in `stages.ts`, held by `Game`): a page load starts again at stage 1 with only stage 1
+  unlocked. Parking first in a stage unlocks the next; replaying an earlier stage never locks anything again. Losing changes
+  nothing (Retry). Stage chips (1 to 6: current, open, or locked) are on the result card and in the pause menu; a locked chip does
+  nothing; picking an open one starts that stage.
+- **Information**: the intro card before each countdown (stage number, name, what is new, dots for progress), a STAGE chip beside the
+  clock in the HUD, and the "how to play" on the home page. In stages 2 to 5 the board already says IN THE GARAGE from the start (the card told you), and from 32 s flickers between the free
+  bay's deck and one *open* deck (stage 2 has only one deck, so there is no flicker).
+- **A bay the bots could never see** (a van beside it on a one-way aisle hides it from every point a car may look from) is never the free bay in a stage (`spottable`
+  in `visibility.ts`): it is a bay for people.
+- The home page and the tests that do not name a stage still play the whole site with the bay anywhere.
 
 ## Rules
 
@@ -34,7 +73,7 @@ Result: winner and your place; the free bay is revealed ──▶ next round (ne
 | Countdown | 5 s (the title card and the board are on screen) | `RACE.countdown` |
 | Free bay | 1 per round. First a zone (open lot 40 %, each of the four decks 15 %), then a candidate bay in it: angled and 90 degree bays a bot can really drive into (160 outdoors, 52 on the decks), never within 38 m of a start; that car is removed; **not marked in any way** | `pickTarget`, `Lot.candidates` |
 | Levels | a car, shopper or bay is on one level (P-1, P0, P1, P2, or the open lot, which is P0); things on different levels never touch, even straight over each other; a ramp joins two levels and your height follows your position on it. To win, you must be on the free bay's level | `levels.ts`, `step.ts` |
-| The board | "FREE SPACES: 1" from the start; from 12 s the part of the site (open lot or garage); from 32 s, if the bay is in the garage, two decks flicker, one right and one a decoy (the first one flashed is no clue); when a car pulls out the count goes to 2. Shown over the gate, at the garage door and in the HUD, to the bots too | `hint.ts` |
+| The board | "FREE SPACES: 1" from the start; from 12 s the part of the site (open lot or garage; from the start in stages 2 to 5); from 32 s, if the bay is in the garage and more than one deck is open, two decks flicker, one right and one a decoy (the first one flashed is no clue); when a car pulls out the count goes to 2. Shown on a small panel on the ticket booth, on the wall by the garage door and in the HUD, to the bots too | `hint.ts` |
 | Second free bay | one parked car (an ordinary car, in the open lot or on a deck) pulls out at 12 to 28 s and drives off to the exit gate; once it has driven clear, the bay it left is free too and counts for the win. When it is on a deck the radio says which one | `Leaver` in `step.ts` |
 | Pedestrians | 30 shoppers (22 outdoors, 8 on the decks); contact with a car on their level moving over 1 m/s disqualifies that driver for the round | `PED`, `ped.ts` |
 | Round limit | 240 s, then no winner | `RACE.maxTime` |
@@ -153,17 +192,20 @@ and third dimension: where to look, and which way up.
   Three **two-way ramps** of 26 m (13.6 % grade): P0 down to P-1 along the south strip, P0 up to P1 and P1 up to P2 stacked
   along the north strip, and a connector plaza at the east end where a ramp meets a deck. Everything that is not the ring is
   two-way, so you meet oncoming cars on the ramps and in the plaza.
-- **You come in on P0** (the road from the lot crosses the east pavement, a lintel with a yellow-and-black height bar
-  "MAX 2.1 m" and a free-spaces board over the way in). Going up or down you take a ramp from the end of an aisle.
-- **Look of each deck**: concrete floor, walls and ceiling (strip lights hung 3.05 m up; 3.1 m clear under a deck), a painted
+- **You come in on P0** (the road from the lot crosses the east pavement and goes through a gap in the wall; a small free-spaces
+  board is on the wall beside it). Going up or down you take a ramp from the end of an aisle.
+- **Look of each deck**: concrete floor, walls and ceiling (small flat strip lights flush with the ceiling, 3.1 m clear under a deck), a painted
   colour per level (P-1 blue, P0 orange, P1 green, P2 yellow) on a band along the walls, the columns, the ramp caps, the
-  ramp ends and a big number on the floor of the west connector, signs hung over the aisles (UP, DOWN, EXIT, the level), and
+  ramp ends and a big number on the floor of the west connector, and the way painted on the floor (UP before the cross connector, DOWN on it, EXIT before the way out, arrows on the one-way ring), small plates on the outer walls above the bays (the level; EXIT by the way out), and
   a steel crash rail on the parapets of the open decks.
 - **Light**: outdoors it is the sun and sky. Inside, the sky light is turned down (more on P-1: 100 %, P0 75 %, P1 55 %,
   open roof 0 %) and a warm lamp follows your car (cold blue underground), so the decks read as lit by their own strip lamps.
-- **Camera**: the chase camera stays under the ceiling and is pulled in towards the car if a column, wall or ramp side is
+- **Nothing in the way**: no sign, board or gantry hangs over or stands in an aisle, a ramp, the roof deck or the entry lanes; they came
+  between the chase camera and the road. Wayfinding is paint on the floor, small plates on the walls and the HUD. (A test keeps every
+  sign, post and pole out of every aisle corridor, and no overhead plate exists.)
+- **Camera**: the chase camera stays under the ceiling (0.7 m below it, clear of the lights) and is pulled in towards the car if a column, wall or ramp side is
   between them; the high and overhead cameras hide the decks above you so you can see in.
-- **Minimap**: one tab per level (P-1 to P2), a dot on the tab you are on. It follows you, or the tab you pick until you
+- **Minimap**: one tab per open level (P-1 to P2; none while only the open lot is open), a dot on the tab you are on. It follows you, or the tab you pick until you
   change level yourself. The tab shows that level's aisles, bays, walls and columns, the shoppers on it, and the cars on it (and
   those on a ramp that touches it); never a car on another level and never the free bay until the round is over, when
   the map jumps to the level where it was. The HUD also shows your level beside the speed.
@@ -241,6 +283,8 @@ one lap of the ring, and a pass up or down a ramp is how a bot changes deck. A b
 - Parallel bay and pocket bay: none. Bots skip them, and they are never the free bay.
 
 The final line-up is the same Stanley controller for all of them.
+
+In the stages the same bots work with the closed parts closed (`stages.test.ts`: 12 seeds in each of the six stages, all parked within 170 s; the roof, with two ramps to climb, is the slowest at about two minutes). A bot backing out of a jam stops if anyone is within 3.6 m of the car.
 
 They do not attack you deliberately, but they will not wait for you either. In the 24 test seeds a bot parks
 within 149 s (median about 76 s, quickest 53 s; the open lot takes about a minute, a deck up to two and a half).

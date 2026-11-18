@@ -16,7 +16,7 @@ npm run test:run     # vitest, src/game/sim/sim.test.ts (about 100 s: 48 of the 
 npm run type-check   # tsc --noEmit
 ```
 
-Open `http://localhost:3200/play`. `npm run test:run` is green (102 tests). In development the page also
+Open `http://localhost:3200/play`. `npm run test:run` is green (about 210 tests, two thirds of them whole bot rounds). In development the page also
 exposes `window.__game` (the running `Game`), which the Playwright scripts use to place the camera
 and read `renderer.info`.
 
@@ -35,6 +35,8 @@ src/
                         approach paths per bay, candidates; the grid constants in LAYOUT
       levels.ts         levels as heights: LEVEL_H, ramps and floors, surfaceAt() (the road under a point)
       hint.ts           the FREE SPACES board: what it says at each moment
+      stages.ts         the six stages, stageLot() (the lot as a stage plays it), and the in-memory Progress state machine
+      visibility.ts     what a driver can see: SIGHT, line of sight against tall things, spottable() (can any bot ever see this bay?)
       nav.ts            the aisle graph: nodes, directed edges, Dijkstra, routes, route following
       types.ts          Car, GameState, Input, GameEvent, World
       step.ts           step(): one tick. drive(), crashes, parking rule
@@ -45,8 +47,8 @@ src/
       game.ts           the loop, inputs, camera, HUD data, effects
       car.ts            car models, instanced parked cars
       world.ts          the scene: ground, roads, paint, islands, lawns, hedges, trees, lamps, shops
-      scenery.ts        gates (animated arms), the gantry, carport, EV chargers, truck, yard props, signs, bay paint, zebra and bumps
-      garage.ts         the multi-storey car park: one merged group per deck, ramps, plaques, the door board
+      scenery.ts        gates (animated arms), the booth's board, the barriers a stage shuts, carport, EV chargers, truck, yard props, signs, bay paint, zebra and bumps
+      garage.ts         the multi-storey car park: one merged group per deck, ramps, wall plates, painted UP/DOWN/EXIT, the door board
       board.ts          LED dot-matrix boards on a canvas texture
       sight.ts          2D segment tests for the camera (does a wall or column stand between car and camera?)
       geo.ts            small geometry and canvas-texture helpers
@@ -347,22 +349,40 @@ counts consecutive back-outs in the same place (within 6 m); from the second one
 
 `hint.ts` is a pure function of the state: `hintOf(state, lot)` gives the free count, the stage and (stage 2, garage) the two
 decks: the right one and a decoy picked from the seed, flickered by the clock (`HINT.flicker` 0.9 s), and `hintLines()` the two lines
-of text. The renderer draws them on three boards (the gantry over the gate, the wall by the garage door, the HUD panel) and the bots
+of text. The renderer draws them on three boards (the small panel on the ticket booth, the wall by the garage door, the HUD panel) and the bots
 read the same function. Boards are `board.ts`: text is drawn small on an offscreen canvas and re-drawn as round amber dots (128 x 32
 dots, 6 px pitch) on the texture; it only redraws when the rows change (`JSON.stringify` of the rows), so blinking costs a texture
 upload twice a second.
 
+## 11b. Stages
+
+`stages.ts`. A stage is a **view** of the one lot, made by `stageLot(lot, n)` (cached per lot and stage) and used as `world.lot`, so bots,
+the sim and the board all see it:
+
+- `lot.closures` (built once in `buildLot`) are the four ways a stage can shut: `door`, `down`, `up1`, `up2`. Each has a solid `Box`
+  at the right height (so the wrong deck's cars are unaffected); `stageLot` adds the ones that are shut to `solids`, and the renderer
+  (`buildClosures` in `scenery.ts`, `setClosures` on the world view) shows the barrier and cones for the same ids.
+- Aisles that lead into a shut part get `closed: true` and their edges too; `pathFrom`, `reachableFrom` and the bots' `searchable()`
+  skip closed ones for everybody (even `allowAvoid` routes such as the pulling-out car's), while `locate` still knows the edge.
+- `candidates` are the bays of the new floor that pass `spottable()` (in stage 1 the open lot's, in the last stage everywhere open),
+  `eligible` is every such bay in the open part (where the pulling-out car may be parked). `createWorld` drops the walks, and the trolley flags
+  with them, of shut floors, so there are no shoppers up there.
+- `hintOf` reads `lot.stage` and `lot.open`: from the start in stages 2 to 5, decoy only among open decks.
+- `RoundOptions.stage` selects it; left out, the full lot is used unchanged (that is how the older tests and the home page run).
+- `Game` holds a `Progress` (in memory): `won()` on the player's win, `confirm()` (Enter / the primary button), `nextStage()`,
+  `selectStage(n)`. The page load makes a fresh one, so it always starts at stage 1. Tests: `stages.test.ts`.
+
 ## 12. Rendering the decks, light, camera and minimap
 
 - **One group per deck** (`garage.ts`), each merged by material: slab (sides), floor tops, ceiling undersides, walls, level-colour
-  bands, rails, columns, strip lights, paint (bay stripes, dashes, arrows), plaques, chains. A ramp's meshes belong to the deck it
+  bands, rails, columns, strip lights (flush, flat), paint (bay stripes, dashes, arrows, UP/DOWN/EXIT words), wall plates. A ramp's meshes belong to the deck it
   starts on. About 14 draw calls a deck. Parked cars are one `buildParked()` group per deck at `y = levelY(L)`, added to the deck's
   group, so they are hidden with it. `showAround(level, hideAbove)`: indoors, only the decks within one level are drawn (and in the
   high and overhead cameras the ones above are hidden, so you can see in).
 - **Light.** There is one sun and one sky, so inside is made by turning them down: `dark` (0 outdoors to 1 on P-1, eased) scales the
   hemisphere light to 28 % and the environment to 20 %, and a point light 2.6 m over the car (38 intensity, 20 m, decay 1.5; blue-white
   on P-1) lights the aisle. The slabs cast and receive shadows, so the sun reaches only through the open sides of P1 and the roof.
-- **Camera** (`updateCamera`): the chase camera is clamped under the ceiling (`levelY + 2.8`) and `camSolids` (the garage's walls,
+- **Camera** (`updateCamera`): the chase camera is clamped under the ceiling (`levelY + 2.4`, 0.7 m below it so the flat lights are not in its face) and `camSolids` (the garage's walls,
   columns, ramp sides) are tested with `circleHit`/`boxHit` on the line car to camera; a hit pulls the camera in (not closer than 28 % of
   the way), and the height follows. The sun's shadow box follows the car's height too.
 - **Cars on ramps** lean with the slope: `rotation.order = 'YXZ'` and `rotation.x = -atan(grade)`, eased.
@@ -397,6 +417,7 @@ All of them hold 60 fps (the display's limit); the triangle count is dominated b
 | Change what share of bays are corrals, cones, SUVs or vans | the `r < 0.035`, `r < 0.06` and `variant` lines in `buildLot()` |
 | Make bots braver or smarter | `createBrain()` (cruise speed) and `botInput()` in `bot.ts` |
 | Change what the board gives away and when | `HINT` and `hintOf()` in `hint.ts` |
+| Change what a stage opens or what its card says | `STAGES` in `stages.ts` |
 | Add a deck or move a ramp | `LEVELS` in `levels.ts`, the constants and the loops under "The car park" in `lot.ts` (the render follows) |
 | Change the light inside the car park | `updateGarage()` in `game.ts`, the materials in `garage.ts` |
 | Add a sound | `src/game/sfx.ts`, call it from the `tick()` event loop in `game.ts` |
