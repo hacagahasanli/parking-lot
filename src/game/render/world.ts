@@ -4,7 +4,7 @@
  * at the front, and the store with its sign at the back. Built from the same `Lot` the rules use.
  */
 import * as THREE from 'three';
-import { mergeGeometries } from 'three/examples/jsm/utils/BufferGeometryUtils.js';
+import { mergeGeometries, mergeVertices } from 'three/examples/jsm/utils/BufferGeometryUtils.js';
 
 import { BAY, rng } from '../sim/lot';
 
@@ -165,16 +165,27 @@ const buildTrees = (spots: { x: number; z: number; s: number }[], seed: number):
   trunkGeo.translate(0, 1.3, 0);
   const trunk = new THREE.InstancedMesh(trunkGeo, new THREE.MeshStandardMaterial({ color: 0x4a3a2c, roughness: 0.95 }), spots.length);
   trunk.castShadow = true;
-  const blob = new THREE.IcosahedronGeometry(1, 1);
-  // Lumpy, not a perfect ball.
+  // Lumpy, not a perfect ball. Icosahedron geometry is non-indexed, so jittering per vertex tears
+  // the faces apart; weld first (drop uv/normal so shared corners match), then displace by
+  // *position* with a smooth function so the crown stays closed.
+  const raw = new THREE.IcosahedronGeometry(1, 3);
+  raw.deleteAttribute('uv');
+  raw.deleteAttribute('normal');
+  const blob = mergeVertices(raw);
   const pos = blob.attributes.position;
+  const v = new THREE.Vector3();
   for (let i = 0; i < pos.count; i++) {
-    const k = 0.85 + r() * 0.3;
-    pos.setXYZ(i, pos.getX(i) * k, pos.getY(i) * k * 0.9, pos.getZ(i) * k);
+    v.fromBufferAttribute(pos, i);
+    const n =
+      Math.sin(v.x * 2.3 + 1.7) * Math.cos(v.z * 2.1 + 0.4) * 0.11 +
+      Math.sin(v.y * 3.1 + v.x * 1.3) * 0.07 +
+      Math.sin(v.z * 5.3 + v.y * 2.2) * 0.04;
+    const k = 1 + n;
+    pos.setXYZ(i, v.x * k, v.y * k * (v.y < 0 ? 0.7 : 0.92), v.z * k);
   }
   blob.computeVertexNormals();
   const perTree = 3;
-  const crown = new THREE.InstancedMesh(blob, new THREE.MeshStandardMaterial({ roughness: 0.85, flatShading: true }), spots.length * perTree);
+  const crown = new THREE.InstancedMesh(blob, new THREE.MeshStandardMaterial({ roughness: 0.9 }), spots.length * perTree);
   crown.castShadow = true;
   crown.receiveShadow = true;
   const m = new THREE.Matrix4();
