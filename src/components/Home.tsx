@@ -3,7 +3,7 @@
 import Link from 'next/link';
 import { useEffect, useRef, useState } from 'react';
 
-import { SupportLink } from '~/components/SupportLink';
+import { SupportCard } from '~/components/SupportLink';
 import type { Game } from '~/game/render/game';
 
 const STEPS = [
@@ -69,6 +69,10 @@ export const Home = () => {
           <span className="text-lilac text-sm">You against three bots. Online with friends is next.</span>
         </div>
 
+        <div className="mt-6">
+          <SupportCard />
+        </div>
+
         <ol className="mt-12 grid max-w-5xl gap-3 sm:grid-cols-2 lg:grid-cols-4">
           {STEPS.map(([title, text], i) => (
             <li key={title} className="panel-cut bg-ink/80 border-blue/20 border p-4 backdrop-blur-sm">
@@ -85,10 +89,6 @@ export const Home = () => {
               <kbd className="bg-ink text-cream rounded px-1.5 py-0.5 font-bold">{k}</kbd> {v}
             </span>
           ))}
-        </div>
-
-        <div className="mt-10">
-          <SupportLink />
         </div>
       </section>
     </main>

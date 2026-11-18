@@ -53,7 +53,7 @@ npm run type-check
 
 Open `http://localhost:3200/play` to drive; the home page shows four bots racing.
 
-Support: Parking Lot is free. If you enjoyed it, you can [☕ support the studio](https://mergeconflictgames.itch.io/support).
+Support: Parking Lot is free. If you enjoyed it, you can [☕ support the studio](https://merge-conflict-drab.vercel.app/donate.html).
 
 Design: [docs/DESIGN.md](docs/DESIGN.md). How the code works: [docs/TECHNICAL.md](docs/TECHNICAL.md).
 Assets: [ASSETS.md](ASSETS.md).
