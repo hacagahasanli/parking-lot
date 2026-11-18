@@ -46,7 +46,7 @@ export interface Standing {
   /** Bumps so far: the standings never say how close anyone is to the free bay. */
   bumps: number;
   parked: boolean;
-  /** Disqualified for hitting a pedestrian. */
+  /** Disqualified for hitting a pedestrian, a car or something hard. */
   out: boolean;
   me: boolean;
 }
@@ -69,8 +69,9 @@ export interface HudState {
   gear: 'D' | 'R' | 'P';
   standings: Standing[];
   chat: ChatBubble[];
-  /** Seconds since you were disqualified for hitting a pedestrian, or null. */
+  /** Seconds since you were disqualified, or null; and what you hit ('pedestrian', 'car' or 'obstacle') and its name ("Staging", "a parked car", "a post"). */
   disqualified: number | null;
+  dqWhy: { kind: 'pedestrian' | 'car' | 'obstacle'; what: string } | null;
   park: number;
   inBay: number;
   camera: CameraMode;
@@ -80,8 +81,10 @@ export interface HudState {
     winner: string | null;
     winnerColor: number;
     won: boolean;
-    /** Why it ended for you: 'parked' (someone did), 'pedestrian' (you hit one), 'time'. */
-    reason: 'parked' | 'pedestrian' | 'time';
+    /** Why it ended for you: 'parked' (someone did), 'pedestrian' (you hit one), 'crash' (you touched a car or something hard), 'time'. */
+    reason: 'parked' | 'pedestrian' | 'crash' | 'time';
+    /** What you hit when you were disqualified for a crash ("Staging", "a parked car", "a post"). */
+    hit: string;
     incidents: number;
     place: number;
     time: number;
@@ -710,6 +713,14 @@ export class Game {
           if (this.endedAt < 0) this.endedAt = this.time;
           this.sfx.lose();
         }
+      } else if (e.type === 'crash') {
+        if (e.speed <= 1.2) this.sfx.bump(e.speed, e.x, e.z, true);
+        if (e.car === 0 && this.opts.mode === 'race') {
+          this.trauma = 1;
+          this.dqAt = this.time;
+          if (this.endedAt < 0) this.endedAt = this.time;
+          this.sfx.lose();
+        }
       } else if (e.type === 'leave') {
         const b = this.lot.bays[e.bay];
         this.sfx.toot(b.x, b.z);
@@ -802,9 +813,9 @@ export class Game {
       const v = Math.abs(vF);
       let rpm: number;
       if (s.phase === 'countdown') rpm = 850 + c.throttle * 5200;
-      else if (c.gear === -1) rpm = 900 + (v / 6.2) * 3600 + c.throttle * 400;
+      else if (c.gear === -1) rpm = 900 + (v / 4) * 3600 + c.throttle * 400;
       else {
-        const shifts = [0, 4.2, 8.5, 12.5, 16, 30];
+        const shifts = [0, 2.2, 4.4, 6.6, 8.6, 30];
         let g = 0;
         while (g < 4 && v > shifts[g + 1]) g++;
         const frac = (v - shifts[g]) / (shifts[g + 1] - shifts[g]);
@@ -1178,7 +1189,8 @@ export class Game {
           winner: s.winner !== null ? s.cars[s.winner].name : null,
           winnerColor: s.winner !== null ? s.cars[s.winner].color : 0xffffff,
           won: s.winner === 0,
-          reason: (me.dq !== null ? 'pedestrian' : s.winner !== null ? 'parked' : 'time') as 'parked' | 'pedestrian' | 'time',
+          reason: (me.dq !== null ? (me.dqWhy ? 'crash' : 'pedestrian') : s.winner !== null ? 'parked' : 'time') as 'parked' | 'pedestrian' | 'crash' | 'time',
+          hit: me.dqWhy?.what ?? '',
           incidents: me.incidents,
           place: order.findIndex((c) => c.id === 0) + 1,
           time: me.parkedAt ?? me.dq ?? s.clock,
@@ -1196,6 +1208,7 @@ export class Game {
       standings: order.map((c) => ({ id: c.id, name: c.name, color: c.color, bumps: c.bumps, parked: c.parkedAt !== null, out: c.dq !== null, me: c.id === 0 })),
       chat: s.chat.filter((l) => s.t - l.t < 6.5).slice(-3).map((l) => ({ id: l.id, name: l.name, color: l.color, text: l.text, age: s.t - l.t })),
       disqualified: me.dq !== null && this.dqAt >= 0 ? this.time - this.dqAt : null,
+      dqWhy: me.dq !== null ? (me.dqWhy ?? { kind: 'pedestrian', what: 'a pedestrian' }) : null,
       park: me.park,
       inBay: me.inBay,
       camera: this.cameraMode,

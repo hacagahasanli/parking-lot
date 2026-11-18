@@ -4,7 +4,9 @@
  * there through the graph (with the one-way flow) and onto the bay's own approach path. It follows
  * routes with *pure pursuit* (steer towards a point a few metres ahead, like a person looking down
  * the road), lines up on the bay's axis with Stanley steering, slows for corners and the stop, and
- * backs out and tries again when it gets stuck.
+ * backs out and tries again when it gets stuck. Contact is out, so they drive like careful people:
+ * they keep a gap to the car ahead, give way at junctions and to anything their path would cross,
+ * wait their turn for the bay, and only back out when nobody is behind them. Honking is allowed.
  */
 import { CAR } from './constants';
 import { hintOf } from './hint';
@@ -12,7 +14,10 @@ import { levelY, sameStorey } from './levels';
 import { locate, roundCorners, routeLength, routeToDock, routeToSweep, shortestPath } from './nav';
 import { pedLimit } from './ped';
 import { crosses, SIGHT } from './visibility';
-import { bodies, forwardSpeed, freeBays, steerLimit } from './step';
+import { bodies, carBox, forwardSpeed, freeBays, nearSolids, racerInWay, steerLimit } from './step';
+import { DRIVE } from './constants';
+import { OWNER_ENTRY, OWNER_EXIT } from './types';
+import { collide } from './collide';
 
 import type { Lot, Vec } from './lot';
 import type { Car, GameEvent, GameState, Input, World } from './types';
@@ -27,7 +32,7 @@ export interface BotBrain {
   route: Vec[];
   /** Index of the route segment being followed. */
   seg: number;
-  /** Cruising speed (m/s): how brave this driver is. */
+  /** Cruising speed (m/s): how brisk this driver is (about 20 to 27 km/h). */
   cruise: number;
   /** Seconds stuck while trying to move. */
   stuck: number;
@@ -49,12 +54,6 @@ export interface BotBrain {
   wobble: number;
   /** Seconds left of getting clear of the bay to line up again (0 = not recovering). */
   recover: number;
-  /** 0..1: how hard this driver shoves, tailgates and leans on the horn. */
-  aggr: number;
-  /** Seconds this driver keeps pushing for a contested bay before backing off. */
-  patience: number;
-  /** Seconds spent in the current fight for the bay. */
-  fight: number;
   /** Seconds held up by a stopped car in front. */
   held: number;
   /** Horn state last step and when it last sounded (for honk events). */
@@ -67,6 +66,11 @@ export interface BotBrain {
   visited: Set<string>;
   /** The last board hint this driver acted on (stage and decks), so it re-plans its search once per new hint. */
   hintKey: string;
+  /** The last look-ahead for things that would put the car out, and when it was made (it is redone every few steps). */
+  /** Seconds held up by shoppers close in front (a long wait earns a toot on the horn). */
+  pedWait: number;
+  roomAt: number;
+  roomVal: number;
   /** Things that happened for the radio: spotted the bay, honked, backing out. The caller drains it. */
   outbox: GameEvent[];
 }
@@ -162,7 +166,7 @@ export const createBrain = (world: World, car: Car, seed: number): BotBrain => {
   const brain: BotBrain = {
     route: [],
     seg: 0,
-    cruise: 8.2 + r * 3,
+    cruise: 5.4 + r * 2,
     stuck: 0,
     reverse: 0,
     reverseSteer: 1,
@@ -174,9 +178,6 @@ export const createBrain = (world: World, car: Car, seed: number): BotBrain => {
     launch: [0.15, 0.7, 1.9, 2.6][car.id % 4],
     wobble: (car.id * 1.7) % 3,
     recover: 0,
-    aggr: ((seed * 31 + car.id * 17) % 10) / 10,
-    patience: 2 + ((seed * 7 + car.id * 5) % 10) * 0.25,
-    fight: 0,
     held: 0,
     hornOn: false,
     lastHonk: -9,
@@ -184,6 +185,9 @@ export const createBrain = (world: World, car: Car, seed: number): BotBrain => {
     jam: 0,
     jamAt: { x: car.x, z: car.z },
     visited: new Set(),
+    pedWait: 0,
+    roomAt: -9,
+    roomVal: Infinity,
     outbox: [],
   };
   brain.route = sweepRoute(world, car, brain);
@@ -368,6 +372,38 @@ export const carAhead = (state: GameState, car: Car, fx: number, fz: number) => 
   return best;
 };
 
+/**
+ * How far (m) the car can go on the arc it is on, wheel turning to `wheel` as fast as it really does,
+ * before it would touch something that puts it out (a parked car, a post, a column, another car at the speed it is going). Infinity when the
+ * way is clear for `horizon` metres. `dir` is +1 going forward, -1 reversing.
+ */
+export const roomAhead = (state: GameState, world: World, car: Car, wheel: number, speed: number, dir: 1 | -1, horizon: number): number => {
+  const others = bodies(state).filter((o) => o !== car && sameStorey(o.y, car.y) && Math.hypot(o.x - car.x, o.z - car.z) < horizon + 8);
+  const v = Math.max(1.2, Math.abs(speed));
+  const dt = 0.1;
+  let { x, z, h } = car;
+  let steer = car.steer;
+  for (let t = dt; t * v <= horizon; t += dt) {
+    steer += Math.max(-DRIVE.steerRate * dt, Math.min(DRIVE.steerRate * dt, wheel - steer));
+    h += (-dir * v * Math.tan(steer) / CAR.wheelbase) * dt;
+    x += Math.sin(h) * v * dir * dt;
+    z += Math.cos(h) * v * dir * dt;
+    const box = carBox({ x, z, h });
+    // Other cars too, where they will be by then at their present speed.
+    for (const o of others) {
+      const b = carBox({ x: o.x + o.vx * t, z: o.z + o.vz * t, h: o.h });
+      if (collide(box, { ...b, hw: b.hw + 0.1 })) return Math.max(0, t * v - 0.3);
+    }
+    for (const i of nearSolids(world, x, z)) {
+      if (!world.hard[i] || world.owner[i] === OWNER_ENTRY || world.owner[i] === OWNER_EXIT) continue;
+      const s = world.solids[i];
+      if (s.y0 !== undefined && (car.y + 1.5 < s.y0 || car.y > (s.y1 ?? Infinity))) continue;
+      if (collide(box, s)) return Math.max(0, t * v - 0.3);
+    }
+  }
+  return Infinity;
+};
+
 export const botInput = (state: GameState, world: World, car: Car, brain: BotBrain): Input => {
   const idle: Input = { throttle: 0, brake: 0, steer: 0, handbrake: true, horn: false };
   if (state.phase !== 'race' || car.parkedAt !== null || car.dq !== null) return idle;
@@ -410,7 +446,22 @@ export const botInput = (state: GameState, world: World, car: Car, brain: BotBra
     // Never back into someone.
     // (and not near anyone at all: a swinging nose catches a shopper who steps in beside the car)
     const near = state.peds.some((p) => sameStorey(car.y, p.y) && Math.hypot(p.x - car.x, p.z - car.z) < 3.6);
-    if (near || pedLimit(state, car, -vF, -fx, -fz) < 2) return finish({ throttle: 0, brake: 0, steer: 0, handbrake: true, horn: false });
+    if (near || pedLimit(state, car, -vF, -fx, -fz) < 2 || racerInWay(state, car, -1)) {
+      // Blocked behind for a while: give up backing out and have another go forwards.
+      brain.pedWait += dt;
+      if (brain.pedWait > 2) {
+        brain.reverse = 0;
+        brain.stuck = 0;
+        brain.pedWait = 0;
+      }
+      return finish({ throttle: 0, brake: 0, steer: 0, handbrake: true, horn: false });
+    }
+    // Nor into a parked car, a post or a column behind: stop backing and try the way forward again.
+    if (roomAhead(state, world, car, brain.reverseSteer * steerLimit(vF), vF, -1, 2.5 + (vF * vF) / 4) < 0.6) {
+      brain.reverse = 0;
+      brain.stuck = 0;
+      return finish({ throttle: 0, brake: 0, steer: 0, handbrake: true, horn: false });
+    }
     brain.reverse -= dt;
     if (brain.reverse <= 0) brain.stuck = 0;
     return finish({ throttle: 0, brake: 1, steer: brain.reverseSteer, handbrake: false, horn: brain.reverse > 0.9 });
@@ -435,7 +486,14 @@ export const botInput = (state: GameState, world: World, car: Car, brain: BotBra
       brain.seg = brain.route.length - 3;
       brain.stuck = 0;
     }
-    if (ahead < 0 && pedLimit(state, car, -vF, -fx, -fz) < 2) return finish({ throttle: 0, brake: 0, steer: 0, handbrake: true, horn: false });
+    const wheelNow = steer * steerLimit(vF);
+    const roomR = roomAhead(state, world, car, wheelNow, vF, ahead >= 0 ? 1 : -1, 3);
+    if (roomR < 0.6) {
+      brain.recover = 0;
+      brain.stuck = 0;
+      return finish({ throttle: 0, brake: 0, steer: 0, handbrake: true, horn: false });
+    }
+    if ((ahead < 0 && (pedLimit(state, car, -vF, -fx, -fz) < 2 || racerInWay(state, car, -1))) || (ahead >= 0 && racerInWay(state, car, 1))) return finish({ throttle: 0, brake: 0, steer: 0, handbrake: true, horn: false });
     return finish(
       ahead >= 0
         ? { throttle: vF < 2 ? 0.6 : 0, brake: 0, steer, handbrake: false, horn: false }
@@ -490,79 +548,87 @@ export const botInput = (state: GameState, world: World, car: Car, brain: BotBra
   const cruise = brain.spotted ? brain.cruise : brain.cruise * 0.82;
   let want = Math.min(cruise, curveSpeed(route, brain.seg, s.t, vF));
   want = Math.min(want, Math.max(lineUp ? 1.1 : 2.2, Math.sqrt(2 * 2.4 * Math.max(0, toGo - 0.2))));
+  // Coming up to the bay: slow, and slower still for the last turn in (the bay is tight, with a car on each side).
+  if (brain.spotted && toGo < 16) want = Math.min(want, 3);
+  if (lineUp) want = Math.min(want, 2);
   // How deep into the bay along its axis (0 at the centre).
   const depth = bay ? (car.x - bay.x) * bay.ax + (car.z - bay.z) * bay.az : 0;
   if (lineUp && (car.inBay === 1 || depth > 0.1) && car.bay === brain.target) want = 0;
+  // Never faster than it could stop short of something that would put it out.
+  if (state.t - brain.roomAt > 0.04) {
+    brain.roomAt = state.t;
+    brain.roomVal = roomAhead(state, world, car, steer * lim, vF, 1, (vF * vF) / (2 * 2.2) + 3);
+  }
+  const room = brain.roomVal;
+  const blocked = room < 1.2;
+  if (room !== Infinity) want = Math.min(want, Math.sqrt(2 * 2.2 * Math.max(0, room - 0.2)));
 
-  // Contest: someone else is ahead of us in the bay. No waiting politely: lean on the horn and keep
-  // pushing in for a short fight, and only if still beaten back off, regroup, and come again.
-  // The rival is whoever is closer to the bay than we are and right in front of us, (a car in it counts first).
+  // Waiting for the bay: someone else is ahead of us in it. No shoving: stay back, wait their turn.
+  // The rival is whoever is closer to the bay than we are and right in front of us (a car in it counts first).
   const mine = bay ? Math.hypot(bay.x - car.x, bay.z - car.z) : 0;
   const rival = bay
     ? state.cars.find((o) => {
         if (o === car || o.dq !== null || !sameStorey(o.y, car.y)) return false;
         const theirs = Math.hypot(bay.x - o.x, bay.z - o.z);
-        return theirs < mine - 0.3 && theirs < 9 && Math.hypot(o.x - car.x, o.z - car.z) < 6;
+        return theirs < mine - 0.3 && theirs < 9 && Math.hypot(o.x - car.x, o.z - car.z) < 7;
       })
     : undefined;
-  let fighting = false;
   if (bay && lineUp && rival) {
-    brain.fight += dt;
-    fighting = true;
-    honkAt = rival.id;
-    want = Math.max(want, 1.6 + brain.aggr * 1.4);
-    if (brain.fight > brain.patience) {
-      brain.recover = 3.2;
-      brain.fight = 0;
-      brain.outbox.push({ type: 'recover', car: car.id });
-    }
-  } else brain.fight = Math.max(0, brain.fight - dt);
+    const gap = Math.hypot(rival.x - car.x, rival.z - car.z) - CAR.length;
+    if (gap < 4.5) want = 0;
+    else want = Math.min(want, 1.2);
+  }
 
-  // Other traffic: tailgate the car in front (the keen ones stay glued to its bumper), honk at it.
-  const lead = lineUp ? null : carAhead(state, car, fx, fz);
+  // Cars ahead: keep a gap (2 m and a bit more the faster we go), never drive faster than we could stop in the room left.
+  const lead = carAhead(state, car, fx, fz);
   let tailHorn = false;
-  if (lead && lead.gap < 14) {
-    const keep = brain.aggr > 0.5 ? 1.6 : 4.2;
-    // The keen ones never stop for a car in front: they nose up to it and lean on it.
-    const floor = brain.aggr > 0.5 ? 1.2 : lead.gap > 1 ? 1.5 : 0;
-    if (lead.gap < keep + 3) want = Math.min(want, Math.max(floor, lead.speed + (lead.gap - keep) * 0.7));
+  if (lead && lead.gap < 16) {
+    const keep = 2 + Math.max(0, vF) * 0.5;
+    const room = Math.max(0, lead.gap - keep);
+    want = Math.min(want, Math.max(0, lead.speed) * 0.9 + Math.sqrt(2 * 2.2 * room));
+    if (lead.gap < keep + 0.5 && lead.speed < 0.6) want = 0;
     if (lead.gap < 6.5 && lead.speed < want * 0.8 + 1) {
       tailHorn = true;
       honkAt = lead.id;
     }
   }
 
-  // Crossing traffic: give way to a moving car that is on the right and will reach the same spot (priority to the right).
-  if (!lineUp && !fighting) {
+  // Junctions and crossings: look 2 s ahead at where every other car will be. Whoever is on our right
+  // goes first (priority to the right), so does a car waiting in our way; and anything that would reach
+  // us within a second and a quarter is given way to, whoever is in the right (a person at the wheel may not stop).
+  {
+    const sweep = (b: Car, tau: number) => ({ ...carBox({ x: b.x + b.vx * tau, z: b.z + b.vz * tau, h: b.h }), hw: 1.0, hl: 2.6 });
+    const vEff = Math.max(vF, 1.2);
     for (const o of bodies(state)) {
-      if (o === car || o.parkedAt !== null || o.dq !== null || !sameStorey(o.y, car.y)) continue;
-      const ov = Math.hypot(o.vx, o.vz);
-      if (ov < 1.5) continue;
+      if (o === car || o.parkedAt !== null || !sameStorey(o.y, car.y)) continue;
       const px = o.x - car.x;
       const pz = o.z - car.z;
-      if (px * px + pz * pz > 22 * 22) continue;
+      if (px * px + pz * pz > 20 * 20) continue;
+      let tau = 0;
+      for (let t = 0.25; t <= 2; t += 0.25) {
+        const mine = { ...carBox({ x: car.x + fx * vEff * t, z: car.z + fz * vEff * t, h: car.h }), hw: 1.0, hl: 2.6 };
+        if (collide(mine, sweep(o, t))) {
+          tau = t;
+          break;
+        }
+      }
+      if (!tau) continue;
+      const ov = Math.hypot(o.vx, o.vz);
       const left = px * fz - pz * fx;
-      if (left > -0.4) continue;
-      const rvx = o.vx - fx * Math.max(vF, 0);
-      const rvz = o.vz - fz * Math.max(vF, 0);
-      const rv2 = rvx * rvx + rvz * rvz;
-      if (rv2 < 0.5) continue;
-      const tc = Math.max(0, Math.min(2.6, -(px * rvx + pz * rvz) / rv2));
-      if (Math.hypot(px + rvx * tc, pz + rvz * tc) > 3.4) continue;
-      // Not one coming straight at us, or going the same way (that is the lead car's business).
-      const along = (o.vx * fx + o.vz * fz) / ov;
-      if (Math.abs(along) > 0.8) continue;
-      want = Math.min(want, tc < 1.1 ? 0 : 1.2);
+      // Two cars that both stand still and are in each other's way: the lower seat goes first, or neither would ever move.
+      if (ov < 0.6 && Math.abs(vF) < 0.6 && o.id > car.id) continue;
+      const mustYield = tau < 1.25 || ov < 0.6 || left < -0.4;
+      if (mustYield) want = Math.min(want, tau < 1.25 ? 0 : 1.2);
     }
   }
 
   // Held up by a car that is not going anywhere: after a moment, back off and find a way round.
-  if (lead && lead.gap < 1.5 && lead.speed < 0.5 && Math.abs(vF) < 0.4) brain.held += dt;
+  if (lead && lead.gap < 3.5 && lead.speed < 0.5 && Math.abs(vF) < 0.4) brain.held += dt;
   else brain.held = Math.max(0, brain.held - dt);
-  if (brain.held > 1.6) {
+  if (brain.held > 4) {
     brain.held = 0;
     brain.reverse = 1.4;
-    brain.reverseSteer = brain.aggr > 0.5 ? 1 : -1;
+    brain.reverseSteer = (car.id + brain.sweep) % 2 ? 1 : -1;
     brain.outbox.push({ type: 'recover', car: car.id });
   }
 
@@ -576,7 +642,13 @@ export const botInput = (state: GameState, world: World, car: Car, brain: BotBra
   // People on foot: never drive into them.
   const walkers = pedLimit(state, car, vF, fx, fz);
   const pedHold = walkers < want;
-  if (pedHold) want = walkers < 2.2 ? 0 : walkers;
+  if (pedHold) {
+    // Someone close in the way: stop. A shopper a little further off: creep at walking pace (under 1 m/s touches nobody out) so a busy aisle does not stall the round for ever.
+    const wide = { ...carBox(car), hw: 1.5, hl: 2.9 };
+    const tooClose = state.peds.some((p) => sameStorey(car.y, p.y) && Math.hypot(p.x - car.x, p.z - car.z) < 5 && collide(wide, { kind: 'circle', x: p.x, z: p.z, r: 0.3 }));
+    want = walkers < 2.2 ? (tooClose ? 0 : Math.min(want, 0.6)) : walkers;
+    brain.pedWait = tooClose && Math.abs(vF) < 0.3 ? brain.pedWait + dt : Math.max(0, brain.pedWait - dt);
+  } else brain.pedWait = Math.max(0, brain.pedWait - dt);
 
   let throttle = 0;
   let brake = 0;
@@ -590,13 +662,13 @@ export const botInput = (state: GameState, world: World, car: Car, brain: BotBra
   if (vF < 0.3 && brake > 0 && want > 0) brake = 0;
 
   // Stuck: pressing on but not moving (nosed into a kerb, a parked car or another racer).
-  if (want > 0 && Math.abs(vF) < 0.4 && !fighting) brain.stuck += dt;
+  if ((want > 0 || blocked) && Math.abs(vF) < 0.4) brain.stuck += dt;
   else brain.stuck = Math.max(0, brain.stuck - dt * 2);
   if (bay) {
     const side = (car.x - bay.x) * bay.az - (car.z - bay.z) * bay.ax;
     const crooked = lineUp && (Math.abs(wrap(bay.h - car.h)) > 0.45 || Math.abs(side) > 0.55) && depth > -2.2;
     const overshot = lineUp && !rival && !pedHold && want === 0 && Math.abs(vF) < 0.3 && car.inBay < 1;
-    if (lineUp && !fighting && car.inBay < 0.99 && (brain.stuck > 1.1 || crooked || overshot)) {
+    if (lineUp && car.inBay < 0.99 && (brain.stuck > 1.1 || crooked || overshot)) {
       // Clear out into the aisle and line up again.
       brain.recover = 4;
       brain.stuck = 0;
@@ -623,6 +695,6 @@ export const botInput = (state: GameState, world: World, car: Car, brain: BotBra
       }
     }
   }
-  const leanOn = (fighting && Math.sin(state.t * 2.3 + brain.wobble) > 0.2) || tailHorn;
+  const leanOn = tailHorn || brain.pedWait > 2.5;
   return finish({ throttle, brake, steer, handbrake, horn: leanOn });
 };

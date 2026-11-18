@@ -4,7 +4,7 @@
 
 ### Four company cars. One free space. No insurance.
 
-*Ram first, file the incident report later.*
+*Touch nothing. Park first.*
 
 A game by **[Merge Conflict](https://merge-conflict-drab.vercel.app)**, the studio where coworkers settle their conflicts.
 
@@ -12,9 +12,9 @@ A game by **[Merge Conflict](https://merge-conflict-drab.vercel.app)**, the stud
 
 </div>
 
-A racing game in the browser, set in a supermarket car park at the end of a long day. Four cars
+A careful-driving race in the browser, set in a supermarket car park at the end of a long day. Four cars
 line up at the entrance. The lot is full except for one bay, and everyone wants it. First car
-parked and still wins. Shunting a rival out of the way is allowed; parking crooked is not.
+parked and still wins. Touching another car, a post or a shopper puts you out of the round, and parking crooked does not count.
 
 Status: the play link is **coming**; it will be deployed on Vercel at `parking-lot.vercel.app`.
 Today you play offline, you against 3 bots. Online play is next.

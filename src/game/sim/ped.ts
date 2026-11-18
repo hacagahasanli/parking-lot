@@ -163,14 +163,15 @@ const carFrame = (c: Car) => ({ fx: Math.sin(c.h), fz: Math.cos(c.h) });
 /** Seconds until a car moving in a straight line gets near this spot (99 if it won't within the look-ahead). */
 const timeToThreat = (c: Car, x: number, z: number, y: number) => {
   const speed = Math.hypot(c.vx, c.vz);
-  if (speed < 0.5 || !sameStorey(c.y, y)) return 99;
+  // A car standing still is no threat, unless its driver is leaning on the horn (then the shoppers in front of it step aside).
+  if ((speed < 0.5 && !c.horn) || !sameStorey(c.y, y)) return 99;
   const { fx, fz } = carFrame(c);
   for (let tau = 0; tau <= 1.6; tau += 0.1) {
     const dx = x - (c.x + c.vx * tau);
     const dz = z - (c.z + c.vz * tau);
     const along = dx * fx + dz * fz;
     const across = dx * fz - dz * fx;
-    if (Math.abs(across) < 0.9 + 1.1 && Math.abs(along) < 2.3 + 0.9) return tau;
+    if (Math.abs(across) < 0.9 + 1.1 && Math.abs(along) < (speed < 0.5 ? 5.5 : 2.3 + 0.9)) return tau;
   }
   return 99;
 };

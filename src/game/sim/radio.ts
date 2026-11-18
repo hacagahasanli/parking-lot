@@ -26,6 +26,8 @@ const LINES: Record<Kind, string[]> = {
   lost: ["Closing the ticket as won't fix.", 'That spot was in my sprint backlog.', "Fine. I'll park in the next release.", 'Spot taken. Moving it to the backlog.'],
   win: ['Merged to main.', 'Shipped. No rollback needed.', 'LGTM. Engine off.'],
   incident: ['Not in the sprint plan!', 'Shopper down. Filing the incident report.', 'Sorry, sorry! Watch your step!', 'Please log that as a minor bug.'],
+  crash: ['Contact is out. Rules are rules.', 'Merge conflict! One car down.', "That's not in the changelog.", 'Rolled back. Please park carefully.', 'Ouch. That was a breaking change.'],
+  crashSelf: ['My bad. Reverting myself.', 'I touched it. I am out.', 'Hotfix needed. On my own bumper.'],
   leave: ["Someone's pulling out. Hot desk!", 'A bay just opened up. Race condition!', 'That car is deploying out of its bay.'],
   leaveUp: ['A car is pulling out on {name}!', 'Brake lights on {name}: a bay is opening up.', '{name}: someone is leaving. Race condition on the ramp!', 'Engine just started up on {name}. Anyone close?'],
   recover: ['{name} is reversing into prod.', '{name} is rolling back the release.', '{name} just force-pushed in reverse.'],
@@ -83,6 +85,13 @@ export const radio = (state: GameState, events: GameEvent[]) => {
     } else if (e.type === 'incident') {
       const who = state.cars[e.car]?.bot ? e.car : otherBot(state, e.car);
       if (who >= 0) say(state, who, 'incident');
+    } else if (e.type === 'crash') {
+      // The one who is out says it of themselves (a bot), or another bot says it about them.
+      if (state.cars[e.car]?.bot) say(state, e.car, 'crashSelf', '', true);
+      else {
+        const who = otherBot(state, e.car);
+        if (who >= 0) say(state, who, 'crash', '', true);
+      }
     } else if (e.type === 'leave') {
       const who = otherBot(state, -1);
       // Upstairs or underground the radio says which deck; outdoors it is the usual joke.

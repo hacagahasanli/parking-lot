@@ -1,4 +1,4 @@
-import { DT, DRIVE } from './constants';
+import { CONTACT, DT, DRIVE } from './constants';
 import { botInput, canSee, createBrain } from './bot';
 import { SIGHT } from './visibility';
 import { CAR, PED, RACE } from './constants';
@@ -10,7 +10,7 @@ import { buildLot, LAYOUT } from './lot';
 import type { Shape } from './lot';
 import { routeToDock, shortestPath } from './nav';
 import { radio } from './radio';
-import { bayBox, carBox, createRound, createWorld, drive, forwardSpeed, step } from './step';
+import { bayBox, carBox, createRound, createWorld, drive, forwardSpeed, step, steerLimit } from './step';
 
 import type { Input } from './types';
 
@@ -222,14 +222,25 @@ describe('the gate', () => {
 describe('driving', () => {
   const fresh = () => createRound(lot, { seed: 1, bots: [false] }).state.cars[0];
 
-  it('reaches about 50 km/h in a few seconds and tops out near the limit', () => {
+  it('is a car park, not a race track: gentle acceleration and about 38 km/h flat out', () => {
     const car = fresh();
     let t = 0;
-    while (forwardSpeed(car) < 50 / 3.6 && t < 10) (drive(car, press({ throttle: 1 })), (t += DT));
-    expect(t).toBeGreaterThan(2.5);
-    expect(t).toBeLessThan(6);
-    for (let i = 0; i < 60 * 20; i++) drive(car, press({ throttle: 1 }));
+    while (forwardSpeed(car) < 30 / 3.6 && t < 20) (drive(car, press({ throttle: 1 })), (t += DT));
+    // 0 to 30 km/h takes a while (a hot hatch does it in 3 s).
+    expect(t).toBeGreaterThan(4);
+    expect(t).toBeLessThan(9);
+    for (let i = 0; i < 60 * 30; i++) drive(car, press({ throttle: 1 }));
     expect(forwardSpeed(car)).toBeLessThanOrEqual(DRIVE.topSpeed);
+    expect(forwardSpeed(car) * 3.6).toBeGreaterThan(34);
+    expect(forwardSpeed(car) * 3.6).toBeLessThan(40);
+  });
+
+  it('reverses gently: capped at about 14 km/h', () => {
+    const car = fresh();
+    for (let i = 0; i < 60; i++) drive(car, press({ brake: 1 }));
+    for (let i = 0; i < 60 * 12; i++) drive(car, press({ brake: 1 }));
+    expect(forwardSpeed(car) * 3.6).toBeLessThan(-8);
+    expect(forwardSpeed(car) * 3.6).toBeGreaterThan(-14.5);
   });
 
   it('turns the wheel gradually and lets it come back', () => {
@@ -240,6 +251,35 @@ describe('driving', () => {
     expect(car.steer).toBeCloseTo(DRIVE.maxSteer, 1);
     for (let i = 0; i < 20; i++) drive(car, press({}));
     expect(car.steer).toBe(0);
+  });
+
+  it('keeps the quick wheel but is not twitchy at the new top speed: the lock fades and the turn stays within what the tyres give', () => {
+    const car = fresh();
+    for (let i = 0; i < 60 * 25; i++) drive(car, press({ throttle: 1 }));
+    // Wheel from centre to lock in under 0.4 s even at speed; the lock itself has faded to a few degrees' worth.
+    let lockedAt = -1;
+    let worstLateral = 0;
+    for (let i = 0; i < 90; i++) {
+      drive(car, press({ throttle: 1, steer: 1 }));
+      if (lockedAt < 0 && car.steer >= steerLimit(forwardSpeed(car)) * 0.98) lockedAt = i * DT;
+      worstLateral = Math.max(worstLateral, Math.abs(car.w * forwardSpeed(car)));
+    }
+    expect(steerLimit(DRIVE.topSpeed)).toBeLessThan(0.4);
+    expect(steerLimit(2)).toBeGreaterThan(0.45);
+    expect(lockedAt).toBeGreaterThanOrEqual(0);
+    expect(lockedAt).toBeLessThan(0.4);
+    // Yaw rate at full lock at top speed: a firm turn, not a spin (the tyre limit is 8.5 m/s^2, a little more for the transient).
+    expect(worstLateral).toBeLessThan(DRIVE.maxLateral * 1.15);
+    expect(Math.abs(car.w)).toBeLessThan(1.3);
+  });
+
+  it('tames the handbrake: it slows the car and kicks the tail round less than it used to', () => {
+    const car = fresh();
+    for (let i = 0; i < 60 * 8; i++) drive(car, press({ throttle: 1 }));
+    const v0 = forwardSpeed(car);
+    for (let i = 0; i < 60; i++) drive(car, press({ handbrake: true, steer: 1 }));
+    expect(forwardSpeed(car)).toBeLessThan(v0 - 2);
+    expect(Math.abs(car.w)).toBeLessThan(1.6);
   });
 
   it('turns right when steering right going forwards', () => {
@@ -278,8 +318,8 @@ describe('a round', () => {
     expect(state.winner).toBeNull();
   });
 
-  /** Seconds a round may take with bots alone: the open lot takes about a minute, a bay on a deck up to three. */
-  const BOT_LIMIT = 180;
+  /** Seconds a round may take with bots alone (they drive at 20 to 27 km/h): the open lot takes about a minute and a half, a bay on a deck up to three minutes. */
+  const BOT_LIMIT = 200;
   const where = (id: number) => (lot.bays[id].garage ? `deck P${lot.bays[id].lvl}` : 'open lot');
   it.each(Array.from({ length: 24 }, (_, i) => i + 1))('bots search, find and park in the free bay (seed %i)', (seed) => {
     const { state, world } = createRound(lot, { seed, bots: [true, true, true, true] });
@@ -801,5 +841,183 @@ describe('the free-spaces board', () => {
     state.extra = 7;
     expect(hintOf(state, lot).free).toBe(2);
     expect(hintLines(hintOf(state, lot))[0]).toBe('FREE SPACES: 2');
+  });
+});
+
+describe('contact is out', () => {
+  /** A quiet stretch of the main road: two cars facing east, `gap` metres between the noses, nobody else about. */
+  const road = (gap = 6) => {
+    const r = createRound(lot, { seed: 4, bots: [false, false] });
+    r.state.phase = 'race';
+    r.state.peds = [];
+    const z = LAYOUT.ZM;
+    Object.assign(r.state.cars[0], { x: -30, z, h: Math.PI / 2, vx: 0, vz: 0, w: 0 });
+    Object.assign(r.state.cars[1], { x: -30 + CAR.length + gap, z, h: Math.PI / 2, vx: 0, vz: 0, w: 0 });
+    // The other two seats of a four-car round stay out of the way.
+    return r;
+  };
+  const crashes = (events: { type: string }[]) => events.filter((e) => e.type === 'crash').length;
+  const run = (r: ReturnType<typeof road>, inputs: Input[], steps: number) => {
+    let n = 0;
+    for (let i = 0; i < steps; i++) {
+      step(r.state, r.world, inputs);
+      n += crashes(r.state.events);
+    }
+    return n;
+  };
+  const hold = press({ handbrake: true });
+
+  it('puts out the driver who drives into a standing car, and not the one who was hit', () => {
+    const r = road();
+    const [a, b] = r.state.cars;
+    Object.assign(a, { vx: 4 });
+    expect(run(r, [press({ throttle: 0.5 }), hold], 120)).toBe(1);
+    expect(a.dq).not.toBeNull();
+    expect(a.dqWhy).toEqual({ kind: 'car', what: b.name });
+    expect(b.dq).toBeNull();
+    expect(r.state.phase).toBe('race');
+  });
+
+  it('puts out both when both drive into each other', () => {
+    const r = road(10);
+    const [a, b] = r.state.cars;
+    Object.assign(a, { vx: 3 });
+    Object.assign(b, { vx: -3, h: -Math.PI / 2 });
+    run(r, [press({ throttle: 0.4 }), press({ throttle: 0.4 })], 120);
+    expect(a.dq).not.toBeNull();
+    expect(b.dq).not.toBeNull();
+    expect(a.dqWhy?.what).toBe(b.name);
+    expect(b.dqWhy?.what).toBe(a.name);
+  });
+
+  it('puts out the one who reverses into a standing car', () => {
+    const r = road();
+    const [a, b] = r.state.cars;
+    // Swap: a is the one in front, facing east, and b is behind it facing east, backing... so put b ahead of a facing west and let a reverse.
+    Object.assign(a, { x: -30, h: Math.PI / 2 });
+    Object.assign(b, { x: -30 - CAR.length - 5, h: Math.PI / 2 });
+    Object.assign(a, { vx: -2.5 });
+    a.gear = -1;
+    run(r, [press({ brake: 1 }), hold], 180);
+    expect(a.dq).not.toBeNull();
+    expect(b.dq).toBeNull();
+  });
+
+  it(`lets a feather touch go: a closing speed under ${CONTACT.minSpeed} m/s is nobody's fault`, () => {
+    const r = road(0.3);
+    const [a, b] = r.state.cars;
+    Object.assign(a, { vx: CONTACT.minSpeed * 0.6 });
+    run(r, [press({ throttle: 0 }), hold], 120);
+    expect(a.dq).toBeNull();
+    expect(b.dq).toBeNull();
+  });
+
+  it('puts out a driver who rams a parked car, and says which kind of thing it was', () => {
+    const bay = lot.bays.find((b) => b.use === 'car' && !b.garage && b.type === 'angled')!;
+    const r = createRound(lot, { seed: 4, bots: [false], target: lot.candidates.find((id) => id !== bay.id && !lot.bays[id].garage)!, leaver: lot.eligible.find((id) => id !== bay.id && lot.bays[id].garage) });
+    r.state.phase = 'race';
+    r.state.peds = [];
+    const car = r.state.cars[0];
+    // Four metres out from the parked car, heading straight into it at walking-jog pace.
+    const back = 4 + CAR.length / 2 + bay.d / 2;
+    Object.assign(car, { x: bay.x - bay.ax * back, z: bay.z - bay.az * back, h: bay.h, vx: bay.ax * 3, vz: bay.az * 3 });
+    const events: string[] = [];
+    for (let i = 0; i < 120 && car.dq === null; i++) {
+      step(r.state, r.world, [press({ throttle: 0.3 })]);
+      for (const e of r.state.events) if (e.type === 'crash') events.push(e.what);
+    }
+    expect(car.dq).not.toBeNull();
+    expect(car.dqWhy?.kind).toBe('obstacle');
+    expect(events).toEqual(['a parked car']);
+  });
+
+  it('is gentler on kerbs and walls (scrapes are fine) but not on posts', () => {
+    // The wall along the street side: drive at it at 4 m/s.
+    const wall = (() => {
+      const r = createRound(lot, { seed: 4, bots: [false] });
+      r.state.phase = 'race';
+      r.state.peds = [];
+      const car = r.state.cars[0];
+      Object.assign(car, { x: 20, z: lot.bounds.z0 + 6, h: Math.PI, vx: 0, vz: -4 });
+      for (let i = 0; i < 120; i++) step(r.state, r.world, [press({ throttle: 0.2 })]);
+      return car;
+    })();
+    expect(wall.dq).toBeNull();
+    // A new post on a clear stretch of the main road.
+    const r = createRound({ ...lot, solids: [...lot.solids, { kind: 'circle', x: -20, z: LAYOUT.ZM, r: 0.25 }] }, { seed: 4, bots: [false] });
+    r.state.phase = 'race';
+    r.state.peds = [];
+    const post = { x: -20, z: LAYOUT.ZM };
+    const car = r.state.cars[0];
+    Object.assign(car, { x: post.x - 0.25 - CAR.length / 2 - 1.5, z: post.z, h: Math.PI / 2, vx: 3, vz: 0 });
+    for (let i = 0; i < 180 && car.dq === null; i++) step(r.state, r.world, [press({ throttle: 0.3 })]);
+    expect(car.dq).not.toBeNull();
+    expect(car.dqWhy).toEqual({ kind: 'obstacle', what: 'a post' });
+  });
+
+  it('keeps a disqualified car out for good, and ends the round with no winner when every car is out', () => {
+    const r = road();
+    const [a, b] = r.state.cars;
+    // Two more seats in a four-car round are out already.
+    Object.assign(a, { vx: 4 });
+    Object.assign(b, { vx: -4, h: -Math.PI / 2, x: a.x + CAR.length + 8 });
+    run(r, [press({ throttle: 0.5 }), press({ throttle: 0.5 })], 180);
+    expect(a.dq !== null && b.dq !== null).toBe(true);
+    expect(r.state.phase).toBe('done');
+    expect(r.state.winner).toBeNull();
+  });
+
+  it('is not triggered before GO (the cars hold on the line)', () => {
+    const r = road(0.2);
+    r.state.phase = 'countdown';
+    Object.assign(r.state.cars[0], { vx: 3 });
+    run(r, [press({ throttle: 1 }), hold], 30);
+    expect(r.state.cars[0].dq).toBeNull();
+  });
+
+  it('is never the fault of a bot that waits: a car that is rammed from behind is not out', () => {
+    const r = road();
+    const [a, b] = r.state.cars;
+    Object.assign(a, { vx: 4 });
+    run(r, [press({ throttle: 0.5 }), press({})], 120);
+    expect(a.dq).not.toBeNull();
+    expect(b.dq).toBeNull();
+  });
+});
+
+describe('bots drive carefully', () => {
+  it('almost never get disqualified: contact in a round of four bots is rare, across seeds and stages', () => {
+    let out = 0;
+    let cars = 0;
+    for (const stage of [1, 2, 3, 4, 5, 6]) {
+      for (const seed of [1, 2, 3, 4, 5, 6]) {
+        const { state, world } = createRound(lot, { seed, stage, bots: [true, true, true, true] });
+        const brains = state.cars.map((c) => createBrain(world, c, seed));
+        for (let i = 0; i < 60 * 200 && state.phase !== 'done'; i++) step(state, world, state.cars.map((c) => botInput(state, world, c, brains[c.id])));
+        out += state.cars.filter((c) => c.dq !== null).length;
+        cars += state.cars.length;
+      }
+    }
+    expect(out / cars).toBeLessThan(0.03);
+  }, 240000);
+
+  it('keep a gap to a car that is stopped in front of them', () => {
+    const { state, world } = createRound(lot, { seed: 4, bots: [true, false] });
+    state.phase = 'race';
+    state.peds = [];
+    state.clock = 5;
+    const z = LAYOUT.ZM;
+    const [a, b] = state.cars;
+    Object.assign(a, { x: -40, z, h: Math.PI / 2, vx: 5, vz: 0 });
+    Object.assign(b, { x: -20, z, h: Math.PI / 2, vx: 0, vz: 0 });
+    const brain = createBrain(world, a, 4);
+    brain.launch = 0;
+    let closest = Infinity;
+    for (let i = 0; i < 60 * 12; i++) {
+      step(state, world, [botInput(state, world, a, brain), press({ handbrake: true })]);
+      closest = Math.min(closest, b.x - a.x - CAR.length);
+    }
+    expect(a.dq).toBeNull();
+    expect(closest).toBeGreaterThan(1);
   });
 });

@@ -22,8 +22,8 @@ Intro card + countdown 5 s: "STAGE 2 OF 6 · P0 — Ground floor", one sentence 
         │  FREE SPACES board is on the booth), handbrake held, steering and revving allowed
         │  GO: the barriers lift (0.9 s)
         ▼
-Race: one bay is empty and unmarked, somewhere on the lot or on one of four decks. Search, read the board, spot it, shove for it, park. Watch the shoppers.
-        │  first car parked and still (or 240 s pass, or you hit a pedestrian: out for you)
+Race: one bay is empty and unmarked, somewhere on the lot or on one of four decks. Search, read the board, spot it, wait your turn, park. Touch nothing: not a car, not a post, not a shopper.
+        │  first car parked and still (or 240 s pass, or you hit a car, a post or a pedestrian: out for you)
         ▼
 Result: winner and your place; the free bay is revealed
         │  you parked first: "Next stage →" (Enter) opens the following stage; Retry; Home
@@ -81,6 +81,7 @@ from the sky. Every stage starts at the entry gate, as before: stages 2 to 5 mea
 | Parked: angle | within 22° of the bay's angle, nose in or reversed in | `PARK.maxAngle`, `aligned()` |
 | Parked: stillness | speed under 0.45 m/s (and spin under 0.2 rad/s) for 0.9 s | `PARK.maxSpeed`, `PARK.hold` |
 | Win | first car to complete the hold (in either free bay); the round ends at once | `parking()` in `step.ts` |
+| Contact is out | any real contact between your car and another car (a racer, a parked car, the one pulling out, the van, the truck) or a hard fixed thing disqualifies the driver at fault. **Real** means a closing speed of 0.5 m/s or more at the contact point (a feather touch is nobody's fault). **At fault** means your own velocity at the contact drives into the other body at more than 0.25 m/s: the car that drives into the contact is out, both if both do, and a car that is hit while standing still is not at fault (so being rammed from behind never costs you the round). **Out**: posts, lamps, columns, cones, trolley corrals, ticket machines, the barrier arms and the stage barriers, the van and the truck. **Fine** (a scrape, a bump sound, nothing else): kerbs, planters and hedge strips, walls, ramp sides. Same flow as the pedestrian rule: the car stops where it is with its hazards on, the banner reads YOU HIT A CAR (and the name of the car), YOU HIT A PARKED CAR or YOU HIT A POST over DISQUALIFIED, the result card says what you hit, and the race goes on for the others | `CONTACT`, `resolve()` in `step.ts` |
 | Disqualified | a car (you or a bot) that hits a pedestrian at over 1 m/s stops where it is with its hazards on and cannot win; the race goes on for the others. If it was you, you get the result card with the reason; if every car is out, the round ends | `stepPeds()` in `ped.ts` |
 
 Details that matter in play:
@@ -103,8 +104,9 @@ Details that matter in play:
   bay or turn round in a dead end yet, and a free bay nobody but you could take would make the
   round unfair. You can still park in a parallel bay (the rule accepts any alignment within 22 degrees,
   nose or tail first) and use the pocket; they are there to be driven past and to hide cars.
-- Crashing is part of the game, not a penalty. A bump over 1.2 m/s counts and makes a sound;
-  hitting a parked car over 3 m/s sets off its alarm for 9 s.
+- Contact is out (see the rules table): the cars still have weight and bump, a bump over 1.2 m/s makes a sound and
+  sparks, and hitting a parked car over 3 m/s sets off its alarm for 9 s, but the driver at fault is out of the round.
+  Feather touches under 0.5 m/s and kerbs, planters and walls are free.
 - Before GO the cars hold the handbrake for you; after a car parks it is locked in place.
 
 ## The lot
@@ -226,22 +228,22 @@ lot decide it). A bay on the roof, one underground and one outdoors are not equa
 Tuned to feel like a real compact sedan in a car park, not a kart (`DRIVE` in `constants.ts`).
 
 - 4.45 x 1.78 m (wheelbase 2.62 m), 1350 kg, automatic gearbox: S at a standstill selects reverse, W selects drive.
-- Top speed 19 m/s (about 68 km/h); reverse is capped at 6.2 m/s. About 50 km/h in 3 to 6 s.
-- The wheel takes about half a second from centre to full lock, returns by itself when released,
-  and locks less the faster you go (0.6 rad at walking pace, 0.16 rad at 20 m/s).
+- A car park, not a race track: top speed 10.5 m/s (about 38 km/h), reverse capped at 4 m/s (14 km/h), acceleration 2.8 m/s2 at
+  a standstill fading to nothing at the top (about 30 km/h in 5 to 6 s). It was 19 m/s and 5.2 m/s2 before contact became a disqualification.
+- The wheel keeps its quick response (about a third of a second from centre to full lock), returns by itself when released,
+  and locks less the faster you go (0.66 rad at walking pace, 0.3 rad at top speed; the fade is scaled to the new top speed).
 - Grip is limited: ask for a corner sharper than the tyres allow and the front washes out
   (understeer) instead of the car turning.
 - Handbrake (Space): the rear lets go, the car rotates more than the wheels ask for and slides.
-  It also slows the car (4.5 m/s²). Good for tight swings into a bay; bad at speed.
-- Crashes have weight: cars shove each other, spin when hit off-centre, and bounce a little
+  It also slows the car (3.5 m/s²). Tamer than before (less spin, more grip): good for tight swings into a bay.
+- Crashes have weight: cars shove each other (for the one who was not at fault), spin when hit off-centre, and bounce a little
   (restitution 0.25). Parked cars, kerbs and posts do not move.
 - Camera: chase by default, `C` for high and top-down. Screen shake on your own crashes.
 
 ## Bots
 
-Three bots, each with its own cruise speed (8.2 to 11.2 m/s), a small personal wobble so they do
-not drive on rails, a temper (`aggr`, 0 to 1) that decides how hard they shove, tailgate and
-honk, and a start delay after GO (0.15, 0.7, 1.9 and 2.6 s by seat: they leave the gate one pair at a
+Three bots, each with its own cruise speed (5.4 to 7.4 m/s, about 20 to 27 km/h), a small personal wobble so they do
+not drive on rails, and a start delay after GO (0.15, 0.7, 1.9 and 2.6 s by seat: they leave the gate one pair at a
 time instead of all meeting in the first junction) (`src/game/sim/bot.ts`, `nav.ts`).
 
 **They search too.** A bot does not know where the bay is (`brain.target` is -1 until it sees it). The aisles of the car park
@@ -261,13 +263,17 @@ one lap of the ring, and a pass up or down a ramp is how a bot changes deck. A b
    the turn-in point it finishes the aisle and comes round.
 3. Go: follow the route with the one-way flow; the speed is limited by the sharpest bend ahead (lateral grip
    3.4 m/s2) and by the stop. In the last stretch line up on the bay's axis with Stanley steering and stop.
-4. Contest: when someone is closer to the bay and right in front, the bot keeps pushing in and
-   leans on the horn (shoving is part of the game). If it is still beaten after a short fight
-   (2 to 4.2 s, different for each) it backs off, regroups at its own distance out and comes again.
-5. Traffic: they tailgate (the keen ones stay on the bumper), honk at the car ahead, and when held
-   up by a stopped car they back off and look for a way round. **Priority to the right**: a bot gives way to a moving
-   car on its right that will reach the same spot (junctions, the gate). If stuck, back out with the wheel
-   turned the other way; if crooked or overshot, drive out into the aisle and line up again.
+4. Their turn: when someone is closer to the bay and right in front, the bot stops 4.5 m behind them and waits. No shoving.
+   It parks the moment the bay is clear. (Slower final approach too: 3 m/s from 16 m out, 2 m/s for the line-up.)
+5. Careful driving, because contact is out. A bot keeps a gap to the car ahead (2 m plus half a second of speed) and never goes faster
+   than it could stop in the room left; it looks 2 s ahead at where every other car will be and gives way to anything that would
+   reach it within 1.25 s (a car on its right always goes first, so does a car standing in the way); two standing cars in each other's
+   way: the lower seat goes first so nobody waits for ever; it looks along the arc it is driving (forwards, and backwards when
+   backing out) for a parked car, post or column and stops short of it (`roomAhead`); and it only backs out when nobody is
+   behind it (and gives up the backing after 2 s if someone is). It still honks at a car that holds it up. A shopper close
+   in front stops it; one a little further off lets it creep at 0.6 m/s (touching one under 1 m/s is harmless), and a long wait
+   earns a toot on the horn, which makes shoppers step aside. Bots rarely get disqualified: see `Bots` in `sim.test.ts` (under 3 %
+   of bot seats across 36 rounds; 1 in 288 in the last 72-round run).
 6. Shoppers: a bot slows and stops for anyone on foot in its path, beside it or behind it (it never
    reverses or pulls away over someone). Bots do not hit pedestrians in the test seeds.
 7. The gate: a bot stops short of a barrier that is still down.
@@ -315,13 +321,13 @@ straight out. On a deck it was parked nose-out and drives straight out, round th
 (slowly: it takes a minute), and the radio says which deck ("A car is pulling out on P1!"); the board's count goes to 2.
 It tends to be in the other part of the site from the free bay (outdoors 70 % of the time when the free bay is on a deck, on a deck 70 % when it is outdoors), so a second chance appears somewhere you were not looking. Once it is
 clear of its bay, that bay is a second free bay: anyone can win in it, and bots can spot it like the first. It is a
-moving body while it leaves, so it shoves and gets shoved, and shoppers keep clear of it.
+moving body while it leaves, so it can be hit (and hit), but it waits for a clear road first: it only starts to pull out or back out when no racer is within 7.9 m in its way, and stops if one comes. Shoppers keep clear of it.
 
 ## Radio
 
 Short chatter lines from the bots (`src/game/sim/radio.ts`), shown as bubbles under the standings.
 Triggered by: spotting the bay, getting bumped (over 3 m/s), being honked at (or a taunt when they
-honk at you), backing out of a jam (another bot comments), hitting a shopper, a car pulling out (and which deck),
+honk at you), backing out of a jam (another bot comments), hitting a shopper, a car being put out for contact (the one who was out says "My bad", or another bot comments), a car pulling out (and which deck),
 and the end of the round (winner and a loser). Rate limits keep it readable: at least 1.7 s between
 lines, 6 s before the same bot speaks again, at most three lines shown, each gone after 6.5 s. The
 lines are original office jokes ("Revert! Revert!", "That one's mine, I saw it in code review.").

@@ -105,7 +105,7 @@ networked game needs.
 6. **Yaw follows the wheels.** The body's spin `w` eases toward `wantW` with an exponential
    smoothing `1 - exp(-follow · dt)`, so the car has weight and does not snap round.
 7. **Sideways slide.** `vS` is pulled toward zero by `grip` each step. That is the tyres biting.
-8. **Handbrake.** It lowers `grip` (3.2 instead of 13), lowers `yawFollow`, multiplies the wanted
+8. **Handbrake.** It lowers `grip` (4.5 instead of 13), lowers `yawFollow`, multiplies the wanted
    spin by `handbrakeYaw`, and raises the allowed lateral acceleration. The tail comes round and
    the car keeps sliding sideways for a while: a **drift**. `slip` is the sideways speed and feeds
    the tyre squeal and skid marks.
@@ -113,7 +113,7 @@ networked game needs.
    (**semi-implicit Euler**: velocity first, then position).
 
 To change the feel, edit `DRIVE` in `constants.ts`. `sim.test.ts` pins the broad behaviour (time to
-50 km/h, top speed, steering rate and return), so a bad tweak can fail a test.
+30 km/h, top speed about 38 km/h, steering rate and return, the lock fade at speed), so a bad tweak can fail a test.
 
 ## 5. Collisions: SAT boxes and impulses
 
@@ -140,6 +140,8 @@ the store) are boxes or `Circle`s (lamp posts, planted row ends). `src/game/sim/
      (`w -= j · lever · invInertia`). A hit away from the centre of mass gives the car a twist; a
      hit through the centre does not.
   5. **Coulomb friction** along the surface, clamped to `friction · j`.
+  5b. **Contact is out.** If the closing speed is at least `CONTACT.minSpeed`, each car whose own contact-point velocity drives into the other
+  body by more than `CONTACT.faultSpeed` (and the other body is a car or has a `world.hard` label) gets `dq`, `dqWhy` and a `crash` event.
   6. If the closing speed is above `IMPACT.bump`, emit a `bump` event (and an `alarm` event if it hit
      a parked car above `IMPACT.alarm`). A 0.3 s cooldown stops one crash from firing ten sounds.
 - `crashes()` (`step.ts:260`) runs two passes over all collisions, so a car pushed into a wall by
@@ -243,8 +245,10 @@ That one test replaces the old hand-written "not the first bays of a row" rule a
   short of the arm.
 - **Recovery**: a small state machine (`brain.stuck`, `brain.reverse`, `brain.recover`) that backs
   out of jams and re-approaches a crooked or overshot bay.
-- **Politeness**: if another car is already mostly in the bay, the bot holds upstream and honks.
-  Ties go to the lower seat number so two half-in cars never wait on each other forever.
+- **Politeness**: if another car is closer to the bay and in front, the bot waits 4.5 m behind it (no shoving; contact is out).
+  Standing cars in each other's way: the lower seat goes first so nobody waits for ever.
+- **Look-ahead** (`roomAhead` in `bot.ts`): the car's own arc is stepped 0.1 s at a time and its box tested against hard solids
+  (`world.hard[i] !== null`) and where the other cars will be; the bot never goes faster than it could stop short.
 
 ## 8. Rendering
 

@@ -54,6 +54,8 @@ export interface Car {
   hitCooldown: number;
   /** Disqualified for hitting a pedestrian: the car is stopped for good, with its hazards on. Race time of the hit, or null. */
   dq: number | null;
+  /** Why this car is out: a car, or a hard fixed thing, it hit (`what` reads "Staging", "a parked car", "a post"). Null with `dq` set means a pedestrian. */
+  dqWhy: { kind: 'car' | 'obstacle'; what: string } | null;
   /** Pedestrians this car has hit. */
   incidents: number;
   /** The free bay this car is closest to being inside (-1 when in none), and the share of its corners in it. */
@@ -112,7 +114,7 @@ export interface ChatLine {
   name: string;
   color: number;
   text: string;
-  kind: 'spot' | 'bumped' | 'honked' | 'honker' | 'lost' | 'incident' | 'leave' | 'leaveUp' | 'recover' | 'win';
+  kind: 'spot' | 'bumped' | 'honked' | 'honker' | 'lost' | 'incident' | 'crash' | 'crashSelf' | 'leave' | 'leaveUp' | 'recover' | 'win';
 }
 
 /** The parked car that pulls out of its bay mid-round (a free bay appears where it was). */
@@ -140,6 +142,8 @@ export type GameEvent =
   | { type: 'end'; winner: number | null }
   /** A pedestrian was hit by `car` at `speed` m/s. */
   | { type: 'incident'; car: number; ped: number; speed: number; x: number; z: number }
+  /** `car` was at fault in a contact with `other` (a car id, or -1 for a hard fixed thing called `what`) at `speed` m/s closing, and is out. */
+  | { type: 'crash'; car: number; other: number; what: string; speed: number; x: number; z: number }
   /** A bot made out the free bay. */
   | { type: 'spot'; car: number; bay: number; dist: number }
   /** A bot leaned on its horn at the car ahead. */
@@ -190,6 +194,8 @@ export interface World {
   solids: Shape[];
   /** Bay id for each solid (parked car / corral / cones), -1 for kerbs and posts, `OWNER_ENTRY` / `OWNER_EXIT` for the barrier arms. */
   owner: number[];
+  /** What each solid is called when hitting it puts you out ("a parked car", "a post"), or null for the kerbs, planters and walls you may scrape. */
+  hard: (string | null)[];
   /** Where the shoppers walk. */
   walks: Walk[];
   /** Which of the walkers push a trolley (same order as `walks`). */

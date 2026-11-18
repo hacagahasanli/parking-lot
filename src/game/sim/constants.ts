@@ -22,39 +22,43 @@ export const CAR = {
 } as const;
 
 /**
- * How the car drives. Tuned to feel like a real car in a car park, not a go-kart: the wheel turns
- * over about a third of a second from centre to lock, comes back by itself, and locks less at speed.
+ * How the car drives. Tuned to feel like a real car in a car park, not a race track: gentle
+ * acceleration, about 38 km/h flat out, a wheel that turns over about a third of a second from
+ * centre to lock, comes back by itself, and locks less at speed (the fade is scaled to the top
+ * speed, so the steering feels the same at the same share of it).
  */
 export const DRIVE = {
   /** Most the front wheels turn at walking pace and at full speed. */
   maxSteer: 0.66,
-  maxSteerFast: 0.22,
+  maxSteerFast: 0.3,
   /** Speed (m/s) at which the steering has dropped to `maxSteerFast`. */
-  steerFadeSpeed: 20,
+  steerFadeSpeed: 10.5,
   /** How fast the wheel turns towards lock (rad/s, about 0.3 s centre to lock), and back to centre when let go. */
   steerRate: 2.3,
   steerReturn: 3.2,
-  /** Forward engine: acceleration at a standstill, and top speed (≈ 68 km/h). */
-  accel: 5.2,
-  topSpeed: 19,
-  /** Reverse: gentler, and capped like a real reverse gear (≈ 22 km/h). */
-  reverseAccel: 3.4,
-  reverseTop: 6.2,
-  brake: 10.5,
+  /** Forward engine: acceleration at a standstill, and top speed (≈ 38 km/h). */
+  accel: 2.8,
+  topSpeed: 10.5,
+  /** Reverse: gentler still, and capped like a real reverse gear (≈ 14 km/h). */
+  reverseAccel: 2.1,
+  reverseTop: 4,
+  brake: 8,
   /** Rolling resistance and air drag when nothing is pressed. */
   roll: 0.9,
   drag: 0.0035,
   /** Sideways grip (m/s² the tyres can cancel) and with the handbrake pulled. */
   grip: 13,
-  gripHandbrake: 3.2,
+  gripHandbrake: 4.5,
   /** Most sideways acceleration before the front washes out (understeer). */
   maxLateral: 8.5,
   /** How quickly the body's spin follows the wheels (1/s), normal and on the handbrake. */
   yawFollow: 9,
   yawFollowHandbrake: 2.2,
   /** Handbrake lets the tail come round: a little extra rotation. */
-  handbrakeYaw: 1.55,
-  handbrakeDecel: 4.5,
+  handbrakeYaw: 1.3,
+  handbrakeDecel: 3.5,
+  /** The handbrake lets the tyres slide sideways this much more (times `maxLateral`). */
+  handbrakeLateral: 1.5,
 } as const;
 
 /** Collisions between cars and with the world. */
@@ -65,6 +69,19 @@ export const IMPACT = {
   bump: 1.2,
   /** Hit a parked car this hard and its alarm goes off. */
   alarm: 3,
+} as const;
+
+/**
+ * Contact is out. Any real touch between your car and another car, or a hard fixed thing, disqualifies
+ * the driver at fault (see `crashes` in step.ts). Kerbs, planters, walls and ramp sides are fine; cars
+ * (racers, parked, the one pulling out, the van and the truck), posts, lamps, columns, cones, trolley
+ * corrals, ticket machines and the barrier arms are not.
+ */
+export const CONTACT = {
+  /** Closing speed (m/s) below which a touch is a feather and nobody is out. */
+  minSpeed: 0.5,
+  /** A car is at fault when its own velocity at the contact point drives into the other body at more than this (m/s). */
+  faultSpeed: 0.25,
 } as const;
 
 /** What counts as parked. */

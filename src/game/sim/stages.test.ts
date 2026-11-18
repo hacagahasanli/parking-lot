@@ -153,8 +153,8 @@ describe('the board in a stage', () => {
 });
 
 describe('bots in every stage', () => {
-  /** The quickest stage is about a minute; the longest (the roof) takes the bots up to two and a half. */
-  const LIMIT = 170;
+  /** The bots drive at 20 to 27 km/h now: the quickest stage is about a minute, the longest (the roof) takes them up to three minutes (measured over 24 seeds: the slowest of 144 rounds took 187 s). */
+  const LIMIT = 200;
   const where = (stage: number, id: number) => `stage ${stage}, bay ${id} on ${lot.bays[id].garage ? 'P' + lot.bays[id].lvl : 'the open lot'}`;
   describe.each(stages)('stage %i', (stage) => {
     it.each(Array.from({ length: 12 }, (_, i) => i + 1))('park within the limit, and never leave the open part (seed %i)', (seed) => {

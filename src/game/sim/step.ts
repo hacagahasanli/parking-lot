@@ -2,7 +2,7 @@
  * The rules: one fixed 1/60 s step of every car, the crashes between them, and who parked first.
  * Pure functions over plain objects, so the same code can later run on a host for online play.
  */
-import { CAR, DRIVE, DRIVERS, DT, IMPACT, PARK, RACE } from './constants';
+import { CAR, CONTACT, DRIVE, DRIVERS, DT, IMPACT, PARK, RACE } from './constants';
 import { collide, corners, insideBox, nearShape } from './collide';
 import { bayShape, buildLot, rng } from './lot';
 import { LEVELS, LEVEL_H, levelOf, rampUnder, sameStorey, surfaceAt } from './levels';
@@ -21,6 +21,9 @@ import type { Car, GameState, Input, Leaver, World } from './types';
 
 const CELL = 12;
 const cellKey = (ix: number, iz: number) => ix * 4096 + iz;
+
+/** Indexes of the solids near a point (the 12 m cell it is in). */
+export const nearSolids = (world: World, x: number, z: number): number[] => world.grid.get(cellKey(Math.floor(x / CELL) + 100, Math.floor(z / CELL) + 100)) ?? [];
 
 /** Buckets the solids by 12 m cell so a car only tests what is near it. */
 const buildGrid = (solids: Shape[]) => {
@@ -46,17 +49,27 @@ const buildGrid = (solids: Shape[]) => {
 export const createWorld = (target: number, lot: Lot = buildLot(), leaving = -1, seed = 1): World => {
   const solids: Shape[] = [...lot.solids];
   const owner: number[] = lot.solids.map(() => -1);
+  // Hard things (hitting one is out): posts, lamps and columns, the van and the truck, pallets, cages and the ticket machines.
+  const propNames: Partial<Record<string, string>> = { truck: 'the truck', van: 'a van', pallet: 'a pallet', cage: 'a cage', ticket: 'a ticket machine' };
+  const hard: (string | null)[] = lot.solids.map((s) => {
+    if (lot.closures.some((c) => c.solid === s)) return 'a barrier';
+    if (s.kind === 'circle') return s.r < 0.5 ? 'a post' : null;
+    const prop = lot.props.find((p) => propNames[p.kind] && Math.abs(p.x - s.x) < 0.01 && Math.abs(p.z - s.z) < 0.01);
+    return prop ? propNames[prop.kind]! : null;
+  });
   for (const bay of lot.bays) {
     if (bay.id === target || bay.id === leaving) continue;
     const shape = bayShape(bay);
     if (!shape) continue;
     solids.push(shape);
     owner.push(bay.id);
+    hard.push(bay.use === 'car' ? 'a parked car' : bay.use === 'corral' ? 'a trolley corral' : 'a cone');
   }
   // The barrier arms: solid while they are down (the entry ones until the gate has lifted).
   for (const g of lot.gates) {
     solids.push(g.box);
     owner.push(g.kind === 'entry' ? OWNER_ENTRY : OWNER_EXIT);
+    hard.push('a barrier');
   }
   // Shoppers only where the site is open: none on a floor that is shut.
   const built = buildWalks(lot, seed);
@@ -65,6 +78,7 @@ export const createWorld = (target: number, lot: Lot = buildLot(), leaving = -1,
     lot,
     solids,
     owner,
+    hard,
     walks: built.walks.filter((_, i) => keep[i]),
     trolley: built.trolley.filter((_, i) => keep[i]),
     grid: buildGrid(solids),
@@ -99,6 +113,7 @@ export const makeCar = (id: number, name: string, color: number, bot: boolean, x
   distance: 0,
   hitCooldown: 0,
   dq: null,
+  dqWhy: null,
   incidents: 0,
   bay: -1,
   jolt: 0,
@@ -242,7 +257,7 @@ export const drive = (c: Car, input: Input, dt = DT) => {
   let resist = DRIVE.roll + DRIVE.drag * vF * vF;
   c.braking = false;
   if (c.gear === 1) {
-    if (input.throttle > 0) engine = input.throttle * DRIVE.accel * Math.max(0, 1 - Math.max(0, vF) / DRIVE.topSpeed);
+    if (input.throttle > 0) engine = input.throttle * DRIVE.accel * Math.max(0, 1 - (Math.max(0, vF) / DRIVE.topSpeed) ** 2);
     if (input.brake > 0) {
       resist += input.brake * DRIVE.brake;
       c.braking = true;
@@ -269,7 +284,7 @@ export const drive = (c: Car, input: Input, dt = DT) => {
 
   // Yaw: the wheels ask for a turn (bicycle model), the tyres can only give so much sideways grip.
   let wantW = (-vF * Math.tan(c.steer)) / CAR.wheelbase;
-  const latMax = input.handbrake ? DRIVE.maxLateral * 1.9 : DRIVE.maxLateral;
+  const latMax = input.handbrake ? DRIVE.maxLateral * DRIVE.handbrakeLateral : DRIVE.maxLateral;
   if (Math.abs(vF * wantW) > latMax) wantW = (Math.sign(wantW) * latMax) / Math.max(0.1, Math.abs(vF));
   if (input.handbrake && Math.abs(vF) > 3) wantW *= DRIVE.handbrakeYaw;
   const follow = input.handbrake ? DRIVE.yawFollowHandbrake : DRIVE.yawFollow;
@@ -303,7 +318,7 @@ const INV_I = 1 / CAR.inertia;
  * the restitution, friction acts along the surface, and the off-centre hit sets them spinning.
  * `b` may be null (a kerb, post or parked car: infinitely heavy).
  */
-const resolve = (state: GameState, a: Car, b: Car | null, k: { nx: number; nz: number; depth: number; px: number; pz: number }, bay: number) => {
+const resolve = (state: GameState, a: Car, b: Car | null, k: { nx: number; nz: number; depth: number; px: number; pz: number }, bay: number, what: string | null = null) => {
   const { nx, nz, px, pz } = k;
   const rax = px - a.x;
   const raz = pz - a.z;
@@ -333,6 +348,21 @@ const resolve = (state: GameState, a: Car, b: Car | null, k: { nx: number; nz: n
     b.z += nz * k.depth * share;
   }
   if (vn >= 0) return;
+
+  // Contact is out: a real touch puts the driver at fault out of the race (see `CONTACT`).
+  if (-vn >= CONTACT.minSpeed && state.phase === 'race' && (b || what)) {
+    // How hard each body's own motion drives into the other at the contact point (a body standing still drives into nothing).
+    const drivesA = vax * nx + vaz * nz;
+    const drivesB = b ? -(vbx * nx + vbz * nz) : 0;
+    const out = (c: Car, other: Car | null) => {
+      if (c.id >= state.cars.length || c.dq !== null || c.parkedAt !== null) return;
+      c.dq = state.clock;
+      c.dqWhy = other ? { kind: 'car', what: other.id < state.cars.length ? other.name : 'a parked car' } : { kind: 'obstacle', what: what! };
+      state.events.push({ type: 'crash', car: c.id, other: other ? other.id : -1, what: c.dqWhy.what, speed: -vn, x: px, z: pz });
+    };
+    if (drivesA > CONTACT.faultSpeed) out(a, b);
+    if (b && drivesB > CONTACT.faultSpeed) out(b, a);
+  }
 
   const ka = raz * nx - rax * nz;
   const kb = rbz * nx - rbx * nz;
@@ -401,7 +431,7 @@ const crashes = (state: GameState, world: World) => {
         const box = carBox(car);
         if (!nearShape(box, solid)) continue;
         const k = collide(box, solid);
-        if (k) resolve(state, car, null, k, world.owner[i]);
+        if (k) resolve(state, car, null, k, world.owner[i], world.hard[i]);
       }
     }
     for (let i = 0; i < cars.length; i++) {
@@ -504,6 +534,19 @@ const parking = (state: GameState, world: World) => {
 // The car that pulls out
 // ---------------------------------------------------------------------------
 
+/** Is another racer in the way of this car, `dir` (+1 ahead, -1 behind) along its nose, close enough to touch it before it could stop? */
+export const racerInWay = (state: GameState, car: Car, dir: 1 | -1): boolean => {
+  const fx = Math.sin(car.h) * dir;
+  const fz = Math.cos(car.h) * dir;
+  return state.cars.some((o) => {
+    if (!sameStorey(o.y, car.y)) return false;
+    const dx = o.x - car.x;
+    const dz = o.z - car.z;
+    const ahead = dx * fx + dz * fz;
+    return ahead > 0 && ahead < CAR.length + 3.5 && Math.abs(dx * fz - dz * fx) < CAR.width + 0.8;
+  });
+};
+
 const stepLeaver = (state: GameState, world: World): Input => {
   const idle: Input = { throttle: 0, brake: 0, steer: 0, handbrake: true, horn: false };
   const l = state.leaver;
@@ -513,7 +556,8 @@ const stepLeaver = (state: GameState, world: World): Input => {
   l.t += DT;
   const out = (car.x - bay.x) * -bay.ax + (car.z - bay.z) * -bay.az;
   if (l.phase === 'wait') {
-    if (state.phase === 'race' && state.clock >= l.at) {
+    // It only pulls out when nobody is in its way (it would be a contact).
+    if (state.phase === 'race' && state.clock >= l.at && !racerInWay(state, car, l.forward ? 1 : -1)) {
       l.phase = l.forward ? 'out' : 'reverse';
       l.t = 0;
       if (l.forward) {
@@ -525,6 +569,11 @@ const stepLeaver = (state: GameState, world: World): Input => {
     return idle;
   }
   if (l.phase === 'reverse') {
+    // Someone behind: stop and wait (and the wait does not count against its time).
+    if (racerInWay(state, car, -1)) {
+      l.t -= DT;
+      return { throttle: 0, brake: 0, steer: 0, handbrake: true, horn: Math.floor(l.t * 5) % 2 === 0 };
+    }
     if (out > bay.d / 2 + CAR.length / 2 + 1.4 || l.t > 8) {
       l.phase = 'out';
       l.t = 0;
@@ -551,7 +600,8 @@ const stepLeaver = (state: GameState, world: World): Input => {
   }
   // Never into a shopper: wait until they are clear.
   if (pedLimit(state, car, forwardSpeed(car), Math.sin(car.h), Math.cos(car.h)) < 3) return { throttle: 0, brake: 0, steer: 0, handbrake: true, horn: false };
-  return followRoute(car, l.route, l, 5.5, steerLimit(forwardSpeed(car)));
+  if (racerInWay(state, car, 1)) return { throttle: 0, brake: 0, steer: 0, handbrake: true, horn: false };
+  return followRoute(car, l.route, l, 4, steerLimit(forwardSpeed(car)));
 };
 
 // ---------------------------------------------------------------------------

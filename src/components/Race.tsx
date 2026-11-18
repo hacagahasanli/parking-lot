@@ -207,8 +207,9 @@ const Result = ({ hud, game }: { hud: HudState; game: Game | null }) => {
       <div className="panel-cut bg-ink border-blue/20 max-h-[calc(100dvh-16px)] w-full max-w-md overflow-y-auto border p-4 text-center sm:p-6" style={{ animation: 'riseIn 0.5s ease-out both' }}>
         {st.n > 0 && <div className="text-lilac text-[11px] font-semibold tracking-[0.25em] uppercase">Stage {st.n} · {st.name}</div>}
         <div className={`font-display text-3xl sm:text-4xl ${r.won ? 'text-green' : 'text-orange'}`}>
-          {r.reason === 'pedestrian' ? 'DISQUALIFIED' : r.won ? 'PARKED FIRST' : r.winner ? `${r.winner} took your spot` : 'Out of time'}
+          {r.reason === 'pedestrian' || r.reason === 'crash' ? 'DISQUALIFIED' : r.won ? 'PARKED FIRST' : r.winner ? `${r.winner} took your spot` : 'Out of time'}
         </div>
+        {r.reason === 'crash' && <p className="text-cream/85 mt-2 text-sm">You hit {r.hit}. Touching a car or anything hard puts you out, so your round is over.</p>}
         {r.reason === 'pedestrian' && <p className="text-cream/85 mt-2 text-sm">You hit a pedestrian. Shoppers have right of way, so your round is over.</p>}
         {unlockedNow && <p className="text-gold mt-2 text-sm">Stage {st.n + 1} is open now.</p>}
         {r.won && !st.hasNext && st.n === st.total && <p className="text-gold mt-2 text-sm">You cleared every stage.</p>}
@@ -318,7 +319,7 @@ export const Race = () => {
 
   const onInput = useCallback((i: Parameters<Game['setTouch']>[0]) => gameRef.current?.setTouch(i), []);
 
-  const showResult = !!hud?.result && hud.endedFor >= (hud.result.reason === 'pedestrian' ? 2.2 : 1.2);
+  const showResult = !!hud?.result && hud.endedFor >= (hud.result.reason === 'pedestrian' || hud.result.reason === 'crash' ? 2.2 : 1.2);
   const showMeter = !!hud && hud.phase !== 'countdown' && (hud.inBay > 0 || hud.park > 0) && !hud.result;
   const showHint = !touch && !!hud && hud.phase !== 'done' && hud.clock < 9 && !hud.paused && !showMeter;
 
@@ -378,8 +379,11 @@ export const Race = () => {
           {hud.disqualified !== null && !showResult && (
             <div className="pointer-events-none absolute inset-x-0 top-1/3 z-20 -translate-y-1/2" role="alert" style={{ animation: 'fadeIn 0.2s ease-out both' }}>
               <div className="bg-orange/95 text-ink-deep w-full px-4 py-3 text-center shadow-2xl">
-                <div className="font-display text-2xl sm:text-5xl">YOU HIT A PEDESTRIAN</div>
+                <div className="font-display text-2xl sm:text-5xl">
+                  {hud.dqWhy?.kind === 'car' ? 'YOU HIT A CAR' : hud.dqWhy?.kind === 'obstacle' ? `YOU HIT ${hud.dqWhy.what.toUpperCase()}` : 'YOU HIT A PEDESTRIAN'}
+                </div>
                 <div className="font-display text-lg tracking-widest sm:text-3xl">DISQUALIFIED</div>
+                {hud.dqWhy?.kind === 'car' && <div className="text-sm font-semibold tracking-wide sm:text-xl">{hud.dqWhy.what}</div>}
               </div>
             </div>
           )}

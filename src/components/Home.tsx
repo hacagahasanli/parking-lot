@@ -8,7 +8,7 @@ import type { Game } from '~/game/render/game';
 const STEPS = [
   ['Line up', 'Four company cars side by side at the entrance. Engines on.'],
   ['Find the empty bay', 'One space left, and nobody tells you where. Drive the aisles and look.'],
-  ['Stop inside the lines', 'Straight, between the lines, standing still. First one wins. Hit a shopper and you are out.'],
+  ['Stop inside the lines', 'Straight, between the lines, standing still. First one wins. Touch another car, a post or a shopper and you are out, so drive slowly.'],
   ['Climb the stages', 'Every visit starts in the open lot. Park first and the next stage opens one more floor of the car park: ground, first, the roof, then underground. Six stages in all.'],
 ];
 
@@ -56,7 +56,7 @@ export const Home = () => {
           <span className="text-gold">Lot</span>
         </h1>
         <p className="text-cream mt-5 max-w-md text-xl font-semibold sm:text-2xl">Four company cars. One free space. No insurance.</p>
-        <p className="text-lilac mt-2 max-w-md">Ram first, file the incident report later.</p>
+        <p className="text-lilac mt-2 max-w-md">Touch nothing. Park first.</p>
 
         <div className="mt-8 flex flex-wrap items-center gap-4">
           <Link
