@@ -168,12 +168,12 @@ const createEffects = (scene: THREE.Scene) => {
     smoke.push({ s, life: 0, vx: 0, vz: 0 });
   }
   let nextSmoke = 0;
-  const puff = (x: number, z: number, vx: number, vz: number, amount: number) => {
+  const puff = (x: number, y: number, z: number, vx: number, vz: number, amount: number) => {
     const p = smoke[nextSmoke++ % smoke.length];
     p.life = 1;
     p.vx = vx * 0.15 + (Math.random() - 0.5) * 0.6;
     p.vz = vz * 0.15 + (Math.random() - 0.5) * 0.6;
-    p.s.position.set(x, 0.25, z);
+    p.s.position.set(x, y + 0.25, z);
     p.s.scale.setScalar(0.5);
     p.s.visible = true;
     (p.s.material as THREE.SpriteMaterial).opacity = 0.35 * amount;
@@ -193,7 +193,7 @@ const createEffects = (scene: THREE.Scene) => {
   marks.frustumCulled = false;
   scene.add(marks);
   let nextMark = 0;
-  const skid = (ax: number, az: number, bx: number, bz: number, strength: number) => {
+  const skid = (ax: number, az: number, bx: number, bz: number, floor: number, strength: number) => {
     const dx = bx - ax;
     const dz = bz - az;
     const len = Math.hypot(dx, dz);
@@ -202,7 +202,7 @@ const createEffects = (scene: THREE.Scene) => {
     const nx = (-dz / len) * w;
     const nz = (dx / len) * w;
     const i = nextMark++ % MAX;
-    const y = 0.02;
+    const y = floor + 0.02;
     const v = [ax + nx, y, az + nz, ax - nx, y, az - nz, bx + nx, y, bz + nz, ax - nx, y, az - nz, bx - nx, y, bz - nz, bx + nx, y, bz + nz];
     pos.set(v, i * 18);
     for (let k = 0; k < 6; k++) col.set([0.05, 0.05, 0.06, Math.min(0.55, strength * 0.2)], i * 24 + k * 4);
@@ -211,22 +211,23 @@ const createEffects = (scene: THREE.Scene) => {
   };
 
   // Sparks and bits of plastic on a hard hit.
-  const sparks: { s: THREE.Sprite; life: number; v: THREE.Vector3 }[] = [];
+  const sparks: { s: THREE.Sprite; life: number; v: THREE.Vector3; floor: number }[] = [];
   for (let i = 0; i < 60; i++) {
     const s = new THREE.Sprite(new THREE.SpriteMaterial({ map: dot, color: 0xffc46b, transparent: true, blending: THREE.AdditiveBlending, depthWrite: false }));
     s.visible = false;
     s.scale.setScalar(0.18);
     scene.add(s);
-    sparks.push({ s, life: 0, v: new THREE.Vector3() });
+    sparks.push({ s, life: 0, v: new THREE.Vector3(), floor: 0 });
   }
   let nextSpark = 0;
-  const burst = (x: number, z: number, speed: number) => {
+  const burst = (x: number, y: number, z: number, speed: number) => {
     const n = Math.min(22, Math.floor(speed * 2.5));
     for (let i = 0; i < n; i++) {
       const p = sparks[nextSpark++ % sparks.length];
       p.life = 0.5 + Math.random() * 0.4;
       p.v.set((Math.random() - 0.5) * 6, 1.5 + Math.random() * 3, (Math.random() - 0.5) * 6);
-      p.s.position.set(x, 0.6, z);
+      p.s.position.set(x, y + 0.6, z);
+      p.floor = y;
       p.s.visible = true;
     }
   };
@@ -241,7 +242,7 @@ const createEffects = (scene: THREE.Scene) => {
     hazards.push(s);
   }
 
-  const update = (dt: number, t: number, alarms: { x: number; z: number; h: number }[]) => {
+  const update = (dt: number, t: number, alarms: { x: number; y: number; z: number; h: number }[]) => {
     for (const p of smoke) {
       if (p.life <= 0) continue;
       p.life -= dt * 0.7;
@@ -258,8 +259,8 @@ const createEffects = (scene: THREE.Scene) => {
       p.life -= dt;
       p.v.y -= 9.8 * dt;
       p.s.position.addScaledVector(p.v, dt);
-      if (p.s.position.y < 0.05) {
-        p.s.position.y = 0.05;
+      if (p.s.position.y < p.floor + 0.05) {
+        p.s.position.y = p.floor + 0.05;
         p.v.y *= -0.3;
         p.v.x *= 0.6;
         p.v.z *= 0.6;
@@ -280,7 +281,7 @@ const createEffects = (scene: THREE.Scene) => {
         const s = hazards[k++];
         if (!s) break;
         s.visible = on;
-        s.position.set(a.x + fx * lf + fz * ls, 0.8, a.z + fz * lf - fx * ls);
+        s.position.set(a.x + fx * lf + fz * ls, a.y + 0.8, a.z + fz * lf - fx * ls);
       }
     }
     for (; k < hazards.length; k++) hazards[k].visible = false;
@@ -454,7 +455,7 @@ export class Game {
     // The delivery van in the yard is a tall van like the ones in the bays.
     for (const p of this.lot.props) if (p.kind === 'van') open.push({ x: p.x, z: p.z, h: p.h, style: 4, color: p.color ?? 0x2a4d8f });
     this.parked = buildParked(open);
-    this.parked.add(this.bayProps());
+    this.parked.add(this.bayProps(this.lot.bays.filter((b) => !b.garage), 0));
     this.scene.add(this.parked);
     // Each deck of the car park has its own group of parked cars (hidden with the deck, so the ones out of sight cost nothing).
     for (const g of this.deckParked) {
@@ -465,6 +466,8 @@ export class Game {
     for (const L of LEVELS) {
       const spots = this.lot.bays.filter((b) => b.garage && b.lvl === L && b.use === 'car' && b.id !== state.target && b.id !== state.leaver?.bay).map(spotOf);
       const g = buildParked(spots);
+      // The trolley corrals and cones on this deck stand in it too, hidden with it.
+      g.add(this.bayProps(this.lot.bays.filter((b) => b.garage && b.lvl === L), levelY(L)));
       g.position.y = levelY(L);
       this.worldView.garage.decks.get(L)?.add(g);
       this.deckParked.push(g);
@@ -502,12 +505,13 @@ export class Game {
   }
 
   /** Trolley corrals and traffic cones in the bays that hold them. */
-  private bayProps() {
+  /** Trolley corrals and cones in `bays`, in a group that sits at height `y0` (a deck's group, or the ground). */
+  private bayProps(bays: Lot['bays'], y0: number) {
     const g = new THREE.Group();
     const metal = new THREE.MeshStandardMaterial({ color: 0xb4b9c0, roughness: 0.35, metalness: 0.85 });
     const cone = new THREE.MeshStandardMaterial({ color: 0xf06a1d, roughness: 0.6 });
     const white = new THREE.MeshStandardMaterial({ color: 0xf2f2f2, roughness: 0.6 });
-    for (const b of this.lot.bays) {
+    for (const b of bays) {
       if (b.use === 'corral') {
         const c = new THREE.Group();
         for (const sx of [-0.85, 0.85]) {
@@ -529,7 +533,7 @@ export class Game {
           t.position.set(0, 0.65, z);
           c.add(t);
         }
-        c.position.set(b.x, b.y, b.z);
+        c.position.set(b.x, b.y - y0, b.z);
         c.rotation.y = b.h;
         c.traverse((o) => (o.castShadow = true));
         g.add(c);
@@ -543,7 +547,7 @@ export class Game {
           const foot = new THREE.Mesh(new THREE.BoxGeometry(0.5, 0.04, 0.5), cone);
           foot.position.y = 0.02;
           k.add(body, band, foot);
-          k.position.set(b.x - b.ax * (1.8 - d * 0.4) + b.az * d * 0.3, b.y, b.z - b.az * (1.8 - d * 0.4) - b.ax * d * 0.3);
+          k.position.set(b.x - b.ax * (1.8 - d * 0.4) + b.az * d * 0.3, b.y - y0, b.z - b.az * (1.8 - d * 0.4) - b.ax * d * 0.3);
           k.traverse((o) => (o.castShadow = true));
           g.add(k);
         }
@@ -693,13 +697,13 @@ export class Game {
         const d = Math.hypot(e.x - near.x, e.z - near.z);
         if (e.car === 0 || e.other === 0 || this.opts.mode === 'showcase') this.trauma = Math.min(1, this.trauma + Math.min(0.6, e.speed * 0.07) * (d < 8 ? 1 : 0.3));
         this.sfx.bump(e.speed, e.x, e.z, e.bay >= 0 || e.other >= 0);
-        if (e.speed > 3) this.effects.burst(e.x, e.z, e.speed);
+        if (e.speed > 3) this.effects.burst(e.x, this.allCars()[e.car]?.y ?? 0, e.z, e.speed);
       } else if (e.type === 'alarm') {
         const b = this.lot.bays[e.bay];
         this.sfx.alarm(b.x, b.z, 9);
       } else if (e.type === 'incident') {
         this.sfx.shout(e.x, e.z);
-        this.effects.burst(e.x, e.z, 3);
+        this.effects.burst(e.x, this.allCars()[e.car]?.y ?? 0, e.z, 3);
         if (e.car === 0 && this.opts.mode === 'race') {
           this.trauma = 1;
           this.dqAt = this.time;
@@ -735,8 +739,6 @@ export class Game {
     this.allCars().forEach((c, i) => {
       const rig = this.rigs[i];
       if (!rig) return;
-      // The car that pulled out has left the lot.
-      rig.root.visible = c.x < 5000;
       const p = this.prev[i] ?? c;
       const x = p.x + (c.x - p.x) * alpha;
       const z = p.z + (c.z - p.z) * alpha;
@@ -787,11 +789,11 @@ export class Game {
         const prevW = this.wheelPrev[i];
         wheels.forEach((w, k) => {
           if (k >= 2 && c.slip < 4) return;
-          if (prevW[k]) this.effects.skid(prevW[k].x, prevW[k].z, w.x, w.z, c.slip);
+          if (prevW[k]) this.effects.skid(prevW[k].x, prevW[k].z, w.x, w.z, c.y, c.slip);
         });
         if (Math.random() < Math.min(0.9, c.slip * 0.12)) {
           const w = wheels[Math.floor(Math.random() * 2)];
-          this.effects.puff(w.x, w.z, c.vx, c.vz, Math.min(1, c.slip / 5));
+          this.effects.puff(w.x, c.y, w.z, c.vx, c.vz, Math.min(1, c.slip / 5));
         }
       }
       this.wheelPrev[i] = sliding ? wheels : [];
@@ -840,16 +842,23 @@ export class Game {
       this.marker.sign.position.y = 3.4 + Math.sin(t * 2) * 0.15;
       (this.marker.sign.material as THREE.SpriteMaterial).opacity = fade;
     }
-    this.pedView.update(s.peds, t);
+    // Which decks are drawn first, then whatever stands on a hidden one goes with it (or it hangs in the sky).
     this.updateGarage(dt);
+    const floorShown = this.worldView.garage.floorShown;
+    this.allCars().forEach((c, i) => {
+      const rig = this.rigs[i];
+      if (rig) rig.root.visible = c.x < 5000 && floorShown(rig.root.position.x, rig.root.position.y, rig.root.position.z);
+    });
+    this.pedView.update(s.peds, t, floorShown);
 
     // Alarms going off.
-    const alarms = Object.entries(s.alarms)
+    const alarms: { x: number; y: number; z: number; h: number }[] = Object.entries(s.alarms)
       .filter(([, until]) => until > s.t)
       .map(([id]) => this.lot.bays[Number(id)]);
     // A disqualified car pulls over with its hazards on.
-    for (const c of s.cars) if (c.dq !== null) alarms.push({ x: c.x, z: c.z, h: c.h } as (typeof alarms)[number]);
-    this.effects.update(dt, t, alarms);
+    for (const c of s.cars) if (c.dq !== null) alarms.push({ x: c.x, y: c.y, z: c.z, h: c.h });
+    // Not on a deck that is hidden (the lights would blink in mid-air).
+    this.effects.update(dt, t, alarms.filter((a) => floorShown(a.x, a.y, a.z)));
     this.worldView.trees.update(t);
     this.ambience.update(t, dt);
     this.worldView.signs.forEach((m, i) => (m.emissiveIntensity = 1.3 + (Math.sin(t * 37 + i * 5) > 0.97 ? -0.6 : 0)));

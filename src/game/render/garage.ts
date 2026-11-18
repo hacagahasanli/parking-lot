@@ -9,7 +9,7 @@
  */
 import * as THREE from 'three';
 
-import { LEVELS, LEVEL_COLOR, LEVEL_H, SLAB, levelName, levelY, rampY } from '../sim/levels';
+import { LEVELS, LEVEL_COLOR, LEVEL_H, SLAB, deckShown, deckUnder, levelName, levelY, rampY } from '../sim/levels';
 import { rng } from '../sim/lot';
 
 import { makeBoard } from './board';
@@ -25,6 +25,8 @@ export interface GarageView {
   decks: Map<number, THREE.Group>;
   /** Shows the decks within one of `level` (null: you are outside, everything is shown). */
   showAround: (level: number | null, hideAbove?: boolean) => void;
+  /** Is the floor under (x, y, z) drawn? Whatever stands on a hidden deck (shoppers, cars) is hidden with it. */
+  floorShown: (x: number, y: number, z: number) => boolean;
   /** The board over the way in. */
   setBoard: (rows: BoardRow[]) => void;
   /** Material list, so the game can tune how much sky light the interior picks up. */
@@ -445,10 +447,16 @@ export const buildGarage = (lot: Lot): GarageView => {
 
   // Hide decks you cannot see: from inside, only the deck you are on and the ones next to it are drawn.
   const showAround = (level: number | null, hideAbove = false) => {
-    for (const [l, g] of decks) g.visible = level === null || (Math.abs(l - level) <= 1 && !(hideAbove && l > level));
+    for (const [l, g] of decks) g.visible = deckShown(l, level, hideAbove);
   };
 
-  return { group, decks, showAround, setBoard: board.set, materials };
+  /** Is the floor under (x, y, z) drawn: the ground outside the car park, or a deck that is not hidden? */
+  const floorShown = (x: number, y: number, z: number) => {
+    const d = deckUnder(gar, x, z, y);
+    return d === null || decks.get(d)?.visible !== false;
+  };
+
+  return { group, decks, showAround, floorShown, setBoard: board.set, materials };
 };
 
 export type { GarageLevel, Rect };

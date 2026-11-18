@@ -31,6 +31,7 @@ export const Home = () => {
     void import('~/game/render/game').then(({ Game }) => {
       if (cancelled || !canvas.current) return;
       game = new Game(canvas.current, { mode: 'showcase' });
+      if (process.env.NODE_ENV !== 'production') (window as unknown as { __game?: Game }).__game = game;
       setReady(true);
     });
     return () => {

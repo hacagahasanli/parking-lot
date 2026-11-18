@@ -88,3 +88,21 @@ export const rampUnder = (s: Surfaces, x: number, z: number, y: number): Ramp | 
 export const sameStorey = (a: number, b: number) => Math.abs(a - b) < 1.7;
 
 export type { Vec };
+
+/**
+ * The deck a body at (x, z) and height y stands on: the lower deck of the ramp it is on (a ramp is
+ * built, and hidden, with the deck it climbs from), the level of the floor it is on, or null when it
+ * is outside the car park, on the ground.
+ */
+export const deckUnder = (g: { x0: number; x1: number; z0: number; z1: number; ramps: Ramp[] }, x: number, z: number, y: number): number | null => {
+  if (!(x > g.x0 && x < g.x1 && z > g.z0 && z < g.z1)) return null;
+  for (const r of g.ramps) if (inRect(x, z, r) && Math.abs(rampY(r, x) - y) < 0.6) return r.lo;
+  return levelOf(y);
+};
+
+/**
+ * Is deck `l` drawn when the camera follows a body on `level` (null: outside the car park, every deck
+ * is drawn)? From inside, only the deck you are on and the ones next to it; with a high camera, none
+ * above you, so it can look in from above.
+ */
+export const deckShown = (l: number, level: number | null, hideAbove = false) => level === null || (Math.abs(l - level) <= 1 && !(hideAbove && l > level));

@@ -102,14 +102,18 @@ export const buildPeds = (count: number) => {
     return target.copy(parent).multiply(a).multiply(b);
   };
 
-  const update = (peds: Ped[], t: number) => {
+  /**
+   * `shown(x, y, z)`: is the floor under that point drawn? The car park hides decks you cannot see,
+   * and someone standing on a hidden deck is hidden with it (or they would walk in the sky).
+   */
+  const update = (peds: Ped[], t: number, shown: (x: number, y: number, z: number) => boolean = () => true) => {
     if (!painted && peds.length) {
       paint(peds);
       painted = true;
     }
     for (let i = 0; i < count; i++) {
       const p = peds[i];
-      if (!p) {
+      if (!p || !shown(p.x, p.y, p.z)) {
         for (const m of [torso, head, hair, trolleys]) m.setMatrixAt(i, zero);
         for (const k of [0, 1]) {
           arms.setMatrixAt(i * 2 + k, zero);
