@@ -9,7 +9,7 @@
  */
 import { DT, PED } from './constants';
 import { collide } from './collide';
-import { rng } from './lot';
+import { bayShape, rng } from './lot';
 
 import type { Box, Lot } from './lot';
 import type { Car, GameEvent, GameState, Ped, Walk, World } from './types';
@@ -59,20 +59,22 @@ export const buildWalks = (lot: Lot, seed: number): { walks: Walk[]; trolley: bo
     });
     trolley.push(i % 2 === 0);
   });
-  // Zebra crossings: back and forth over each one.
+  // Zebra crossings: back and forth over each one. A landing that would be inside a parked car (bays reach the kerb) is pulled back towards the road.
+  const parkedNear = lot.bays.map((b) => ({ b, shape: bayShape(b) }));
+  const blocked = (x: number, z: number) =>
+    parkedNear.some(({ b, shape }) => shape && Math.abs(b.x - x) < 6 && Math.abs(b.z - z) < 6 && collide({ kind: 'box', x, z, hw: 0.35, hl: 0.35, h: 0 }, shape));
   lot.crossings.forEach((c, i) => {
     const dx = Math.sin(c.h);
     const dz = Math.cos(c.h);
-    const k = c.len / 2 + 0.9;
     const off = between(-1.2, 1.2);
     const ox = Math.cos(c.h) * off;
     const oz = -Math.sin(c.h) * off;
-    walks.push({
-      points: [
-        { x: c.x + ox - dx * k, z: c.z + oz - dz * k, dwell: 1 + rand() * 2.5 },
-        { x: c.x + ox + dx * k, z: c.z + oz + dz * k, dwell: 1 + rand() * 2.5 },
-      ],
-    });
+    const end = (side: 1 | -1) => {
+      let k = c.len / 2 + 0.9;
+      while (k > 1 && blocked(c.x + ox + side * dx * k, c.z + oz + side * dz * k)) k -= 0.2;
+      return { x: c.x + ox + side * dx * k, z: c.z + oz + side * dz * k, dwell: 1 + rand() * 2.5 };
+    };
+    walks.push({ points: [end(-1), end(1)] });
     trolley.push(i % 3 === 0);
   });
   // Crossers: over an aisle to the car on the other side, and back.

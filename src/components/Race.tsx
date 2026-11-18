@@ -199,7 +199,7 @@ export const Race = () => {
           visibility: hud ? 'visible' : 'hidden',
         }}
       >
-        <canvas ref={minimap} width={280} height={160} className={`border-cream/20 border ${touch ? 'h-14 w-24' : 'h-20 w-36 sm:h-32 sm:w-56'}`} aria-label="Minimap" />
+        <canvas ref={minimap} width={264} height={208} className={`border-cream/20 border ${touch ? 'h-[4.5rem] w-24' : 'h-24 w-[7.5rem] sm:h-40 sm:w-52'}`} aria-label="Minimap" />
       </div>
 
       {!hud && (

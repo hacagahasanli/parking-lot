@@ -1,6 +1,6 @@
 import { DT, DRIVE } from './constants';
 import { botInput, canSee, createBrain, SIGHT } from './bot';
-import { CAR } from './constants';
+import { CAR, PED } from './constants';
 import { collide } from './collide';
 import { buildLot, LAYOUT } from './lot';
 import { routeToDock, shortestPath } from './nav';
@@ -447,6 +447,52 @@ describe('shoppers', () => {
   });
 });
 
+describe('shoppers across the new layout', () => {
+  it('walk loops start and end on the pavement or tarmac, never inside a parked car or a kerb block', () => {
+    const lotSolids = lot.solids.filter((sh) => sh.kind === 'box' && sh.hl < 20);
+    for (const seed of [1, 2, 3, 4, 5, 6]) {
+      const { world } = createRound(lot, { seed, bots: [true] });
+      const parked = world.solids.filter((_, i) => world.owner[i] >= 0);
+      expect(world.walks).toHaveLength(PED.count);
+      for (const w of world.walks) {
+        for (const pt of w.points) {
+          const body = carBox({ x: pt.x, z: pt.z, h: 0 });
+          body.hw = 0.3;
+          body.hl = 0.3;
+          for (const sh of parked) expect(collide(body, sh), `seed ${seed} at ${pt.x.toFixed(1)}, ${pt.z.toFixed(1)}`).toBeNull();
+          for (const sh of lotSolids) if (sh.kind === 'box' && sh.hl < 6) expect(collide(body, sh), `seed ${seed} kerb at ${pt.x.toFixed(1)}, ${pt.z.toFixed(1)}`).toBeNull();
+        }
+      }
+    }
+  });
+
+  it('cross at the zebra crossings: a loop for each crossing runs across its road', () => {
+    const { world } = createRound(lot, { seed: 2, bots: [true] });
+    for (const c of lot.crossings) {
+      const hit = world.walks.some((w) => w.points.length === 2 && Math.abs(w.points[0].x - c.x) < 2.2 + c.len / 2 && Math.abs(w.points[0].z - c.z) < 2.2 + c.len / 2 && Math.hypot(w.points[1].x - w.points[0].x, w.points[1].z - w.points[0].z) > c.len);
+      expect(hit, `crossing at ${c.x}, ${c.z}`).toBe(true);
+    }
+  });
+});
+
+describe('speed bumps', () => {
+  it('slow a car going over them and kick the body', () => {
+    const { state, world } = createRound(lot, { seed: 2, bots: [false] });
+    const b = lot.bumps[0];
+    const car = state.cars[0];
+    // On the avenue, heading north over the bump at 10 m/s.
+    Object.assign(car, { x: b.x + 2, z: b.z - 6, h: 0, vx: 0, vz: 10 });
+    let jolted = 0;
+    for (let i = 0; i < 60; i++) {
+      state.phase = 'race';
+      step(state, world, [press({ throttle: 1 })]);
+      jolted = Math.max(jolted, car.jolt);
+    }
+    expect(jolted).toBeGreaterThan(0.5);
+    expect(car.z).toBeGreaterThan(b.z);
+  });
+});
+
 describe('the radio', () => {
   it('has bots say a line when something happens, and not too often', () => {
     const { state } = createRound(lot, { seed: 1, bots: [false, true, true, true] });
@@ -474,6 +520,20 @@ describe('the radio', () => {
 });
 
 describe('the car that pulls out', () => {
+  it('drives away along the aisle graph to the exit gate and is gone', () => {
+    const { state, world } = createRound(lot, { seed: 2, bots: [false] });
+    const l = state.leaver!;
+    state.phase = 'race';
+    state.clock = l.at;
+    let steps = 0;
+    for (let i = 0; i < 60 * 120 && l.phase !== 'gone'; i++, steps++) step(state, world, [press({ handbrake: true })]);
+    expect(l.phase).toBe('gone');
+    expect(steps / 60).toBeLessThan(110);
+    // It went by road: the route it followed ended at the exit lane.
+    const end = l.route[l.route.length - 1];
+    expect(Math.hypot(end.x - lot.graph.nodes[lot.exitNode].x, end.z - lot.graph.nodes[lot.exitNode].z)).toBeLessThan(1);
+  });
+
   it('leaves its bay, which is then free to win in', () => {
     const { state, world } = createRound(lot, { seed: 2, bots: [false] });
     const l = state.leaver!;

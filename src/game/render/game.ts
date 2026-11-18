@@ -18,6 +18,7 @@ import { createRound, distanceToTarget, forwardSpeed, standings, step } from '..
 import { NO_INPUT } from '../sim/types';
 
 import { buildParked, buildRacer } from './car';
+import { buildAmbience } from './ambience';
 import { buildPeds } from './peds';
 import { buildTargetMarker, buildWorld } from './world';
 
@@ -290,6 +291,7 @@ export class Game {
   private parked: THREE.Group | null = null;
   private marker = buildTargetMarker();
   private worldView;
+  private ambience;
   private effects;
   private sfx = createSfx();
   private engines: ReturnType<ReturnType<typeof createSfx>['engine']>[] = [];
@@ -316,6 +318,9 @@ export class Game {
   private disposed = false;
   private minimap: HTMLCanvasElement | null = null;
   private roundNo = 0;
+  /** How far the exit barrier is lifted (0..1), eased. */
+  private exitOpen = 0;
+  private joltSeen: number[] = [];
 
   constructor(
     private canvas: HTMLCanvasElement,
@@ -333,10 +338,10 @@ export class Game {
     // Sky with a low autumn sun from the south-west; the same sky lights the car paint.
     const sky = new Sky();
     sky.scale.setScalar(4000);
-    const sunDir = new THREE.Vector3().setFromSphericalCoords(1, THREE.MathUtils.degToRad(90 - 24), THREE.MathUtils.degToRad(215));
+    const sunDir = new THREE.Vector3().setFromSphericalCoords(1, THREE.MathUtils.degToRad(90 - 15), THREE.MathUtils.degToRad(215));
     const u = sky.material.uniforms;
-    u.turbidity.value = 6;
-    u.rayleigh.value = 1.4;
+    u.turbidity.value = 8;
+    u.rayleigh.value = 2.2;
     u.mieCoefficient.value = 0.006;
     u.mieDirectionalG.value = 0.85;
     u.sunPosition.value.copy(sunDir);
@@ -349,9 +354,9 @@ export class Game {
     envScene.add(envSky);
     this.scene.environment = pmrem.fromScene(envScene, 0.02).texture;
     this.scene.environmentIntensity = 0.75;
-    this.scene.fog = new THREE.Fog(0xc9d3dc, 140, 520);
+    this.scene.fog = new THREE.Fog(0xe2cdb2, 140, 520);
 
-    this.sun = new THREE.DirectionalLight(0xffe2bd, 3.1);
+    this.sun = new THREE.DirectionalLight(0xffc27d, 3.5);
     this.sun.position.copy(sunDir).multiplyScalar(80);
     this.sun.castShadow = true;
     this.sun.shadow.mapSize.set(2048, 2048);
@@ -363,11 +368,13 @@ export class Game {
     this.sun.shadow.bias = -0.0004;
     this.sun.shadow.normalBias = 0.03;
     this.scene.add(this.sun, this.sun.target);
-    this.scene.add(new THREE.HemisphereLight(0xcfe0ff, 0x5b5040, 0.7));
+    this.scene.add(new THREE.HemisphereLight(0xffe6c8, 0x6a5238, 0.75));
 
     this.lot = buildLot();
     this.worldView = buildWorld(this.lot);
+    this.ambience = buildAmbience(this.lot);
     this.scene.add(this.worldView.group);
+    this.scene.add(this.ambience.group);
     this.scene.add(this.marker.group);
     this.scene.add(this.pedView.group);
     // The free bay is not marked: the outline is only shown for a moment when the round is over.
@@ -410,6 +417,8 @@ export class Game {
     const spots = this.lot.bays
       .filter((b) => b.use === 'car' && b.id !== state.target && b.id !== state.leaver?.bay)
       .map((b) => ({ x: b.x + Math.sin(b.h) * 0.12, z: b.z + Math.cos(b.h) * 0.12, h: b.h, style: b.variant, color: b.color }));
+    // The delivery van in the yard is a tall van like the ones in the bays.
+    for (const p of this.lot.props) if (p.kind === 'van') spots.push({ x: p.x, z: p.z, h: p.h, style: 4, color: p.color ?? 0x2a4d8f });
     this.parked = buildParked(spots);
     this.parked.add(this.bayProps());
     this.scene.add(this.parked);
@@ -672,6 +681,9 @@ export class Game {
       rig.pitch += rig.pitchV * dt;
       rig.leanV += ((leanWant - rig.lean) * 80 - rig.leanV * 10) * dt;
       rig.lean += rig.leanV * dt;
+      // A speed bump kicks the body (the sim slowed the car and set `jolt`).
+      if (c.jolt > (this.joltSeen[i] ?? 0) + 0.2) rig.pitchV += 5 * c.jolt;
+      this.joltSeen[i] = c.jolt;
       rig.body.rotation.x = rig.pitch;
       rig.body.rotation.z = rig.lean;
       rig.body.position.y = Math.sin(t * 31 + i) * 0.003 * (c.throttle > 0 ? 1 : 0.4);
@@ -738,6 +750,7 @@ export class Game {
       const bay = this.lot.bays[s.winBay >= 0 ? s.winBay : s.target];
       this.marker.group.position.set(bay.x, 0, bay.z);
       this.marker.group.rotation.y = bay.h;
+      this.marker.group.scale.set(bay.w / BAY.width, 1, bay.d / BAY.depth);
       const fade = Math.min(1, (this.time - this.endedAt) * 2) * Math.min(1, (6 - (this.time - this.endedAt)) * 2);
       this.marker.lineMat.opacity = 0.95 * fade;
       this.marker.fillMat.opacity = (0.12 + Math.sin(t * 4) * 0.05) * fade;
@@ -755,7 +768,14 @@ export class Game {
     for (const c of s.cars) if (c.dq !== null) alarms.push({ x: c.x, z: c.z, h: c.h } as (typeof alarms)[number]);
     this.effects.update(dt, t, alarms);
     this.worldView.trees.update(t);
-    this.worldView.sign.emissiveIntensity = 1.3 + (Math.sin(t * 37) > 0.97 ? -0.6 : 0);
+    this.ambience.update(t, dt);
+    this.worldView.signs.forEach((m, i) => (m.emissiveIntensity = 1.3 + (Math.sin(t * 37 + i * 5) > 0.97 ? -0.6 : 0)));
+    // The entry barriers lift from the sim's gate; the exit one lifts for the car that is pulling out and drives to it.
+    const exit = this.lot.gates.find((g) => g.kind === 'exit')!;
+    const lv = s.leaver;
+    const nearExit = lv && lv.phase === 'out' ? Math.hypot(lv.car.x - (exit.px + exit.tx) / 2, lv.car.z - exit.z) < 13 : false;
+    this.exitOpen += ((nearExit ? 1 : 0) - this.exitOpen) * Math.min(1, dt * 2.2);
+    this.worldView.setGates(s.gate.open, this.exitOpen);
 
     this.updateCamera(dt);
     this.drawMinimap();
@@ -817,6 +837,62 @@ export class Game {
     this.sun.position.set(fx, 0, fz).addScaledVector(dir, 80);
   }
 
+  /** The map's fixed layer (tarmac, roads, islands, the shops, the carport, the gates), drawn once and blitted each frame. */
+  private mapLayer: HTMLCanvasElement | null = null;
+
+  private buildMapLayer(W: number, H: number, px: (x: number) => number, pz: (z: number) => number, sc: number) {
+    const layer = document.createElement('canvas');
+    layer.width = W;
+    layer.height = H;
+    const g = layer.getContext('2d')!;
+    const { bounds, graph, aisles } = this.lot;
+    g.fillStyle = 'rgba(10,13,24,0.78)';
+    g.fillRect(0, 0, W, H);
+    // Tarmac.
+    g.fillStyle = 'rgba(112,120,132,0.38)';
+    g.fillRect(px(bounds.x1), pz(bounds.z1), (bounds.x1 - bounds.x0) * sc, (bounds.z1 - bounds.z0) * sc);
+    // Roads and aisles, at their real width.
+    g.lineCap = 'butt';
+    for (const a of aisles) {
+      g.strokeStyle = a.kind === 'aisle' ? 'rgba(150,158,170,0.38)' : 'rgba(176,184,196,0.5)';
+      g.lineWidth = a.width * sc;
+      g.beginPath();
+      a.nodes.forEach((id, i) => {
+        const n = graph.nodes[id];
+        if (i === 0) g.moveTo(px(n.x), pz(n.z));
+        else g.lineTo(px(n.x), pz(n.z));
+      });
+      g.stroke();
+    }
+    // Bay rows as short ticks (every bay looks the same, so nothing is given away).
+    g.strokeStyle = 'rgba(235,235,225,0.28)';
+    g.lineWidth = 1;
+    g.beginPath();
+    for (const s of this.lot.stripes) {
+      g.moveTo(px(s.a.x), pz(s.a.z));
+      g.lineTo(px(s.b.x), pz(s.b.z));
+    }
+    g.stroke();
+    // Islands, lawns and the carport.
+    for (const isl of this.lot.islands) {
+      g.fillStyle = isl.kind === 'lawn' || isl.kind === 'planter' || isl.kind === 'hedge' ? 'rgba(96,140,80,0.75)' : 'rgba(170,170,160,0.5)';
+      g.fillRect(px(isl.x1), pz(isl.z1), (isl.x1 - isl.x0) * sc, (isl.z1 - isl.z0) * sc);
+    }
+    for (const c of this.lot.canopies) {
+      g.strokeStyle = 'rgba(90,140,255,0.9)';
+      g.lineWidth = 1.5;
+      g.strokeRect(px(c.x1), pz(c.z1), (c.x1 - c.x0) * sc, (c.z1 - c.z0) * sc);
+    }
+    // The shops along the top, the gates (the entry bottom centre) as short bars.
+    for (const shop of this.lot.shops) {
+      g.fillStyle = 'rgba(214,200,176,0.8)';
+      g.fillRect(px(shop.x1), pz(bounds.z1) - 7, (shop.x1 - shop.x0) * sc, 6);
+    }
+    g.fillStyle = 'rgba(255,210,63,0.95)';
+    for (const gate of this.lot.gates) g.fillRect(px((gate.px + gate.tx) / 2) - 3, pz(gate.z) - 1, 6, 2);
+    return layer;
+  }
+
   private drawMinimap() {
     const c = this.minimap;
     if (!c) return;
@@ -825,22 +901,16 @@ export class Game {
     const { bounds } = this.lot;
     const W = c.width;
     const H = c.height;
-    const pad = 6;
+    const pad = 8;
     const sx = (W - pad * 2) / (bounds.x1 - bounds.x0);
     const sz = (H - pad * 2) / (bounds.z1 - bounds.z0);
     const sc = Math.min(sx, sz);
-    // North (the store) at the top; x flipped so the map matches the chase view from the entrance.
+    // North (the shops) at the top; x flipped so the map matches the chase view from the entrance.
     const px = (x: number) => W / 2 - x * sc;
     const pz = (z: number) => H - pad - (z - bounds.z0) * sc;
+    if (!this.mapLayer || this.mapLayer.width !== W || this.mapLayer.height !== H) this.mapLayer = this.buildMapLayer(W, H, px, pz, sc);
     g.clearRect(0, 0, W, H);
-    g.fillStyle = 'rgba(10,13,24,0.72)';
-    g.fillRect(0, 0, W, H);
-    g.fillStyle = 'rgba(120,128,140,0.35)';
-    g.fillRect(px(bounds.x1), pz(bounds.z1), (bounds.x1 - bounds.x0) * sc, (bounds.z1 - bounds.z0) * sc);
-    g.fillStyle = 'rgba(96,140,80,0.8)';
-    for (const isl of this.lot.islands) g.fillRect(px(isl.x1), pz(isl.z1), (isl.x1 - isl.x0) * sc, (isl.z1 - isl.z0) * sc);
-    g.fillStyle = 'rgba(200,190,170,0.6)';
-    g.fillRect(px(this.lot.store.x1), 0, (this.lot.store.x1 - this.lot.store.x0) * sc, 4);
+    g.drawImage(this.mapLayer, 0, 0);
     // Shoppers as small pale dots; the free bay only once the round is over.
     g.fillStyle = 'rgba(235,235,225,0.75)';
     for (const p of this.state.peds) g.fillRect(px(p.x) - 1, pz(p.z) - 1, 2, 2);

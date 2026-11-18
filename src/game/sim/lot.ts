@@ -510,7 +510,7 @@ export const buildLot = (seed = 7): Lot => {
     solids.push({ kind: 'box', x, z, hw: 0.4, hl: 0.4, h: 0 });
   }
   hatches.push({ x: -41, z: 41.6, h: 0, w: 20, l: 3 });
-  words.push({ text: 'LOADING', x: -48.5, z: 34.4, h: Math.PI / 2, w: 5 });
+  words.push({ text: 'LOADING', x: -48.5, z: 34.4, h: -Math.PI / 2, w: 5 });
   signs.push({ kind: 'loading', x: -52.3, z: 43.4, h: Math.PI / 2 });
 
   // --- Lamps, posts, walls -----------------------------------------------------------------------
@@ -522,7 +522,7 @@ export const buildLot = (seed = 7): Lot => {
   solids.push(rect(bounds.x0 - 1, bounds.x1 + 1, bounds.z0 - 1, bounds.z0), rect(bounds.x0 - 1, bounds.x1 + 1, kerb, kerb + 1));
 
   // --- Markings and signs --------------------------------------------------------------------------
-  crossings.push({ x: doorX, z: ZF, h: 0, len: 8 }, { x: 44.5, z: ZF, h: 0, len: 8 }, { x: XC, z: -17.2, h: Math.PI / 2, len: 8 }, { x: XC, z: 38, h: Math.PI / 2, len: 8 }, { x: 28, z: ZM, h: 0, len: 8 });
+  crossings.push({ x: doorX, z: ZF, h: 0, len: 8 }, { x: 44.5, z: ZF, h: 0, len: 8 }, { x: XC, z: -17.2, h: Math.PI / 2, len: 8 }, { x: XC, z: 38, h: Math.PI / 2, len: 8 }, { x: XC, z: 22, h: Math.PI / 2, len: 8 });
   bumps.push(
     { x: XC, z: -14, h: 0, len: 8 },
     { x: XC, z: 18, h: 0, len: 8 },
@@ -540,7 +540,8 @@ export const buildLot = (seed = 7): Lot => {
     { x: -5.5, z: ZC, h: 0, w: 0.4, l: 3.6 },
     { x: XE, z: EXIT_Z + 4, h: 0, w: 3.6, l: 0.4 },
   );
-  words.push({ text: 'ENTRY', x: 0, z: -47, h: 0, w: 4.8 }, { text: 'EXIT', x: XE, z: -49.2, h: Math.PI, w: 3.2 }, { text: 'FIRE LANE', x: 12, z: ZF + 2.8, h: Math.PI, w: 6 });
+  // (A word reads upright for a driver heading `h + pi`: north is h = pi.)
+  words.push({ text: 'ENTRY', x: 0, z: -47, h: Math.PI, w: 4.8 }, { text: 'EXIT', x: XE, z: -49.2, h: 0, w: 3.2 }, { text: 'FIRE LANE', x: 12, z: ZF + 2.8, h: Math.PI / 2, w: 6 });
   signs.push(
     { kind: 'entry', x: -6.6, z: -43, h: Math.PI / 2 },
     { kind: 'p', x: 6.6, z: -36, h: -Math.PI / 2 },
