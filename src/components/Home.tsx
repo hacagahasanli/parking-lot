@@ -7,8 +7,9 @@ import type { Game } from '~/game/render/game';
 
 const STEPS = [
   ['Line up', 'Four company cars side by side at the entrance. Engines on.'],
-  ['Find the empty bay', 'One space left in the whole lot, and nobody tells you where. Drive the aisles and look.'],
+  ['Find the empty bay', 'One space left, and nobody tells you where. Drive the aisles and look.'],
   ['Stop inside the lines', 'Straight, between the lines, standing still. First one wins. Hit a shopper and you are out.'],
+  ['Climb the stages', 'Every visit starts in the open lot. Park first and the next stage opens one more floor of the car park: ground, first, the roof, then underground. Six stages in all.'],
 ];
 
 const KEYS = [
@@ -66,7 +67,7 @@ export const Home = () => {
           <span className="text-lilac text-sm">You against three bots. Online with friends is next.</span>
         </div>
 
-        <ol className="mt-12 grid max-w-3xl gap-3 sm:grid-cols-3">
+        <ol className="mt-12 grid max-w-5xl gap-3 sm:grid-cols-2 lg:grid-cols-4">
           {STEPS.map(([title, text], i) => (
             <li key={title} className="panel-cut bg-ink/80 border-blue/20 border p-4 backdrop-blur-sm">
               <div className="font-display text-gold text-2xl">{i + 1}</div>

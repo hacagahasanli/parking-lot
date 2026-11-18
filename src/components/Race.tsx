@@ -21,11 +21,11 @@ const Key = ({ k }: { k: string }) => (
 );
 
 const Standings = ({ hud, compact }: { hud: HudState; compact: boolean }) => (
-  <ol className={`panel-cut bg-ink-deep/75 backdrop-blur-sm ${compact ? 'w-40 p-1' : 'w-52 p-2 sm:w-64'}`} aria-label="Standings">
+  <ol className={`panel-cut bg-ink-deep/75 backdrop-blur-sm ${compact ? 'w-[8.5rem] p-1' : 'w-52 p-2 sm:w-64'}`} aria-label="Standings">
     {hud.standings.map((s, i) => (
       <li
         key={s.id}
-        className={`flex items-center gap-2 px-2 ${compact ? 'py-0.5 text-xs' : 'py-1 text-sm'} ${s.me ? 'bg-gold/20 text-gold font-bold' : 'text-cream/85'}`}
+        className={`flex items-center gap-2 px-2 ${compact ? 'py-0.5 text-[11px]' : 'py-1 text-sm'} ${s.me ? 'bg-gold/20 text-gold font-bold' : 'text-cream/85'}`}
       >
         <span className="font-display w-4 text-xs">{i + 1}</span>
         <span className="h-3 w-3 shrink-0 rounded-sm border border-black/50" style={{ background: hex(s.color) }} />
@@ -73,21 +73,84 @@ const Meter = ({ hud }: { hud: HudState }) => {
   );
 };
 
-/** The opening card during the countdown, in the studio's style: what the round is about, then the conflict. */
-const Intro = () => (
+/** Six dots: cleared stages filled, the one you are on gold and larger, unlocked ones outlined, locked ones dim. */
+const StageDots = ({ hud }: { hud: HudState }) => (
+  <div className="flex items-center justify-center gap-2" role="img" aria-label={`Stage ${hud.stage.n} of ${hud.stage.total}`}>
+    {Array.from({ length: hud.stage.total }, (_, i) => {
+      const n = i + 1;
+      const now = n === hud.stage.n;
+      const cleared = n < hud.stage.unlocked;
+      return (
+        <span
+          key={n}
+          className={`rounded-full ${now ? 'bg-gold h-3.5 w-3.5 ring-2 ring-gold/40' : cleared ? 'bg-green h-2.5 w-2.5' : n <= hud.stage.unlocked ? 'border-cream/70 h-2.5 w-2.5 border-2' : 'bg-cream/25 h-2.5 w-2.5'}`}
+        />
+      );
+    })}
+  </div>
+);
+
+/**
+ * The card before each countdown: which stage this is and what is new in it, with the countdown number at its foot (one column,
+ * so the number can never land on the text). On a phone it sits between the standings and the right-hand buttons.
+ */
+const Intro = ({ hud, touch }: { hud: HudState; touch: boolean }) => (
   <div
-    className="pointer-events-none absolute inset-x-0 top-0 z-[5] flex h-[62%] flex-col items-center justify-center gap-2 bg-[radial-gradient(ellipse_at_center,rgba(10,13,24,0.7),rgba(10,13,24,0.25)_70%,transparent)] px-6 text-center sm:gap-3"
-    style={{ animation: 'fadeIn 0.3s ease-out both' }}
-    aria-hidden="true"
+    className={`pointer-events-none absolute z-[5] flex flex-col items-center gap-1.5 bg-[radial-gradient(ellipse_at_center,rgba(10,13,24,0.72),rgba(10,13,24,0.3)_70%,transparent)] px-6 py-3 text-center sm:gap-3 sm:py-6 ${touch ? 'portrait:top-[250px] portrait:inset-x-2 landscape:top-2 landscape:inset-x-[10.5rem]' : 'inset-x-0'}`}
+    style={{ ...(touch ? {} : { top: 'calc(48px + env(safe-area-inset-top))' }), animation: 'fadeIn 0.3s ease-out both' }}
+    role="group"
+    aria-label={`Stage ${hud.stage.n}: ${hud.stage.name}`}
   >
-    <div className="text-green/90 font-mono text-[10px] tracking-[0.3em] sm:text-xs">&lt;&lt;&lt;&lt;&lt;&lt;&lt; ENTRY</div>
-    <div className="font-display text-gold text-4xl leading-none drop-shadow-[0_4px_24px_rgba(0,0,0,0.85)] sm:text-7xl" style={{ animation: 'riseIn 0.5s ease-out both' }}>
-      ONE SPACE LEFT
+    <div className="text-green/90 font-mono text-[10px] tracking-[0.3em] sm:text-xs">
+      ONE SPACE LEFT{hud.stage.n > 0 && <> · STAGE {hud.stage.n} OF {hud.stage.total}</>}
     </div>
-    <div className="text-cream/90 max-w-md text-xs drop-shadow-[0_2px_8px_rgba(0,0,0,0.8)] sm:text-base" style={{ animation: 'fadeIn 0.8s ease-out both' }}>
-      Somewhere on this site, in the open or up and down the garage, one bay is empty. Three rivals are looking too.
+    <div className="font-display text-gold text-2xl leading-none drop-shadow-[0_4px_24px_rgba(0,0,0,0.85)] sm:text-6xl" style={{ animation: 'riseIn 0.5s ease-out both' }}>
+      {hud.stage.n > 0 ? hud.stage.name : 'ONE SPACE LEFT'}
     </div>
-    <div className="text-orange/90 font-mono text-[10px] tracking-[0.3em] sm:text-xs">&gt;&gt;&gt;&gt;&gt;&gt;&gt; EVERYONE ELSE</div>
+    {hud.stage.news && (
+      <div className="text-cream/90 max-w-md text-xs drop-shadow-[0_2px_8px_rgba(0,0,0,0.8)] sm:text-base [@media(max-height:420px)]:hidden portrait:max-sm:hidden" style={{ animation: 'fadeIn 0.8s ease-out both' }}>
+        {hud.stage.news} Three rivals are looking too.
+      </div>
+    )}
+    {hud.stage.n > 0 && <StageDots hud={hud} />}
+    {hud.countdown > 0 && (
+      <div key={hud.countdown} className="font-display text-gold mt-1 text-6xl leading-none drop-shadow-lg sm:mt-4 sm:text-9xl" style={{ animation: 'countPop 1s ease-out both' }}>
+        {hud.countdown}
+      </div>
+    )}
+  </div>
+);
+
+const Lock = () => (
+  <svg viewBox="0 0 16 16" className="mx-auto h-3.5 w-3.5" aria-hidden="true" fill="currentColor">
+    <path d="M5 7V5a3 3 0 1 1 6 0v2h1a1 1 0 0 1 1 1v6a1 1 0 0 1-1 1H4a1 1 0 0 1-1-1V8a1 1 0 0 1 1-1zm1.6 0h2.8V5a1.4 1.4 0 1 0-2.8 0z" />
+  </svg>
+);
+
+/** The stage chips: cleared and open stages can be played, the rest are locked until you park first in the one before. */
+const StageChips = ({ hud, game, onPick }: { hud: HudState; game: Game | null; onPick?: () => void }) => (
+  <div className="flex flex-wrap justify-center gap-1.5" role="group" aria-label="Stages">
+    {Array.from({ length: hud.stage.total }, (_, i) => {
+      const n = i + 1;
+      const locked = n > hud.stage.unlocked;
+      const now = n === hud.stage.n;
+      return (
+        <button
+          key={n}
+          type="button"
+          disabled={locked}
+          aria-current={now ? 'step' : undefined}
+          aria-label={`Stage ${n}${locked ? ', locked' : now ? ', current' : ''}`}
+          onClick={() => {
+            game?.selectStage(n);
+            onPick?.();
+          }}
+          className={`font-display min-h-9 min-w-9 px-2 text-sm transition ${now ? 'bg-gold text-ink-deep' : locked ? 'bg-cream/5 text-cream/30 cursor-not-allowed' : 'bg-cream/10 text-cream hover:bg-cream/20'}`}
+        >
+          {locked ? <Lock /> : n}
+        </button>
+      );
+    })}
   </div>
 );
 
@@ -104,7 +167,8 @@ const Board = ({ hud }: { hud: HudState }) => (
 );
 
 /** One tab per level above the minimap; a dot marks the level you are on. */
-const MapTabs = ({ hud, game }: { hud: HudState; game: Game | null }) => (
+const MapTabs = ({ hud, game }: { hud: HudState; game: Game | null }) =>
+  hud.mapLevels.length < 2 ? null : (
   <div className="pointer-events-auto flex gap-0.5" role="tablist" aria-label="Minimap level">
     {hud.mapLevels.map((l) => {
       const on = hud.mapLevel === l.level;
@@ -125,7 +189,7 @@ const MapTabs = ({ hud, game }: { hud: HudState; game: Game | null }) => (
       );
     })}
   </div>
-);
+  );
 
 const Stat = ({ label, value }: { label: string; value: string }) => (
   <div className="bg-ink-deep/70 px-3 py-2 text-center">
@@ -134,32 +198,52 @@ const Stat = ({ label, value }: { label: string; value: string }) => (
   </div>
 );
 
-const Result = ({ hud, onAgain }: { hud: HudState; onAgain: () => void }) => {
+const Result = ({ hud, game }: { hud: HudState; game: Game | null }) => {
   const r = hud.result!;
+  const st = hud.stage;
+  const unlockedNow = r.won && st.hasNext;
   return (
     <div className="absolute inset-0 z-30 flex items-center justify-center bg-ink-deep/70 p-4 backdrop-blur-sm" style={{ animation: 'fadeIn 0.4s ease-out both' }} role="dialog" aria-label="Result">
       <div className="panel-cut bg-ink border-blue/20 max-h-[calc(100dvh-16px)] w-full max-w-md overflow-y-auto border p-4 text-center sm:p-6" style={{ animation: 'riseIn 0.5s ease-out both' }}>
+        {st.n > 0 && <div className="text-lilac text-[11px] font-semibold tracking-[0.25em] uppercase">Stage {st.n} · {st.name}</div>}
         <div className={`font-display text-3xl sm:text-4xl ${r.won ? 'text-green' : 'text-orange'}`}>
           {r.reason === 'pedestrian' ? 'DISQUALIFIED' : r.won ? 'PARKED FIRST' : r.winner ? `${r.winner} took your spot` : 'Out of time'}
         </div>
         {r.reason === 'pedestrian' && <p className="text-cream/85 mt-2 text-sm">You hit a pedestrian. Shoppers have right of way, so your round is over.</p>}
-        <div className="font-display text-gold mt-2 text-6xl">#{r.place}<span className="text-lilac text-2xl">/4</span></div>
-        <div className="mt-4 grid grid-cols-2 gap-1.5">
+        {unlockedNow && <p className="text-gold mt-2 text-sm">Stage {st.n + 1} is open now.</p>}
+        {r.won && !st.hasNext && st.n === st.total && <p className="text-gold mt-2 text-sm">You cleared every stage.</p>}
+        <div className="font-display text-gold mt-2 text-5xl sm:text-6xl">#{r.place}<span className="text-lilac text-2xl">/4</span></div>
+        <div className="mt-3 grid grid-cols-2 gap-1.5 sm:mt-4 [@media(max-height:420px)]:hidden">
           <Stat label="Time" value={fmtClock(r.time)} />
           <Stat label="Top speed" value={`${Math.round(r.topSpeed)} km/h`} />
           <Stat label="Bumps" value={String(r.bumps)} />
           <Stat label="Pedestrians hit" value={String(r.incidents)} />
           <Stat label="Distance" value={`${Math.round(r.distance)} m`} />
         </div>
-        <div className="mt-6 flex flex-col gap-3 sm:flex-row">
-          <button type="button" autoFocus onClick={onAgain} className="panel-cut bg-gold font-display text-ink-deep flex-1 px-6 py-3 text-lg transition hover:brightness-110 active:scale-95">
-            Play again
+        {st.n > 0 && (
+          <div className="mt-4">
+            <StageChips hud={hud} game={game} />
+          </div>
+        )}
+        <div className="mt-4 flex flex-col gap-3 sm:mt-5 sm:flex-row [@media(max-height:420px)]:flex-row [@media(max-height:420px)]:gap-2">
+          {unlockedNow && (
+            <button type="button" autoFocus onClick={() => game?.nextStage()} className="panel-cut bg-gold font-display text-ink-deep flex flex-[1.7] items-center justify-center px-4 py-3 text-base whitespace-nowrap [@media(max-height:420px)]:py-2 transition hover:brightness-110 active:scale-95 sm:text-lg">
+              Next stage →
+            </button>
+          )}
+          <button
+            type="button"
+            autoFocus={!unlockedNow}
+            onClick={() => game?.newRound()}
+            className={`panel-cut font-display flex flex-1 items-center justify-center px-4 py-3 text-base transition active:scale-95 sm:text-lg ${unlockedNow ? 'bg-cream/10 text-cream hover:bg-cream/20' : 'bg-gold text-ink-deep hover:brightness-110'}`}
+          >
+            Retry
           </button>
-          <Link href="/" className="panel-cut bg-cream/10 font-display text-cream flex-1 px-6 py-3 text-lg transition hover:bg-cream/20 active:scale-95">
+          <Link href="/" className="panel-cut bg-cream/10 font-display text-cream flex flex-1 items-center justify-center px-4 py-3 text-base transition hover:bg-cream/20 active:scale-95 sm:text-lg">
             Home
           </Link>
         </div>
-        <p className="text-lilac mt-3 hidden text-xs sm:block"><Key k="Enter" /> plays again</p>
+        <p className="text-lilac mt-3 hidden text-xs sm:block"><Key k="Enter" /> {unlockedNow ? 'goes to the next stage' : 'tries again'}</p>
       </div>
     </div>
   );
@@ -189,6 +273,12 @@ const PauseMenu = ({ hud, game, onResume }: { hud: HudState; game: Game | null; 
           <span>Camera</span>
           <span className="text-gold font-bold">{CAMERAS[hud.camera]}</span>
         </button>
+        {hud.stage.n > 0 && (
+          <div className="mt-2">
+            <div className="text-lilac mb-1.5 text-center text-[11px] font-semibold tracking-[0.25em] uppercase">Stage {hud.stage.n} · {hud.stage.name}</div>
+            <StageChips hud={hud} game={game} />
+          </div>
+        )}
       </div>
       <div className="mt-4 flex flex-col gap-2 sm:mt-6">
         <button type="button" autoFocus onClick={onResume} className="panel-cut bg-gold font-display text-ink-deep px-6 py-2 text-lg transition hover:brightness-110 active:scale-95 sm:py-3">
@@ -226,17 +316,7 @@ export const Race = () => {
     };
   }, []);
 
-  const again = useCallback(() => gameRef.current?.newRound(), []);
   const onInput = useCallback((i: Parameters<Game['setTouch']>[0]) => gameRef.current?.setTouch(i), []);
-
-  useEffect(() => {
-    if (!hud?.result || hud.endedFor < 1.2) return;
-    const onKey = (e: KeyboardEvent) => {
-      if (e.code === 'Enter') again();
-    };
-    window.addEventListener('keydown', onKey);
-    return () => window.removeEventListener('keydown', onKey);
-  }, [hud?.result, hud?.endedFor, again]);
 
   const showResult = !!hud?.result && hud.endedFor >= (hud.result.reason === 'pedestrian' ? 2.2 : 1.2);
   const showMeter = !!hud && hud.phase !== 'countdown' && (hud.inBay > 0 || hud.park > 0) && !hud.result;
@@ -278,21 +358,21 @@ export const Race = () => {
             </div>
           )}
           <div
-            className={`pointer-events-none absolute z-10 ${touch ? '' : 'left-1/2 -translate-x-1/2'}`}
+            className={`pointer-events-none absolute z-10 flex items-stretch gap-1.5 ${touch ? '' : 'left-1/2 -translate-x-1/2'}`}
             style={touch ? { top: 'calc(60px + env(safe-area-inset-top))', right: 'calc(12px + env(safe-area-inset-right))' } : { top: 'calc(10px + env(safe-area-inset-top))' }}
           >
-            <div className="panel-cut bg-ink-deep/75 font-display text-cream px-4 py-1 text-base tabular-nums sm:px-5 sm:py-1.5 sm:text-xl">{fmtClock(hud.clock)}</div>
+            {hud.stage.n > 0 && (
+              <div className="panel-cut bg-ink-deep/75 font-display text-gold flex items-center px-2 text-xs tracking-wide whitespace-nowrap sm:px-3 sm:text-sm" aria-label={`Stage ${hud.stage.n} of ${hud.stage.total}: ${hud.stage.name}`}>
+                STAGE {hud.stage.n}<span className="text-cream/60 hidden pl-1.5 sm:inline">{hud.stage.name.split(' — ')[0]}</span>
+              </div>
+            )}
+            <div className="panel-cut bg-ink-deep/75 font-display text-cream px-3 py-1 text-base tabular-nums sm:px-5 sm:py-1.5 sm:text-xl">{fmtClock(hud.clock)}</div>
           </div>
 
-          {hud.phase === 'countdown' && <Intro />}
+          {hud.phase === 'countdown' && <Intro hud={hud} touch={touch} />}
           {!touch && hud.phase === 'race' && !hud.result && (
             <div className="pointer-events-none absolute left-1/2 z-10 -translate-x-1/2" style={{ top: 'calc(54px + env(safe-area-inset-top))' }}>
               <Board hud={hud} />
-            </div>
-          )}
-          {hud.phase === 'countdown' && hud.countdown > 0 && (
-            <div className="pointer-events-none absolute inset-0 z-10 flex items-end justify-center pb-[40%] sm:items-center sm:pb-0 sm:pt-[22vh]">
-              <div key={hud.countdown} className="font-display text-gold text-8xl drop-shadow-lg sm:text-9xl" style={{ animation: 'countPop 1s ease-out both' }}>{hud.countdown}</div>
             </div>
           )}
           {hud.disqualified !== null && !showResult && (
@@ -350,7 +430,7 @@ export const Race = () => {
           )}
 
           {hud.paused && <PauseMenu hud={hud} game={gameRef.current} onResume={() => gameRef.current?.setPaused(false)} />}
-          {showResult && <Result hud={hud} onAgain={again} />}
+          {showResult && <Result hud={hud} game={gameRef.current} />}
         </>
       )}
     </main>
