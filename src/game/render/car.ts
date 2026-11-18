@@ -1,8 +1,10 @@
 /**
- * Cars built in code. The body is a side profile (the silhouette you see from the side) extruded
- * across the car's width with rounded edges, wheel arches cut into it; the glasshouse sits on top
- * and leans in towards the roof (designers call that "tumblehome"). Three body styles share the
- * code: a fastback four-door sedan (the racers), a crossover and a hatchback (the parked cars).
+ * Cars built in code. The body is a lofted surface: a cross-section (sill, tucked flank, shoulder
+ * crease, tumblehome, crowned roof) is swept along the length with its heights and widths driven by
+ * smooth curves (hood, windscreen, roof, fastback glass, deck). Glass, lamps, door shut-lines and
+ * wheel arches are thin patches laid on that surface, so the roof and the pillars stay body colour
+ * and the whole thing reads as one shaped car, not boxes. Three styles share the code: a fastback
+ * four-door sedan (the racers), a crossover and a hatchback (the parked cars).
  *
  * Every part is grouped by material so 130 parked cars can be drawn with a handful of instanced
  * draw calls, while the racers get their own meshes with spinning, steering wheels.
@@ -12,174 +14,448 @@ import { mergeGeometries } from 'three/examples/jsm/utils/BufferGeometryUtils.js
 
 export type PartKind = 'paint' | 'glass' | 'trim' | 'chrome' | 'head' | 'tail' | 'tyre' | 'rim' | 'plate';
 
+type Key = [number, number][];
+
 interface Style {
   length: number;
   width: number;
-  /** Side profile of the lower body above the beltline, front to back: [z, y]. */
-  upper: [number, number][];
-  /** Glasshouse outline: [z, y] from windscreen base over the roof to the rear glass base. */
-  glass: [number, number][];
-  /** Where the roof panel runs (z from, z to) and its height. */
-  roof: [number, number, number];
   front: number;
   rear: number;
   wheelR: number;
-  /** Lamp heights. */
+  /** Heights (z along the car) of the sill, the shoulder line, the top surface and its half width as a fraction of the body's. */
+  bot: Key;
+  belt: Key;
+  top: Key;
+  tw: Key;
+  /** Windscreen (base z, top z) and the fastback / tailgate glass (front z, back z) on the top surface. */
+  ws: [number, number];
+  rw: [number, number];
+  /** Side windows: front edge (bottom z, top z) and rear edge (bottom z, top z). */
+  win: { f: [number, number]; r: [number, number] }[];
+  doors: number[];
+  handles: number[];
+  rails: boolean;
   headY: number;
+  grilleY: number;
   tailY: number;
-  bodyBottom: number;
+  plateY: [number, number];
+  reverseY: number;
+  mirrorZ: number;
 }
 
 export const STYLES: Style[] = [
-  // 0: fastback four-door (the racers): long bonnet, roof sweeping into a short boot.
+  // 0: fastback four-door (the racers): low nose, long bonnet, roof sweeping into a short boot.
   {
     length: 4.68,
-    width: 1.82,
-    upper: [
-      [2.3, 0.62],
-      [2.24, 0.76],
-      [1.85, 0.85],
-      [1.05, 0.97],
-      [-1.0, 1.0],
-      [-1.95, 1.02],
-      [-2.22, 1.0],
-      [-2.33, 0.88],
-    ],
-    glass: [
-      [1.02, 0.95],
-      [0.62, 1.2],
-      [0.22, 1.39],
-      [-0.25, 1.43],
-      [-0.7, 1.41],
-      [-1.15, 1.27],
-      [-1.75, 1.03],
-    ],
-    roof: [0.2, -0.75, 1.42],
+    width: 1.83,
     front: 1.38,
     rear: -1.34,
-    wheelR: 0.32,
-    headY: 0.73,
-    tailY: 0.93,
-    bodyBottom: 0.2,
+    wheelR: 0.335,
+    bot: [[2.34, 0.37], [2.2, 0.3], [1.95, 0.22], [1.6, 0.185], [-1.6, 0.185], [-1.95, 0.235], [-2.2, 0.31], [-2.34, 0.38]],
+    belt: [[2.34, 0.7], [2.2, 0.74], [1.4, 0.9], [0.9, 0.96], [-1.0, 0.985], [-2.0, 1.0], [-2.34, 0.95]],
+    top: [[2.34, 0.64], [2.26, 0.72], [2.0, 0.8], [1.4, 0.93], [1.0, 0.99], [0.92, 1.0], [0.22, 1.4], [-0.25, 1.425], [-0.7, 1.385], [-1.2, 1.23], [-1.55, 1.06], [-1.9, 1.035], [-2.2, 1.025], [-2.34, 0.95]],
+    tw: [[-2.34, 0.86], [-1.4, 0.84], [-0.5, 0.8], [0.3, 0.8], [1.0, 0.84], [2.34, 0.84]],
+    ws: [0.9, 0.3],
+    rw: [-0.75, -1.55],
+    win: [
+      { f: [0.84, 0.36], r: [0.05, 0.03] },
+      { f: [-0.07, -0.09], r: [-1.02, -0.62] },
+    ],
+    doors: [0.86, -0.01, -1.05],
+    handles: [0.2, -0.8],
+    rails: false,
+    headY: 0.64,
+    grilleY: 0.5,
+    tailY: 0.86,
+    plateY: [0.46, 0.66],
+    reverseY: 0.5,
+    mirrorZ: 0.84,
   },
-  // 1: crossover: tall, upright, roof rails.
+  // 1: crossover: taller, more upright glass, roof rails.
   {
     length: 4.6,
     width: 1.86,
-    upper: [
-      [2.28, 0.72],
-      [2.2, 0.9],
-      [1.7, 1.0],
-      [1.0, 1.08],
-      [-1.5, 1.12],
-      [-2.2, 1.12],
-      [-2.3, 1.0],
-    ],
-    glass: [
-      [0.98, 1.06],
-      [0.45, 1.45],
-      [0.15, 1.64],
-      [-1.2, 1.66],
-      [-1.95, 1.6],
-      [-2.18, 1.12],
-    ],
-    roof: [0.12, -1.95, 1.65],
     front: 1.4,
     rear: -1.35,
     wheelR: 0.36,
-    headY: 0.86,
-    tailY: 1.02,
-    bodyBottom: 0.28,
+    bot: [[2.3, 0.46], [2.15, 0.38], [1.9, 0.3], [1.6, 0.28], [-1.6, 0.28], [-1.95, 0.32], [-2.15, 0.38], [-2.3, 0.46]],
+    belt: [[2.3, 0.86], [2.1, 0.92], [1.4, 1.04], [0.9, 1.1], [-1.0, 1.12], [-2.0, 1.14], [-2.3, 1.12]],
+    top: [[2.3, 0.8], [2.2, 0.9], [1.9, 1.0], [1.4, 1.08], [1.05, 1.13], [0.98, 1.14], [0.36, 1.66], [0.1, 1.69], [-1.7, 1.68], [-1.98, 1.6], [-2.14, 1.36], [-2.24, 1.2], [-2.3, 1.12]],
+    tw: [[-2.3, 0.86], [-1.8, 0.84], [-1.0, 0.82], [0.4, 0.82], [1.1, 0.85], [2.3, 0.85]],
+    ws: [1.0, 0.42],
+    rw: [-1.8, -2.2],
+    win: [
+      { f: [1.0, 0.5], r: [0.06, 0.04] },
+      { f: [-0.06, -0.08], r: [-1.55, -1.25] },
+    ],
+    doors: [1.02, -0.02, -1.6],
+    handles: [0.22, -0.88],
+    rails: true,
+    headY: 0.78,
+    grilleY: 0.62,
+    tailY: 1.0,
+    plateY: [0.58, 0.7],
+    reverseY: 0.58,
+    mirrorZ: 0.98,
   },
-  // 2: hatchback: short tail, steep rear glass.
+  // 2: hatchback: short tail, steep tailgate glass.
   {
     length: 4.3,
     width: 1.8,
-    upper: [
-      [2.12, 0.62],
-      [2.06, 0.78],
-      [1.6, 0.88],
-      [0.95, 0.97],
-      [-1.6, 1.0],
-      [-2.05, 1.0],
-      [-2.15, 0.9],
-    ],
-    glass: [
-      [0.92, 0.95],
-      [0.5, 1.2],
-      [0.15, 1.42],
-      [-1.1, 1.45],
-      [-1.75, 1.38],
-      [-2.02, 1.02],
-    ],
-    roof: [0.12, -1.75, 1.44],
     front: 1.28,
     rear: -1.3,
-    wheelR: 0.31,
-    headY: 0.74,
-    tailY: 0.95,
-    bodyBottom: 0.2,
+    wheelR: 0.315,
+    bot: [[2.15, 0.36], [2.0, 0.29], [1.75, 0.2], [1.5, 0.18], [-1.5, 0.18], [-1.8, 0.22], [-2.0, 0.29], [-2.15, 0.36]],
+    belt: [[2.15, 0.68], [2.0, 0.72], [1.3, 0.88], [0.85, 0.94], [-1.0, 0.97], [-2.0, 0.99], [-2.15, 0.96]],
+    top: [[2.15, 0.7], [2.05, 0.75], [1.6, 0.82], [1.3, 0.9], [0.95, 0.97], [0.88, 0.98], [0.25, 1.4], [-0.1, 1.44], [-1.1, 1.42], [-1.6, 1.33], [-1.9, 1.12], [-2.05, 1.02], [-2.15, 0.98]],
+    tw: [[-2.15, 0.86], [-1.5, 0.84], [-0.6, 0.8], [0.3, 0.8], [1.0, 0.84], [2.15, 0.84]],
+    ws: [0.86, 0.3],
+    rw: [-1.35, -1.98],
+    win: [
+      { f: [0.78, 0.34], r: [0.04, 0.02] },
+      { f: [-0.08, -0.1], r: [-1.05, -0.8] },
+    ],
+    doors: [0.8, -0.03, -1.1],
+    handles: [0.2, -0.75],
+    rails: false,
+    headY: 0.62,
+    grilleY: 0.5,
+    tailY: 0.88,
+    plateY: [0.46, 0.64],
+    reverseY: 0.5,
+    mirrorZ: 0.8,
   },
 ];
 
-const ARCH = 0.06;
+// ---------------------------------------------------------------------------
+// Curves and the lofted body
+// ---------------------------------------------------------------------------
 
-/** Extrudes a side profile ([z, y] points) across `width`, centred, with rounded edges. */
-const extrudeProfile = (pts: [number, number][], width: number, bevel: number, taper = 0, taperFrom = 0, taperTo = 1) => {
-  const shape = new THREE.Shape(pts.map(([z, y]) => new THREE.Vector2(z, y)));
-  const depth = Math.max(0.01, width - bevel * 2);
-  const geo = new THREE.ExtrudeGeometry(shape, {
-    depth,
-    bevelEnabled: bevel > 0,
-    bevelThickness: bevel,
-    bevelSize: bevel * 0.8,
-    bevelSegments: 3,
-    curveSegments: 10,
-  });
-  // Shape x is the car's length (z), the extrusion runs across (x).
-  geo.rotateY(-Math.PI / 2);
-  geo.translate(depth / 2, 0, 0);
-  if (taper) {
-    const pos = geo.attributes.position;
-    for (let i = 0; i < pos.count; i++) {
-      const k = Math.max(0, Math.min(1, (pos.getY(i) - taperFrom) / (taperTo - taperFrom)));
-      pos.setX(i, pos.getX(i) * (1 - taper * k));
-    }
-    geo.computeVertexNormals();
+const lerp = (a: number, b: number, t: number) => a + (b - a) * t;
+const clamp = (v: number, a: number, b: number) => Math.min(b, Math.max(a, v));
+
+/** Piecewise-linear keys, resampled and smoothed so creases become radii. Returns f(z). */
+const smoothCurve = (keys: Key, lo: number, hi: number, passes: number) => {
+  const step = 0.02;
+  const n = Math.round((hi - lo) / step) + 1;
+  const ks = [...keys].sort((a, b) => a[0] - b[0]);
+  let v = new Float32Array(n);
+  let k = 0;
+  for (let i = 0; i < n; i++) {
+    const z = lo + i * step;
+    while (k < ks.length - 2 && ks[k + 1][0] < z) k++;
+    const [z0, y0] = ks[k];
+    const [z1, y1] = ks[k + 1];
+    v[i] = lerp(y0, y1, clamp((z - z0) / (z1 - z0 || 1), 0, 1));
   }
-  return geo;
-};
-
-/** The lower body: bumpers, bonnet, flanks and boot, with the wheel arches cut out. */
-const lowerBody = (s: Style) => {
-  const half = s.length / 2;
-  const pts: [number, number][] = [];
-  const bottom = s.bodyBottom;
-  const archR = s.wheelR + ARCH;
-  const wy = s.wheelR;
-  const arch = (zc: number) => {
-    // Rear edge of the arch first (we walk from the back of the car to the front along the sill).
-    for (let i = 0; i <= 12; i++) {
-      const a = Math.PI - (i / 12) * Math.PI;
-      pts.push([zc + Math.cos(a) * archR, Math.max(bottom, wy + Math.sin(a) * archR)]);
-    }
+  for (let p = 0; p < passes; p++) {
+    const w = new Float32Array(n);
+    w[0] = v[0];
+    w[n - 1] = v[n - 1];
+    for (let i = 1; i < n - 1; i++) w[i] = (v[i - 1] + 2 * v[i] + v[i + 1]) / 4;
+    v = w;
+  }
+  return (z: number) => {
+    const f = clamp((z - lo) / step, 0, n - 1.001);
+    const i = Math.floor(f);
+    return lerp(v[i], v[i + 1], f - i);
   };
-  // Along the bottom from the back to the front.
-  pts.push([-half + 0.12, bottom + 0.02]);
-  arch(s.rear);
-  arch(s.front);
-  pts.push([half - 0.12, bottom + 0.04]);
-  pts.push([half - 0.02, bottom + 0.18]);
-  // Up the nose, over the top, down the tail.
-  for (const p of s.upper) pts.push(p);
-  pts.push([-half, s.tailY - 0.3]);
-  pts.push([-half + 0.03, bottom + 0.15]);
-  return extrudeProfile(pts, s.width, 0.07);
 };
 
-const box = (w: number, h: number, d: number, x: number, y: number, z: number, rx = 0) => {
+const CROWN = 0.014;
+const END_R = 0.34;
+
+interface Profile {
+  s: Style;
+  half: number;
+  hw: number;
+  top: (z: number) => number;
+  belt: (z: number) => number;
+  bot: (z: number) => number;
+  section: (z: number) => [number, number][];
+}
+
+const profiles: Profile[] = [];
+
+const profile = (style: number): Profile => {
+  if (profiles[style]) return profiles[style];
+  const s = STYLES[style];
+  const half = s.length / 2;
+  const hw = s.width / 2;
+  const top = smoothCurve(s.top, -half, half, 36);
+  const belt = smoothCurve(s.belt, -half, half, 24);
+  const bot = smoothCurve(s.bot, -half, half, 14);
+  const tw = smoothCurve(s.tw, -half, half, 20);
+  const section = (z: number): [number, number][] => {
+    const d = Math.min(z + half, half - z);
+    let k = d >= 0.9 ? 1 : 0.965 + 0.035 * clamp(d / 0.9, 0, 1) ** 2;
+    if (d < END_R) {
+      const r = (END_R - d) / END_R;
+      k *= 0.62 + 0.38 * Math.sqrt(Math.max(0, 1 - r * r));
+    }
+    const w = hw * k;
+    const b = belt(z);
+    const y5 = b - 0.03;
+    const t = Math.max(top(z), b + 0.03);
+    const bt = bot(z);
+    const f = tw(z);
+    const pts: [number, number][] = [
+      [0, bt],
+      [w * 0.78, bt],
+      [w * 0.945, bt + 0.06],
+      [w * 0.985, lerp(bt, y5, 0.4)],
+      [w * 0.955, lerp(bt, y5, 0.75)],
+      [w, y5],
+      [w * f, Math.max(b - 0.01, t - 0.045)],
+      [w * f * 0.5, t + CROWN],
+      [0, t + CROWN],
+    ];
+    for (let i = 1; i < pts.length; i++) pts[i][1] = Math.max(pts[i][1], pts[i - 1][1] + 0.004);
+    return pts;
+  };
+  return (profiles[style] = { s, half, hw, top, belt, bot, section });
+};
+
+/** Station positions along z: dense near both ends where the plan outline turns. */
+const stations = (half: number) => {
+  const zs: number[] = [];
+  for (let i = 0; i <= 10; i++) zs.push(-half + END_R * (i / 10) ** 2);
+  for (let z = -half + END_R + 0.07; z < half - END_R - 0.04; z += 0.07) zs.push(z);
+  for (let i = 10; i >= 0; i--) zs.push(half - END_R * (i / 10) ** 2);
+  return zs;
+};
+
+/** x of the body's side at height y (right side), from a half-section. */
+const xAtY = (pts: [number, number][], y: number) => {
+  const yy = clamp(y, pts[0][1], pts[pts.length - 1][1]);
+  for (let j = 0; j < pts.length - 1; j++) {
+    if (yy <= pts[j + 1][1] + 1e-9) {
+      const [x0, y0] = pts[j];
+      const [x1, y1] = pts[j + 1];
+      return lerp(x0, x1, clamp((yy - y0) / (y1 - y0 || 1), 0, 1));
+    }
+  }
+  return pts[pts.length - 1][0];
+};
+
+const HARD = new Set([4]); // the character crease is a real edge
+
+/** The body loft, both halves, per-band normals so the crease stays sharp and the rest stays soft. */
+const bodyLoft = (P: Profile) => {
+  const zs = stations(P.half);
+  const secs = zs.map((z) => P.section(z));
+  const pos: number[] = [];
+  const nor: number[] = [];
+  const idx: number[] = [];
+  const nj = secs[0].length;
+  const vtx = (sx: number, i: number, j: number) => new THREE.Vector3(secs[i][j][0] * sx, secs[i][j][1], zs[i]);
+  for (const sx of [1, -1]) {
+    for (let j = 0; j < nj - 1; j++) {
+      const base = pos.length / 3;
+      for (let i = 0; i < zs.length; i++) {
+        for (const jj of [j, j + 1]) {
+          const p = vtx(sx, i, jj);
+          // Tangent across the section (soft unless this is a hard point on the near side).
+          const jA = HARD.has(jj) ? (jj === j ? Math.max(0, jj - 1) : jj) : Math.max(0, jj - 1);
+          const jB = HARD.has(jj) ? (jj === j ? jj : Math.min(nj - 1, jj + 1)) : Math.min(nj - 1, jj + 1);
+          const dj = vtx(sx, i, jB).sub(vtx(sx, i, jA));
+          const dz = vtx(sx, Math.min(zs.length - 1, i + 1), jj).sub(vtx(sx, Math.max(0, i - 1), jj));
+          const n = new THREE.Vector3().crossVectors(dj, dz);
+          if (sx < 0) n.negate();
+          n.normalize();
+          pos.push(p.x, p.y, p.z);
+          nor.push(n.x, n.y, n.z);
+        }
+      }
+      for (let i = 0; i < zs.length - 1; i++) {
+        const a = base + i * 2;
+        const b = a + 1;
+        const c = a + 2;
+        const d = a + 3;
+        if (sx > 0) idx.push(a, b, c, b, d, c);
+        else idx.push(a, c, b, b, c, d);
+      }
+    }
+  }
+  // End caps: flat polygons.
+  for (const [i, nz] of [[0, -1], [zs.length - 1, 1]] as [number, number][]) {
+    const ring: THREE.Vector3[] = [];
+    for (let j = 0; j < nj; j++) ring.push(vtx(1, i, j));
+    for (let j = nj - 2; j >= 1; j--) ring.push(vtx(-1, i, j));
+    const c = ring.reduce((acc, p) => acc.add(p), new THREE.Vector3()).multiplyScalar(1 / ring.length);
+    const base = pos.length / 3;
+    pos.push(c.x, c.y, c.z);
+    nor.push(0, 0, nz);
+    ring.forEach((p) => {
+      pos.push(p.x, p.y, p.z);
+      nor.push(0, 0, nz);
+    });
+    for (let k = 0; k < ring.length; k++) {
+      const a = ring[k];
+      const b = ring[(k + 1) % ring.length];
+      const cr = (a.x - c.x) * (b.y - c.y) - (a.y - c.y) * (b.x - c.x); // z of (a-c)x(b-c)
+      const [i1, i2] = cr * nz > 0 ? [k, (k + 1) % ring.length] : [(k + 1) % ring.length, k];
+      idx.push(base, base + 1 + i1, base + 1 + i2);
+    }
+  }
+  const g = new THREE.BufferGeometry();
+  g.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
+  g.setAttribute('normal', new THREE.Float32BufferAttribute(nor, 3));
+  g.setIndex(idx);
+  return g;
+};
+
+/** A grid of points (rows x columns) as a surface, wound so its normal faces `hint`. */
+const gridSurface = (rows: THREE.Vector3[][], hint: THREE.Vector3) => {
+  const nu = rows[0].length;
+  const pos: number[] = [];
+  for (const r of rows) for (const p of r) pos.push(p.x, p.y, p.z);
+  const idx: number[] = [];
+  const sum = new THREE.Vector3();
+  const tmp = new THREE.Vector3();
+  for (let v = 0; v < rows.length - 1; v++) {
+    for (let u = 0; u < nu - 1; u++) {
+      const a = v * nu + u;
+      const b = a + 1;
+      const c = a + nu;
+      const d = c + 1;
+      idx.push(a, b, c, b, d, c);
+      for (const [p, q, r] of [[a, b, c], [b, d, c]]) {
+        const A = rows[Math.floor(p / nu)][p % nu];
+        const B = rows[Math.floor(q / nu)][q % nu];
+        const C = rows[Math.floor(r / nu)][r % nu];
+        sum.add(tmp.subVectors(B, A).cross(new THREE.Vector3().subVectors(C, A)));
+      }
+    }
+  }
+  if (sum.dot(hint) < 0) for (let i = 0; i < idx.length; i += 3) [idx[i + 1], idx[i + 2]] = [idx[i + 2], idx[i + 1]];
+  const g = new THREE.BufferGeometry();
+  g.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
+  g.setIndex(idx);
+  g.computeVertexNormals();
+  return g;
+};
+
+const range = (n: number) => Array.from({ length: n + 1 }, (_, i) => i / n);
+
+/** Offset along the outward normal of the top surface at z. */
+const topNormal = (P: Profile, z: number) => {
+  const d = (P.top(z + 0.03) - P.top(z - 0.03)) / 0.06;
+  return new THREE.Vector3(0, 1, -d).normalize();
+};
+
+/** y of the top surface at |x| (between the roof corner, the crown and the centre line). */
+const topY = (pts: [number, number][], x: number) => {
+  const [c, m, e] = [pts[6], pts[7], pts[8]];
+  const ax = Math.abs(x);
+  return ax >= m[0] ? lerp(m[1], c[1], clamp((ax - m[0]) / (c[0] - m[0] || 1), 0, 1)) : lerp(e[1], m[1], clamp(ax / (m[0] || 1), 0, 1));
+};
+
+const windscreen = (P: Profile, a: number, b: number, inset: number, off: number) => {
+  const rows = range(8).map((u) => {
+    const z = lerp(a, b, u);
+    const pts = P.section(z);
+    const xe = pts[6][0] - inset;
+    const n = topNormal(P, z).multiplyScalar(off);
+    return range(10).map((v) => {
+      const x = (v * 2 - 1) * xe;
+      return new THREE.Vector3(x, topY(pts, x), z).add(n);
+    });
+  });
+  return gridSurface(rows, new THREE.Vector3(0, 1, 0));
+};
+
+const sideWindow = (P: Profile, w: Style['win'][number], sx: number, off: number) => {
+  const rows = range(8).map((v) => {
+    const zf = lerp(w.f[0], w.f[1], v);
+    const zr = lerp(w.r[0], w.r[1], v);
+    const t = lerp(0.1, 0.9, v);
+    return range(10).map((u) => {
+      const z = lerp(zr, zf, u);
+      const pts = P.section(z);
+      const p5 = new THREE.Vector2(pts[5][0], pts[5][1]);
+      const p6 = new THREE.Vector2(pts[6][0], pts[6][1]);
+      const q = p5.clone().lerp(p6, t);
+      const dir = p6.clone().sub(p5).normalize();
+      return new THREE.Vector3((q.x + dir.y * off) * sx, q.y - dir.x * off, z);
+    });
+  });
+  return gridSurface(rows, new THREE.Vector3(sx, 0, 0));
+};
+
+/** A strip laid on the flank between two heights and two z, at `off` outside the body. */
+const flankStrip = (P: Profile, z0: number, z1: number, y0: number, y1: number, sx: number, off: number, nz = 2) =>
+  gridSurface(
+    range(4).map((v) =>
+      range(nz).map((u) => {
+        const z = lerp(z0, z1, u / nz);
+        const y = lerp(y0, y1, v);
+        return new THREE.Vector3((xAtY(P.section(z), y) + off) * sx, y, z);
+      }),
+    ),
+    new THREE.Vector3(sx, 0, 0),
+  );
+
+/**
+ * A band of light or trim that follows the body's outline at height y round a bumper: from
+ * `run` metres back along one side, across the face and back along the other. `keep` picks which
+ * x range of it to build (so the same call makes a full-width bar, or just the corner clusters).
+ */
+const bumperBand = (P: Profile, end: 1 | -1, y: number, h: number, off: number, keep: (ax: number) => boolean, run = 0.55) => {
+  const zEnd = end * P.half;
+  const sideZ = stations(P.half).filter((z) => (end > 0 ? z >= zEnd - run : z <= zEnd + run && z >= -P.half));
+  if (end > 0) sideZ.sort((a, b) => a - b);
+  else sideZ.sort((a, b) => b - a);
+  type Pt = { x: number; z: number; y: number };
+  const at = (z: number): Pt => {
+    const pts = P.section(z);
+    const yy = clamp(y, P.bot(z) + 0.03, Math.max(P.top(z), P.belt(z) + 0.03) - 0.04);
+    return { x: xAtY(pts, yy), z, y: yy };
+  };
+  const right = sideZ.map(at);
+  const face = at(zEnd);
+  const cap: Pt[] = range(30).map((u) => ({ x: lerp(face.x, -face.x, u), z: zEnd, y: face.y }));
+  const left = [...right].reverse().map((p) => ({ ...p, x: -p.x }));
+  const path = [...right, ...cap.slice(1, -1), ...left];
+  const geos: THREE.BufferGeometry[] = [];
+  let runPts: { p: THREE.Vector3; n: THREE.Vector3 }[] = [];
+  const flush = () => {
+    if (runPts.length > 1) {
+      const lo = runPts.map(({ p, n }) => new THREE.Vector3(p.x + n.x * off, p.y - h / 2, p.z + n.z * off));
+      const hi = runPts.map(({ p, n }) => new THREE.Vector3(p.x + n.x * off, p.y + h / 2, p.z + n.z * off));
+      const hint = runPts.reduce((acc, { n }) => acc.add(n), new THREE.Vector3());
+      geos.push(gridSurface([lo, hi], hint));
+    }
+    runPts = [];
+  };
+  path.forEach((p, i) => {
+    const a = path[Math.max(0, i - 1)];
+    const b = path[Math.min(path.length - 1, i + 1)];
+    let n = new THREE.Vector3(b.z - a.z, 0, -(b.x - a.x)).normalize();
+    if (n.x * p.x + n.z * p.z < 0) n = n.negate();
+    if (keep(Math.abs(p.x))) runPts.push({ p: new THREE.Vector3(p.x, p.y, p.z), n });
+    else flush();
+  });
+  flush();
+  return geos;
+};
+
+const archDisc = (P: Profile, wz: number, sx: number) => {
+  const r0 = P.s.wheelR + 0.05;
+  const rows = range(7).map((v) =>
+    range(28).map((u) => {
+      const a = u * Math.PI * 2;
+      const r = r0 * v;
+      const z = wz + Math.cos(a) * r;
+      const y = Math.max(P.bot(z) + 0.015, P.s.wheelR + Math.sin(a) * r);
+      return new THREE.Vector3((xAtY(P.section(z), y) + 0.007) * sx, y, z);
+    }),
+  );
+  return gridSurface(rows, new THREE.Vector3(sx, 0, 0));
+};
+
+const box = (w: number, h: number, d: number, x: number, y: number, z: number) => {
   const g = new THREE.BoxGeometry(w, h, d);
-  if (rx) g.rotateX(rx);
   g.translate(x, y, z);
   return g;
 };
@@ -195,7 +471,7 @@ export const tyreGeometry = (r: number) => {
     new THREE.Vector2(r * 0.93, w),
     new THREE.Vector2(r * 0.66, w),
   ];
-  const g = new THREE.LatheGeometry(pts, 22);
+  const g = new THREE.LatheGeometry(pts, 24);
   g.rotateZ(Math.PI / 2);
   return g;
 };
@@ -203,7 +479,7 @@ export const tyreGeometry = (r: number) => {
 /** Alloy rim: dish, five spokes and a centre cap, facing +x (flip for the left side). */
 export const rimGeometry = (r: number) => {
   const parts: THREE.BufferGeometry[] = [];
-  const dish = new THREE.CylinderGeometry(r * 0.66, r * 0.66, 0.16, 20, 1, true);
+  const dish = new THREE.CylinderGeometry(r * 0.68, r * 0.68, 0.16, 20, 1, true);
   dish.rotateZ(Math.PI / 2);
   parts.push(dish);
   const face = new THREE.CylinderGeometry(r * 0.2, r * 0.2, 0.05, 12);
@@ -211,12 +487,12 @@ export const rimGeometry = (r: number) => {
   face.translate(0.09, 0, 0);
   parts.push(face);
   for (let i = 0; i < 5; i++) {
-    const spoke = new THREE.BoxGeometry(0.04, r * 0.5, 0.075);
-    spoke.translate(0.09, r * 0.4, 0);
+    const spoke = new THREE.BoxGeometry(0.04, r * 0.5, 0.085);
+    spoke.translate(0.09, r * 0.42, 0);
     spoke.rotateX((i / 5) * Math.PI * 2);
     parts.push(spoke);
   }
-  const lip = new THREE.TorusGeometry(r * 0.64, 0.016, 6, 24);
+  const lip = new THREE.TorusGeometry(r * 0.66, 0.018, 6, 24);
   lip.rotateY(Math.PI / 2);
   lip.translate(0.08, 0, 0);
   parts.push(lip);
@@ -225,14 +501,16 @@ export const rimGeometry = (r: number) => {
 
 export type CarGeometry = Record<PartKind, THREE.BufferGeometry | null>;
 
+/** Where the wheels sit across the car: the tyre's outer face is flush with the flank. */
+const wheelX = (s: Style) => s.width / 2 - 0.115;
+
 /**
  * All the static parts of one body style, merged per material. With `wheels` the four wheels are
  * baked in (parked cars); without, the racers add their own so they can turn.
  */
 export const carGeometry = (style: number, wheels: boolean): CarGeometry => {
-  const s = STYLES[style];
-  const half = s.length / 2;
-  const hw = s.width / 2;
+  const P = profile(style);
+  const { s, half, hw } = P;
   const parts: Record<PartKind, THREE.BufferGeometry[]> = {
     paint: [],
     glass: [],
@@ -245,61 +523,57 @@ export const carGeometry = (style: number, wheels: boolean): CarGeometry => {
     plate: [],
   };
 
-  parts.paint.push(lowerBody(s));
-  // Glasshouse, leaning in towards the roof.
-  const belt = s.glass[0][1];
-  const top = Math.max(...s.glass.map((p) => p[1]));
-  parts.glass.push(extrudeProfile(s.glass, s.width - 0.2, 0.05, 0.2, belt, top));
-  // Roof panel in body colour over the glass, and the pillars between the windows.
-  const [r0, r1, ry] = s.roof;
-  const roofPts: [number, number][] = [
-    [r0, ry - 0.06],
-    [r0 - 0.15, ry + 0.012],
-    [r1 + 0.2, ry + 0.012],
-    [r1, ry - 0.06],
-  ];
-  parts.paint.push(extrudeProfile(roofPts, (s.width - 0.2) * 0.8 + 0.04, 0.03));
-  // B pillar (black) on both sides, at the middle of the glasshouse.
-  const bz = (s.glass[0][0] + s.glass[s.glass.length - 1][0]) / 2 + 0.1;
-  for (const sx of [-1, 1]) {
-    const pillar = box(0.04, top - belt - 0.05, 0.11, sx * (hw - 0.17), (top + belt) / 2 - 0.02, bz);
-    pillar.rotateZ(-sx * 0.12);
-    parts.trim.push(pillar);
+  parts.paint.push(bodyLoft(P));
+
+  // Glass: windscreen, the glass at the back, and the side windows, laid just proud of the paint.
+  parts.glass.push(windscreen(P, s.ws[0], s.ws[1], 0.07, 0.006));
+  parts.glass.push(windscreen(P, s.rw[0], s.rw[1], 0.1, 0.006));
+  for (const sx of [1, -1]) for (const w of s.win) parts.glass.push(sideWindow(P, w, sx, 0.005));
+
+  // Door shut-lines, rocker panels, handles, mirrors, roof rails.
+  const zs0 = s.rear + s.wheelR + 0.1;
+  const zs1 = s.front - s.wheelR - 0.1;
+  for (const sx of [1, -1]) {
+    for (const z of s.doors) parts.trim.push(flankStrip(P, z - 0.004, z + 0.004, P.bot(z) + 0.2, P.belt(z) + 0.0, sx, 0.006, 1));
+    parts.trim.push(flankStrip(P, zs0, zs1, P.bot(0) + 0.07, P.bot(0) + 0.19, sx, 0.007, 8));
+    for (const z of s.handles) {
+      const y = P.belt(z) - 0.1;
+      parts.chrome.push(box(0.02, 0.028, 0.16, sx * (xAtY(P.section(z), y) + 0.008), y, z));
+    }
+    const mz = s.mirrorZ;
+    const my = P.belt(mz) + 0.03;
+    parts.paint.push(box(0.08, 0.085, 0.15, sx * (hw + 0.07), my, mz - 0.03));
+    parts.trim.push(box(0.1, 0.03, 0.04, sx * (hw + 0.02), my - 0.035, mz));
+    parts.trim.push(archDisc(P, s.front, sx), archDisc(P, s.rear, sx));
+    if (s.rails) {
+      const z = (s.ws[1] + s.rw[0]) / 2;
+      const len = s.ws[1] - s.rw[0] - 0.3;
+      const x = P.section(z)[6][0] - 0.1;
+      parts.trim.push(box(0.04, 0.035, len, sx * x, P.top(z) + 0.03, z));
+    }
   }
 
-  // Front: full-width light strip across the nose, lamp units at the corners, a wide dark grille.
-  const nose = s.upper[0][0];
-  parts.head.push(box(s.width * 0.86, 0.035, 0.04, 0, s.headY, nose - 0.02));
-  for (const sx of [-1, 1]) {
-    parts.trim.push(box(0.36, 0.1, 0.06, sx * (hw - 0.3), s.headY - 0.06, nose - 0.06));
-    parts.head.push(box(0.3, 0.025, 0.03, sx * (hw - 0.3), s.headY - 0.08, nose - 0.025));
-  }
-  parts.trim.push(box(s.width * 0.7, 0.26, 0.05, 0, s.bodyBottom + 0.27, half - 0.02));
-  parts.plate.push(box(0.52, 0.12, 0.02, 0, s.bodyBottom + 0.27, half + 0.012));
+  // Front: a full-width LED strip across the nose, lamp housings at the corners, grille below.
+  const hf = bumperBand(P, 1, s.headY, 0.022, 0.009, () => true);
+  parts.head.push(...hf);
+  parts.trim.push(...bumperBand(P, 1, s.headY - 0.005, 0.085, 0.004, (ax) => ax > 0.18));
+  parts.head.push(...bumperBand(P, 1, s.headY - 0.055, 0.025, 0.009, (ax) => ax > 0.5 && ax < 0.8, 0.3));
+  parts.trim.push(...bumperBand(P, 1, s.grilleY, 0.12, 0.005, (ax) => ax < 0.62, 0.1));
+  parts.trim.push(...bumperBand(P, 1, P.bot(half) + 0.06, 0.05, 0.004, () => true, 0.7));
+  parts.plate.push(box(0.52, 0.12, 0.02, 0, s.plateY[0], half + 0.004));
 
-  // Rear: a thin bar of light across the whole boot, lamp clusters at the corners.
-  parts.tail.push(box(s.width * 0.9, 0.04, 0.04, 0, s.tailY, -half + 0.05));
-  for (const sx of [-1, 1]) {
-    parts.tail.push(box(0.34, 0.1, 0.05, sx * (hw - 0.24), s.tailY - 0.05, -half + 0.06));
-  }
-  parts.plate.push(box(0.52, 0.12, 0.02, 0, s.tailY - 0.33, -half + 0.01));
-  parts.trim.push(box(s.width * 0.8, 0.12, 0.05, 0, s.bodyBottom + 0.1, -half + 0.08));
-
-  // Sills, mirrors, door handles.
-  for (const sx of [-1, 1]) {
-    parts.trim.push(box(0.05, 0.09, s.front - s.rear - 0.85, sx * (hw - 0.01), s.bodyBottom + 0.06, (s.front + s.rear) / 2));
-    const mz = s.glass[0][0] - 0.12;
-    parts.trim.push(box(0.12, 0.04, 0.08, sx * (hw + 0.02), belt + 0.03, mz));
-    parts.paint.push(box(0.1, 0.11, 0.2, sx * (hw + 0.1), belt + 0.08, mz - 0.03));
-    for (const dz of [0.15, -0.75]) parts.chrome.push(box(0.03, 0.025, 0.16, sx * (hw + 0.01), belt - 0.12, dz));
-  }
+  // Rear: one thin bar of light across the whole boot with deeper clusters at the corners.
+  parts.tail.push(...bumperBand(P, -1, s.tailY, 0.03, 0.008, () => true, 0.5));
+  parts.tail.push(...bumperBand(P, -1, s.tailY - 0.01, 0.1, 0.007, (ax) => ax > 0.38, 0.5));
+  parts.trim.push(...bumperBand(P, -1, P.bot(-half) + 0.08, 0.1, 0.004, () => true, 0.7));
+  parts.plate.push(box(0.52, 0.12, 0.02, 0, s.plateY[1], -half - 0.004));
 
   if (wheels) {
     for (const [wx, wz] of [
-      [hw - 0.13, s.front],
-      [-(hw - 0.13), s.front],
-      [hw - 0.13, s.rear],
-      [-(hw - 0.13), s.rear],
+      [wheelX(s), s.front],
+      [-wheelX(s), s.front],
+      [wheelX(s), s.rear],
+      [-wheelX(s), s.rear],
     ]) {
       const t = tyreGeometry(s.wheelR);
       t.translate(wx, s.wheelR, wz);
@@ -313,7 +587,15 @@ export const carGeometry = (style: number, wheels: boolean): CarGeometry => {
 
   const out = {} as CarGeometry;
   for (const k of Object.keys(parts) as PartKind[]) {
-    out[k] = parts[k].length ? mergeGeometries(parts[k].map((p) => (p.index ? p.toNonIndexed() : p)))! : null;
+    out[k] = parts[k].length
+      ? mergeGeometries(
+          parts[k].map((p) => {
+            const g = p.index ? p.toNonIndexed() : p;
+            g.deleteAttribute('uv');
+            return g;
+          }),
+        )!
+      : null;
   }
   return out;
 };
@@ -323,7 +605,7 @@ export const carGeometry = (style: number, wheels: boolean): CarGeometry => {
 // ---------------------------------------------------------------------------
 
 export const carMaterials = () => ({
-  glass: new THREE.MeshPhysicalMaterial({ color: 0x10171d, metalness: 0.1, roughness: 0.06, clearcoat: 1, envMapIntensity: 1.6 }),
+  glass: new THREE.MeshPhysicalMaterial({ color: 0x1b2833, metalness: 0.35, roughness: 0.08, clearcoat: 1, envMapIntensity: 1.8 }),
   trim: new THREE.MeshStandardMaterial({ color: 0x15171a, roughness: 0.55, metalness: 0.1 }),
   chrome: new THREE.MeshStandardMaterial({ color: 0xd6dadf, roughness: 0.18, metalness: 1 }),
   tyre: new THREE.MeshStandardMaterial({ color: 0x1b1c1e, roughness: 0.92 }),
@@ -332,7 +614,7 @@ export const carMaterials = () => ({
 });
 
 export const paintMaterial = (color: number) =>
-  new THREE.MeshPhysicalMaterial({ color, metalness: 0.45, roughness: 0.32, clearcoat: 1, clearcoatRoughness: 0.06 });
+  new THREE.MeshPhysicalMaterial({ color: new THREE.Color(color).multiplyScalar(0.85), metalness: 0.3, roughness: 0.4, clearcoat: 0.6, clearcoatRoughness: 0.12, envMapIntensity: 0.55 });
 
 /** Number plate texture with a short word on it. */
 export const plateTexture = (text: string) => {
@@ -393,7 +675,7 @@ export const buildRacer = (color: number, plate: string): RacerRig => {
   root.add(body);
   const paint = paintMaterial(color);
   const head = new THREE.MeshStandardMaterial({ color: 0xffffff, emissive: 0xeaf4ff, emissiveIntensity: 1.6 });
-  const tail = new THREE.MeshStandardMaterial({ color: 0x5a0608, emissive: 0xff1a1a, emissiveIntensity: 0.7 });
+  const tail = new THREE.MeshStandardMaterial({ color: 0x4a0406, emissive: 0xff0d0d, emissiveIntensity: 1.5 });
   const reverse = new THREE.MeshStandardMaterial({ color: 0xdddddd, emissive: 0xffffff, emissiveIntensity: 0 });
   const plateMat = new THREE.MeshStandardMaterial({ map: plateTexture(plate), roughness: 0.5 });
   const add = (g: THREE.BufferGeometry | null, m: THREE.Material) => {
@@ -411,8 +693,8 @@ export const buildRacer = (color: number, plate: string): RacerRig => {
   add(geo.tail, tail);
   // Plates: map the texture onto the outward faces with their own little planes.
   for (const [z, y, ry] of [
-    [s.length / 2 + 0.024, s.bodyBottom + 0.27, 0],
-    [-s.length / 2 - 0.002, s.tailY - 0.33, Math.PI],
+    [s.length / 2 + 0.006, s.plateY[0], 0],
+    [-s.length / 2 - 0.006, s.plateY[1], Math.PI],
   ]) {
     const p = new THREE.Mesh(new THREE.PlaneGeometry(0.52, 0.12), plateMat);
     p.position.set(0, y, z);
@@ -422,17 +704,17 @@ export const buildRacer = (color: number, plate: string): RacerRig => {
   // Reversing lamps: two small white squares low on the tail.
   for (const sx of [-1, 1]) {
     const r = new THREE.Mesh(new THREE.BoxGeometry(0.12, 0.05, 0.02), reverse);
-    r.position.set(sx * 0.5, s.tailY - 0.32, -s.length / 2 + 0.01);
+    r.position.set(sx * 0.42, s.reverseY, -s.length / 2 - 0.004);
     body.add(r);
   }
 
   const wheels: RacerRig['wheels'] = [];
   const hw = s.width / 2;
   for (const [wx, wz, front] of [
-    [hw - 0.13, s.front, true],
-    [-(hw - 0.13), s.front, true],
-    [hw - 0.13, s.rear, false],
-    [-(hw - 0.13), s.rear, false],
+    [wheelX(s), s.front, true],
+    [-wheelX(s), s.front, true],
+    [wheelX(s), s.rear, false],
+    [-wheelX(s), s.rear, false],
   ] as [number, number, boolean][]) {
     const pivot = new THREE.Group();
     pivot.position.set(wx, s.wheelR, wz);
@@ -465,7 +747,7 @@ export interface ParkedSpot {
 export const buildParked = (spots: ParkedSpot[]) => {
   const group = new THREE.Group();
   const mats = carMaterials();
-  const paint = new THREE.MeshPhysicalMaterial({ color: 0xffffff, metalness: 0.4, roughness: 0.38, clearcoat: 0.8, clearcoatRoughness: 0.1 });
+  const paint = new THREE.MeshPhysicalMaterial({ color: 0xffffff, metalness: 0.3, roughness: 0.42, clearcoat: 0.6, clearcoatRoughness: 0.14, envMapIntensity: 0.55 });
   const head = new THREE.MeshStandardMaterial({ color: 0xc9ced6, emissive: 0x000000, roughness: 0.2, metalness: 0.4 });
   const tail = new THREE.MeshStandardMaterial({ color: 0x8a0d10, emissive: 0x2a0000, roughness: 0.3 });
   const byMat: Record<PartKind, THREE.Material> = { paint, head, tail, ...mats };
