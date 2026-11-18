@@ -11,9 +11,10 @@ import { hintOf } from './hint';
 import { levelY, sameStorey } from './levels';
 import { locate, roundCorners, routeLength, routeToDock, routeToSweep, shortestPath } from './nav';
 import { pedLimit } from './ped';
+import { crosses, SIGHT } from './visibility';
 import { bodies, forwardSpeed, freeBays, steerLimit } from './step';
 
-import type { Box, Lot, Vec } from './lot';
+import type { Lot, Vec } from './lot';
 import type { Car, GameEvent, GameState, Input, World } from './types';
 
 /** One pass along an aisle in one direction. */
@@ -70,8 +71,6 @@ export interface BotBrain {
   outbox: GameEvent[];
 }
 
-/** How far a driver can make out an empty bay, and how wide its view is. */
-export const SIGHT = { range: 14, cone: (75 * Math.PI) / 180, peek: 7, react: 0.35 } as const;
 
 /** The lane edges of one pass along an aisle, in order of travel. */
 export const sweepEdges = (lot: Lot, sw: Sweep): number[] => {
@@ -80,7 +79,7 @@ export const sweepEdges = (lot: Lot, sw: Sweep): number[] => {
 };
 
 /** Aisles the bots search: every road and aisle except the entry, exit and the dead end. */
-const searchable = (lot: Lot) => lot.aisles.filter((a) => (a.kind === 'road' || a.kind === 'aisle') && !a.avoid);
+const searchable = (lot: Lot) => lot.aisles.filter((a) => (a.kind === 'road' || a.kind === 'aisle') && !a.avoid && !a.closed);
 
 /**
  * The order one driver searches in: it starts at a different aisle depending on its seat, then
@@ -257,34 +256,6 @@ export const aisleAt = (lot: Lot, x: number, z: number, y?: number) => {
   return best;
 };
 
-/** Does the straight line from a to b pass through a box (a hedge, a van)? */
-const crosses = (ax: number, az: number, bx: number, bz: number, s: Box) => {
-  const fx = Math.sin(s.h);
-  const fz = Math.cos(s.h);
-  const loc = (x: number, z: number) => ({ f: (x - s.x) * fx + (z - s.z) * fz, s: (x - s.x) * fz - (z - s.z) * fx });
-  const p = loc(ax, az);
-  const q = loc(bx, bz);
-  let t0 = 0;
-  let t1 = 1;
-  for (const [a, b, h] of [
-    [p.f, q.f, s.hl],
-    [p.s, q.s, s.hw],
-  ]) {
-    const d = b - a;
-    if (Math.abs(d) < 1e-9) {
-      if (Math.abs(a) > h) return false;
-      continue;
-    }
-    let u0 = (-h - a) / d;
-    let u1 = (h - a) / d;
-    if (u0 > u1) [u0, u1] = [u1, u0];
-    t0 = Math.max(t0, u0);
-    t1 = Math.min(t1, u1);
-    if (t0 > t1) return false;
-  }
-  return true;
-};
-
 /** Can this driver make out that bay from here? Distance, view cone, the same aisle (or a peek across), and nothing tall in the way. */
 export const canSee = (world: World, car: Car, bayId: number) => {
   const bay = world.lot.bays[bayId];
@@ -437,7 +408,9 @@ export const botInput = (state: GameState, world: World, car: Car, brain: BotBra
   // Backing out of a jam: reverse with the wheel the other way, then try the route again.
   if (brain.reverse > 0) {
     // Never back into someone.
-    if (pedLimit(state, car, -vF, -fx, -fz) < 2) return finish({ throttle: 0, brake: 0, steer: 0, handbrake: true, horn: false });
+    // (and not near anyone at all: a swinging nose catches a shopper who steps in beside the car)
+    const near = state.peds.some((p) => sameStorey(car.y, p.y) && Math.hypot(p.x - car.x, p.z - car.z) < 3.6);
+    if (near || pedLimit(state, car, -vF, -fx, -fz) < 2) return finish({ throttle: 0, brake: 0, steer: 0, handbrake: true, horn: false });
     brain.reverse -= dt;
     if (brain.reverse <= 0) brain.stuck = 0;
     return finish({ throttle: 0, brake: 1, steer: brain.reverseSteer, handbrake: false, horn: brain.reverse > 0.9 });

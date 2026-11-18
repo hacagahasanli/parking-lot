@@ -5,9 +5,10 @@
 import { CAR, DRIVE, DRIVERS, DT, IMPACT, PARK, RACE } from './constants';
 import { collide, corners, insideBox, nearShape } from './collide';
 import { bayShape, buildLot, rng } from './lot';
-import { LEVELS, LEVEL_H, rampUnder, sameStorey, surfaceAt } from './levels';
+import { LEVELS, LEVEL_H, levelOf, rampUnder, sameStorey, surfaceAt } from './levels';
 import { followRoute, routeToNode } from './nav';
 import { buildWalks, createPeds, pedLimit, stepPeds } from './ped';
+import { stageLot } from './stages';
 
 import type { Box, Lot, Shape } from './lot';
 import { OWNER_ENTRY, OWNER_EXIT } from './types';
@@ -57,7 +58,17 @@ export const createWorld = (target: number, lot: Lot = buildLot(), leaving = -1,
     solids.push(g.box);
     owner.push(g.kind === 'entry' ? OWNER_ENTRY : OWNER_EXIT);
   }
-  return { lot, solids, owner, walks: buildWalks(lot, seed).walks, grid: buildGrid(solids) };
+  // Shoppers only where the site is open: none on a floor that is shut.
+  const built = buildWalks(lot, seed);
+  const keep = built.walks.map((w) => w.y === undefined || !lot.open || (lot.open.garage && lot.open.levels.includes(levelOf(w.y))));
+  return {
+    lot,
+    solids,
+    owner,
+    walks: built.walks.filter((_, i) => keep[i]),
+    trolley: built.trolley.filter((_, i) => keep[i]),
+    grid: buildGrid(solids),
+  };
 };
 
 export const makeCar = (id: number, name: string, color: number, bot: boolean, x: number, z: number, h: number): Car => ({
@@ -102,6 +113,8 @@ export interface RoundOptions {
   target?: number;
   /** Force the bay the pulling-out car leaves (tests). */
   leaver?: number;
+  /** Which stage to play (1 to 6, see `stages.ts`); left out, the whole site is open with the free bay anywhere. */
+  stage?: number;
 }
 
 /**
@@ -125,7 +138,8 @@ export const pickTarget = (lot: Lot, rand: () => number): number => {
   return zone.ids[Math.floor(rand() * zone.ids.length)];
 };
 
-export const createRound = (lot: Lot, opts: RoundOptions): { state: GameState; world: World } => {
+export const createRound = (fullLot: Lot, opts: RoundOptions): { state: GameState; world: World } => {
+  const lot = opts.stage ? stageLot(fullLot, opts.stage) : fullLot;
   const rand = rng(opts.seed * 7919 + 13);
   const target = opts.target ?? pickTarget(lot, rand);
   const cars: Car[] = opts.bots.map((bot, i) => {
@@ -136,11 +150,11 @@ export const createRound = (lot: Lot, opts: RoundOptions): { state: GameState; w
   // In the open lot it is an ordinary car in an angled bay and backs straight out; in the car park it
   // is a car that was parked nose-out and drives away along the deck, down the ramps and out. It is
   // often upstairs when the free bay is outdoors, and the other way round.
-  const ordinary = lot.candidates.filter((id) => id !== target && lot.bays[id].variant < 3);
+  const ordinary = lot.eligible.filter((id) => id !== target && lot.bays[id].variant < 3);
   const upstairs = ordinary.filter((id) => lot.bays[id].garage);
   const outside = ordinary.filter((id) => !lot.bays[id].garage && lot.bays[id].type === 'angled');
   const wantGarage = lot.bays[target].garage ? rand() < 0.3 : rand() < 0.7;
-  const pool = wantGarage && upstairs.length ? upstairs : outside;
+  const pool = wantGarage && upstairs.length ? upstairs : outside.length ? outside : upstairs;
   const leaveBay = lot.bays[opts.leaver ?? pool[Math.floor(rand() * pool.length)]];
   const forward = leaveBay.garage;
   const leaver: Leaver = {
@@ -155,7 +169,6 @@ export const createRound = (lot: Lot, opts: RoundOptions): { state: GameState; w
   };
   leaver.car.y = leaveBay.y;
   const world = createWorld(target, lot, leaveBay.id, opts.seed);
-  const { trolley } = buildWalks(lot, opts.seed);
   const state: GameState = {
     t: 0,
     clock: 0,
@@ -166,7 +179,7 @@ export const createRound = (lot: Lot, opts: RoundOptions): { state: GameState; w
     extra: -1,
     winBay: -1,
     winner: null,
-    peds: createPeds(world, trolley, opts.seed),
+    peds: createPeds(world, world.trolley, opts.seed),
     leaver,
     chat: [],
     chatLast: {},

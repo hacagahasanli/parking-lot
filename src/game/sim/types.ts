@@ -192,6 +192,8 @@ export interface World {
   owner: number[];
   /** Where the shoppers walk. */
   walks: Walk[];
+  /** Which of the walkers push a trolley (same order as `walks`). */
+  trolley: boolean[];
   /** Which solids are near which 12 m cell (a solid is listed in every cell its bounding circle plus a car's reach touches): `crashes` only tests those. */
   grid: Map<number, number[]>;
 }

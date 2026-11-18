@@ -38,6 +38,8 @@ export interface GEdge {
   uz: number;
   /** Edges that bots never use (the entry lanes, the exit lane, the dead-end pocket). */
   avoid: boolean;
+  /** Shut by the stage being played (a barrier at its start or end): no route uses it, for anyone. */
+  closed?: boolean;
   /** Heights of the two ends (they differ on a ramp). */
   yA: number;
   yB: number;
@@ -95,7 +97,7 @@ export const pathFrom = (g: Graph, s: number, prev: number, t: number, goalEdge 
   if (goalEdge >= 0 && g.out[s].includes(goalEdge) && !(prevE && reverses(prevE, g.edges[goalEdge]))) return [];
   for (const id of g.out[s]) {
     const e = g.edges[id];
-    if ((e.avoid && !allowAvoid) || (prevE && reverses(prevE, e))) continue;
+    if (e.closed || (e.avoid && !allowAvoid) || (prevE && reverses(prevE, e))) continue;
     dist[id] = cost ? cost(e) : e.len;
   }
   for (;;) {
@@ -118,7 +120,7 @@ export const pathFrom = (g: Graph, s: number, prev: number, t: number, goalEdge 
         for (let k = u; k >= 0; k = via[k]) path.unshift(k);
         return path;
       }
-      if (e.avoid && !allowAvoid) continue;
+      if (e.closed || (e.avoid && !allowAvoid)) continue;
       const d = dist[u] + (cost ? cost(e) : e.len);
       if (d < dist[id]) {
         dist[id] = d;
@@ -135,12 +137,12 @@ export const shortestPath = (g: Graph, s: number, t: number, allowAvoid = false)
 export const reachableFrom = (g: Graph, s: number): Set<number> => {
   const seen = new Set<number>();
   const queue: number[] = [];
-  for (const id of g.out[s]) if (!g.edges[id].avoid) (seen.add(id), queue.push(id));
+  for (const id of g.out[s]) if (!g.edges[id].avoid && !g.edges[id].closed) (seen.add(id), queue.push(id));
   while (queue.length) {
     const a = g.edges[queue.pop()!];
     for (const id of g.out[a.to]) {
       const e = g.edges[id];
-      if (e.avoid || seen.has(id) || reverses(a, e)) continue;
+      if (e.avoid || e.closed || seen.has(id) || reverses(a, e)) continue;
       seen.add(id);
       queue.push(id);
     }

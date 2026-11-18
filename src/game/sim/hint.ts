@@ -3,8 +3,9 @@
  * never pointed at. As the round goes on it gives away a little, to everyone at once (you, the bots,
  * the sign over the gate and the panel on your screen):
  *
- *  - from `HINT.zoneAt` seconds: which part of the site, the open lot or the car park;
- *  - from `HINT.deckAt` seconds, when the bay is in the car park: two decks, flickering one after
+ *  - from `HINT.zoneAt` seconds: which part of the site, the open lot or the car park (from the start in stages 2 to 5, where the
+ *    intro card has already said the free bay is in the car park);
+ *  - from `HINT.deckAt` seconds, when the bay is in the car park and more than one deck is open: two decks, flickering one after
  *    the other, and one of them is the right one (the other is a decoy chosen from the seed);
  *  - when a parked car pulls out: the count goes up to 2 (the radio says where).
  *
@@ -35,10 +36,13 @@ export interface Hint {
 export const hintOf = (state: GameState, lot: Lot): Hint => {
   const bay = lot.bays[state.target];
   const free = state.extra >= 0 ? 2 : 1;
-  const stage = state.clock >= HINT.deckAt && bay.garage ? 2 : state.clock >= HINT.zoneAt ? 1 : 0;
+  // In stages 2 to 5 the free bay is known to be in the car park from the start; the open decks are the ones that can flicker.
+  const told = lot.stage !== undefined && lot.stage >= 2 && lot.stage <= 5;
+  const open = lot.open?.levels ?? LEVELS;
+  const others = LEVELS.filter((l) => l !== bay.lvl && open.includes(l));
+  const stage = state.clock >= HINT.deckAt && bay.garage && others.length ? 2 : told || state.clock >= HINT.zoneAt ? 1 : 0;
   if (stage === 0) return { free, stage, zone: null, decks: [], showing: null };
   if (stage === 1 || !bay.garage) return { free, stage: stage === 2 ? 2 : 1, zone: bay.garage ? 'garage' : 'lot', decks: [], showing: null };
-  const others = LEVELS.filter((l) => l !== bay.lvl);
   const decoy = others[(state.seed * 7 + 3) % others.length];
   // The two decks take turns; which comes first also depends on the seed, so the first one flashed is no clue.
   const decks = (state.seed & 1 ? [decoy, bay.lvl] : [bay.lvl, decoy]).slice();

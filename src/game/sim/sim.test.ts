@@ -1,5 +1,6 @@
 import { DT, DRIVE } from './constants';
-import { botInput, canSee, createBrain, SIGHT } from './bot';
+import { botInput, canSee, createBrain } from './bot';
+import { SIGHT } from './visibility';
 import { CAR, PED, RACE } from './constants';
 import { collide } from './collide';
 import { HINT, hintLines, hintOf } from './hint';
