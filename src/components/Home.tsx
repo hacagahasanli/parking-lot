@@ -3,6 +3,7 @@
 import Link from 'next/link';
 import { useEffect, useRef, useState } from 'react';
 
+import { SupportLink } from '~/components/SupportLink';
 import type { Game } from '~/game/render/game';
 
 const STEPS = [
@@ -84,6 +85,10 @@ export const Home = () => {
               <kbd className="bg-ink text-cream rounded px-1.5 py-0.5 font-bold">{k}</kbd> {v}
             </span>
           ))}
+        </div>
+
+        <div className="mt-10">
+          <SupportLink />
         </div>
       </section>
     </main>

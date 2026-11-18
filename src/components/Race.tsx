@@ -3,6 +3,7 @@
 import Link from 'next/link';
 import { useCallback, useEffect, useRef, useState } from 'react';
 
+import { SupportLink } from '~/components/SupportLink';
 import { TouchControls, useTouch } from '~/components/TouchControls';
 import type { CameraMode, Game, HudState } from '~/game/render/game';
 import type { VolumeKind } from '~/game/sfx';
@@ -245,6 +246,9 @@ const Result = ({ hud, game }: { hud: HudState; game: Game | null }) => {
           </Link>
         </div>
         <p className="text-lilac mt-3 hidden text-xs sm:block"><Key k="Enter" /> {unlockedNow ? 'goes to the next stage' : 'tries again'}</p>
+        <p className="text-lilac mt-3 flex flex-wrap items-center justify-center gap-x-2 text-sm">
+          Enjoyed it? <SupportLink />
+        </p>
       </div>
     </div>
   );
@@ -288,6 +292,9 @@ const PauseMenu = ({ hud, game, onResume }: { hud: HudState; game: Game | null; 
         <Link href="/" className="panel-cut bg-cream/10 font-display text-cream px-6 py-2 text-center text-lg transition hover:bg-cream/20 sm:py-3">
           Leave
         </Link>
+      </div>
+      <div className="mt-3 text-center">
+        <SupportLink />
       </div>
     </div>
   </div>
