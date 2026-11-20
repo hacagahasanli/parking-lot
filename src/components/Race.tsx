@@ -741,8 +741,7 @@ export const Race = ({ platform: given, flavour = 'studio', exit, support, credi
 
           {showMeter && (
             <div
-              className={`pointer-events-none absolute left-1/2 z-10 -translate-x-1/2 ${touch ? 'portrait:bottom-auto portrait:top-[calc(196px+env(safe-area-inset-top))]' : ''}`}
-              style={{ bottom: 'calc(16px + env(safe-area-inset-bottom))' }}
+              className={`pointer-events-none absolute left-1/2 z-10 -translate-x-1/2 ${touch ? 'bottom-[calc(16px+env(safe-area-inset-bottom))] portrait:bottom-[calc(168px+env(safe-area-inset-bottom))]' : 'bottom-[calc(16px+env(safe-area-inset-bottom))]'}`}
             >
               {lvHud?.solo ? <PrecisionMeter hud={hud} /> : <Meter hud={hud} />}
             </div>

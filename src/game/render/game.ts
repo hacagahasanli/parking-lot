@@ -29,7 +29,7 @@ import { buildAmbience } from './ambience';
 import { buildPeds } from './peds';
 import { circleHit, boxHit } from './sight';
 import { FpsGuard, lowerTier, TIERS } from './quality';
-import { CAMERA_MODES, parkFollow, parkPose } from './view';
+import { CAMERA_MODES, parkFollow, parkPose, precisionPose, styleFov } from './view';
 import { NEAR_MISS, REVEAL, revealOf } from './reveal';
 import { buildFreeBayPaint, buildTargetMarker, buildWorld } from './world';
 import { buildBayGuide, buildExitGuide, buildNextGuides, buildPathGuide } from './guide';
@@ -46,7 +46,7 @@ import type { VolumeKind } from '../sfx';
 import type { RacerRig } from './car';
 import type { Flavour } from '../sim/flavour';
 import type { Tier } from './quality';
-import type { CameraMode } from './view';
+import type { CameraMode, ParkStyle } from './view';
 import type { Action, Transmission } from '../settings';
 import type { PadState } from './pad';
 
@@ -535,6 +535,11 @@ export class Game {
   private nextGuides = buildNextGuides();
   private exitGuide = buildExitGuide();
   private pathGuide = buildPathGuide();
+  /** How the parking view is framed: 'auto' (precision in solo levels, and in a race once a bay you have found is close), or forced. */
+  private camStyle: 'auto' | ParkStyle = 'auto';
+  /** 0 classic .. 1 precision (or top-down), eased; and 0..1 how far the view has closed in on the bay. */
+  private styleMix = 0;
+  private closeMix = 0;
   private pad: PadState | null = null;
   private padPrev: boolean[] = [];
   private halfRate = false;
@@ -725,8 +730,10 @@ export class Game {
     // Camera starts where the chosen view puts it (the home page's showcase eases in from behind the car).
     const me = state.cars[0];
     this.cam.yaw = me.h;
+    this.styleMix = this.wantStyle() === 'classic' ? 0 : 1;
+    this.closeMix = 0;
     if (this.cameraMode === 'park' && this.racing) {
-      const { eye, look } = parkPose(me.x, 0, me.z, me.h, 0, this.portrait);
+      const { eye, look } = this.parkView(me.x, me.y, me.z, me.h, 0);
       [this.cam.x, this.cam.y, this.cam.z] = eye;
       this.cam.look.set(...look);
     } else {
@@ -1093,9 +1100,16 @@ export class Game {
     this.camera.aspect = w / h;
     // Portrait phones: widen the view so the car and the lane ahead both fit.
     this.portrait = w < h;
-    this.camera.fov = (w < h ? 78 : 62) + this.fovKick;
+    this.camera.fov = this.baseFov() + this.fovKick;
     this.camera.updateProjectionMatrix();
   };
+
+  /** The lens for the view in use (the parking view blends between its framings; chase and the menu use the classic one). */
+  private baseFov() {
+    const classic = styleFov('classic', this.portrait);
+    if (this.cameraMode !== 'park' || !this.racing) return classic;
+    return classic + (styleFov(this.camStyle === 'top' ? 'top' : 'precision', this.portrait) - classic) * this.styleMix;
+  }
 
   private frame = (now: number) => {
     if (this.disposed) return;
@@ -1566,6 +1580,46 @@ export class Game {
     this.worldView.garage.setBoard([{ text: 'GARAGE', size: 9, color: '#ffffff' }, ...rows.map((r) => ({ ...r, size: Math.min(r.size, 11) }))]);
   }
 
+  /** The parking view's framing this frame (before easing). */
+  private wantStyle(): ParkStyle {
+    if (this.camStyle !== 'auto') return this.camStyle;
+    if (!this.racing) return 'classic';
+    const s = this.state;
+    if (this.level && this.level.type !== 'race') return 'precision';
+    // A race: the classic view to search, the precision view for the last metres to a bay you have found.
+    const me = s.cars[0];
+    const near = [s.target, s.extra].some((id, k) => id >= 0 && this.found[k] && Math.hypot(this.lot.bays[id].x - me.x, this.lot.bays[id].z - me.z) < 8 && Math.abs(this.lot.bays[id].y - me.y) < 1.5);
+    return near ? 'precision' : 'classic';
+  }
+
+  /** The parking view's pose for the current mix of framings. */
+  private parkView(x: number, y: number, z: number, yaw: number, vF: number) {
+    const a = parkPose(x, y, z, yaw, vF, this.portrait);
+    const k = this.styleMix;
+    if (k <= 0.001) return a;
+    const b = precisionPose(x, y, z, yaw, vF, this.portrait, this.closeMix, this.camStyle === 'top');
+    // Near the bay (or exit) you are going for, the view leans towards it so both the car and the bay are framed.
+    const s = this.state;
+    const spot = s.target >= 0 ? this.world.lot.bays[s.target] : s.exit ? { x: s.exit.x, z: s.exit.z, y: levelY(s.exit.lvl) } : null;
+    if (spot && this.racing && Math.abs(spot.y - y) < 1.5 && s.phase !== 'done') {
+      const d = Math.hypot(spot.x - x, spot.z - z);
+      const w = Math.max(0, Math.min(1, (12 - d) / 6)) * 0.5;
+      const dx = (spot.x - b.look[0]) * w;
+      const dz = (spot.z - b.look[2]) * w;
+      b.look[0] += dx;
+      b.look[2] += dz;
+      b.eye[0] += dx;
+      b.eye[2] += dz;
+    }
+    const mix = (p: number[], q: number[]) => p.map((v, i) => v + (q[i] - v) * k) as [number, number, number];
+    return { eye: mix(a.eye, b.eye), look: mix(a.look, b.look) };
+  }
+
+  /** Test hook (and the camera comparison): force a framing of the parking view, or 'auto'. */
+  setCamStyle = (style: 'auto' | ParkStyle) => {
+    this.camStyle = style;
+  };
+
   private updateCamera(dt: number) {
     const s = this.state;
     const car = this.focusCar();
@@ -1607,7 +1661,13 @@ export class Game {
       // so it sees into the car park from above and is never inside a ceiling, a wall or a ramp.
       const vF = forwardSpeed(s.cars[car.id]);
       this.cam.yaw = lerpAngle(this.cam.yaw, h, Math.min(1, dt * parkFollow(vF)));
-      const pose = parkPose(x, y, z, this.cam.yaw, vF, this.portrait);
+      const style = this.wantStyle();
+      this.styleMix += ((style === 'classic' ? 0 : 1) - this.styleMix) * Math.min(1, dt * 2.2);
+      // Closing in: slow, and part of the car inside the bay it is going for.
+      const me = s.cars[car.id];
+      const closing = style !== 'classic' && Math.abs(vF) < 1.6 && me.inBay > 0 && me.parkedAt === null;
+      this.closeMix += ((closing ? 1 : 0) - this.closeMix) * Math.min(1, dt * 1.2);
+      const pose = this.parkView(x, y, z, this.cam.yaw, vF);
       want = new THREE.Vector3(...pose.eye);
       look = new THREE.Vector3(...pose.look);
     } else {
@@ -1648,12 +1708,13 @@ export class Game {
     this.camera.position.set(this.cam.x + n(23, 1.3) * 0.25 * shake, Math.min(this.cam.y + n(19, 4.1) * 0.18 * shake, ceil), this.cam.z + n(17, 2.2) * 0.25 * shake);
     this.camera.lookAt(this.cam.look);
     // Speed feel: the view widens a little as you go faster (up to 6 degrees), and snaps back when you brake.
-    if (!this.shot && !showcase) {
-      const kick = this.calm ? 0 : Math.min(6, Math.max(0, forwardSpeed(s.cars[car.id]) - 3) * 0.55);
-      const next = this.fovKick + (kick - this.fovKick) * Math.min(1, dt * 3);
-      if (Math.abs(next - this.fovKick) > 0.01) {
-        this.camera.fov += next - this.fovKick;
-        this.fovKick = next;
+    if (!this.shot) {
+      const base = this.baseFov();
+      const kick = this.calm || showcase ? 0 : Math.min(6, Math.max(0, forwardSpeed(s.cars[car.id]) - 3) * 0.55) * (base / 62);
+      this.fovKick += (kick - this.fovKick) * Math.min(1, dt * 3);
+      const want = base + this.fovKick;
+      if (Math.abs(want - this.camera.fov) > 0.01) {
+        this.camera.fov = want;
         this.camera.updateProjectionMatrix();
       }
     }
