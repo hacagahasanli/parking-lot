@@ -33,8 +33,41 @@ export const Stars = ({ n, size = 'h-4 w-4', label = true }: { n: number; size?:
 
 const chapterName = (n: number) => CHAPTERS[n - 1]?.name ?? '';
 
-/** Which of the three stars are still in reach right now (the first always is until time runs out). */
-const live = (lv: LevelHud, clock: number): [boolean, boolean, boolean] => [true, clock <= lv.par, lv.grazes === 0];
+/** What to do in this level, in one plain sentence (the core idea first: the lot has one free bay, find it and park in it). */
+export const objectiveOf = (lv: LevelHud): string =>
+  lv.type === 'unpark'
+    ? 'Back out of your bay and drive into the green circle'
+    : lv.type === 'race'
+      ? 'Find the one free bay and park in it before your rivals'
+      : lv.legs > 1
+        ? `Park in each marked bay in turn (${lv.legs} bays)`
+        : lv.facing === 'tail'
+          ? 'Find the free bay under the P and reverse into it'
+          : 'Find the free bay under the P and park in it';
+
+/** The controls in a line, for the intro card: keys on a keyboard, the on-screen pads on a phone. */
+const ControlsLine = ({ touch }: { touch: boolean }) => (
+  <div className="text-cream/80 flex flex-wrap items-center justify-center gap-x-3 gap-y-1 text-[11px] sm:text-xs">
+    {touch ? (
+      <>
+        <span><b className="text-green">GAS</b> to drive</span>
+        <span><b className="text-cream">BRAKE</b> (hold to reverse)</span>
+        <span><b className="text-cream">◀ ▶</b> steer</span>
+      </>
+    ) : (
+      <>
+        <span><Kbd>W</Kbd> <Kbd>↑</Kbd> gas</span>
+        <span><Kbd>S</Kbd> <Kbd>↓</Kbd> brake, hold to reverse</span>
+        <span><Kbd>A</Kbd> <Kbd>D</Kbd> steer</span>
+        <span><Kbd>Esc</Kbd> pause</span>
+      </>
+    )}
+  </div>
+);
+
+const Kbd = ({ children }: { children: React.ReactNode }) => (
+  <kbd className="bg-cream/10 border-cream/30 text-cream inline-flex min-w-5 items-center justify-center rounded-sm border border-b-2 px-1 text-[10px] leading-4 font-bold">{children}</kbd>
+);
 
 /** The card on the start line: what this level is about and its three goals. Compact on a retry. */
 export const LevelIntro = ({ hud, touch, compact }: { hud: HudState; touch: boolean; compact: boolean }) => {
@@ -42,7 +75,7 @@ export const LevelIntro = ({ hud, touch, compact }: { hud: HudState; touch: bool
   return (
     <div
       className={`pointer-events-none absolute z-[5] flex flex-col items-center gap-1.5 px-4 text-center ${touch ? 'portrait:top-[200px] portrait:inset-x-2 landscape:top-[64px] landscape:inset-x-[11rem]' : 'left-3 w-[26rem] max-w-[40vw] lg:left-6'}`}
-      style={{ ...(touch ? {} : { top: '22%' }), animation: 'fadeIn 0.25s ease-out both' }}
+      style={{ ...(touch ? {} : { top: 'calc(56px + env(safe-area-inset-top))' }), animation: 'fadeIn 0.25s ease-out both' }}
       role="group"
       aria-label={`Level ${lv.n}: ${lv.name}`}
     >
@@ -53,11 +86,14 @@ export const LevelIntro = ({ hud, touch, compact }: { hud: HudState; touch: bool
         <div className="font-display text-gold text-2xl leading-none sm:text-4xl [@media(max-height:420px)]:text-xl" style={{ animation: 'riseIn 0.4s ease-out both' }}>
           {lv.name}
         </div>
+        <div className="bg-gold/15 border-gold/50 text-gold mt-1 border px-3 py-1.5 text-sm font-bold sm:text-base [@media(max-height:420px)]:py-0.5 [@media(max-height:420px)]:text-xs">{objectiveOf(lv)}</div>
         {!compact && <div className="text-cream/90 max-w-md text-sm sm:text-base [@media(max-height:420px)]:text-xs">{lv.teaches}</div>}
-        <ul className={`mt-1 flex flex-wrap justify-center gap-x-4 gap-y-1 text-xs sm:text-sm ${compact ? 'hidden sm:flex' : ''}`} aria-label="Star goals">
-          {lv.goals.map((g, i) => (
-            <li key={g} className="text-cream/85 flex items-center gap-1">
-              <Stars n={i + 1} size="h-3.5 w-3.5" label={false} />
+        {(!compact || lv.n <= 2) && <ControlsLine touch={touch} />}
+        <ul className={`mt-1 flex flex-col items-start gap-0.5 text-left text-xs sm:text-sm ${compact ? 'hidden sm:flex' : ''} [@media(max-height:420px)]:hidden`} aria-label="Star goals">
+          <li className="text-lilac text-[11px] sm:text-xs">Each goal earns a star:</li>
+          {lv.goals.map((g) => (
+            <li key={g} className="text-cream/85 flex items-center gap-2">
+              <StarIcon on className="h-3.5 w-3.5" />
               <span>{g}</span>
             </li>
           ))}
@@ -81,10 +117,9 @@ export const LevelIntro = ({ hud, touch, compact }: { hud: HudState; touch: bool
 export const LevelBar = ({ hud, touch }: { hud: HudState; touch: boolean }) => {
   const lv = hud.campaign!;
   const t = hud.clock;
-  const reach = live(lv, t);
   const hurry = hud.phase === 'race' && hud.left <= 10;
   return (
-    <div className="flex items-stretch gap-1.5" role="status" aria-label={`Level ${lv.n}, ${fmt(t)}, par ${lv.par} seconds`}>
+    <div className="flex items-stretch gap-1.5" role="status" aria-label={`Level ${lv.n}, ${fmt(t)}, two stars for under ${lv.par} seconds`}>
       <div className="panel-cut bg-ink-deep/75 font-display text-gold flex items-center px-2 text-xs whitespace-nowrap sm:px-3 sm:text-sm">
         {lv.n}
         <span className={`text-cream/80 pl-1.5 ${touch ? 'hidden' : 'hidden sm:inline'}`}>{lv.name}</span>
@@ -92,12 +127,11 @@ export const LevelBar = ({ hud, touch }: { hud: HudState; touch: boolean }) => {
       </div>
       <div className={`panel-cut bg-ink-deep/75 flex items-center gap-2 px-3 py-1 sm:px-4 ${hurry ? 'text-orange' : 'text-cream'}`} style={hurry ? { animation: 'hurry 1s ease-in-out infinite' } : undefined}>
         <span className="font-display text-base tabular-nums sm:text-xl">{hurry ? `0:${String(Math.ceil(hud.left)).padStart(2, '0')}` : fmt(t)}</span>
-        <span className={`text-[11px] font-bold tabular-nums sm:text-xs ${t <= lv.par ? 'text-green' : 'text-lilac line-through'}`}>par {lv.par}s</span>
-      </div>
-      <div className="panel-cut bg-ink-deep/75 flex items-center gap-0.5 px-2" aria-label="Stars still in reach">
-        {reach.map((on, i) => (
-          <StarIcon key={i} on={on} className="h-4 w-4 sm:h-5 sm:w-5" style={{ opacity: on ? 1 : 0.5, transition: 'opacity 0.3s' }} />
-        ))}
+        {/* The time goal in words: the second star is for parking under this time (the stars themselves land on the result card). */}
+        <span className={`flex items-center gap-1 text-[11px] font-bold tabular-nums whitespace-nowrap sm:text-xs ${t <= lv.par ? 'text-green' : 'text-lilac'}`} title="Park under this time for the second star">
+          <StarIcon on className="h-3 w-3" />
+          {t <= lv.par ? `under ${lv.par} s` : `missed ${lv.par} s`}
+        </span>
       </div>
     </div>
   );
@@ -187,9 +221,9 @@ export const LevelResult = ({
           ))}
         </div>
         <ul className="flex flex-col gap-1 text-left text-sm [@media(max-height:420px)]:text-xs">
-          {rows.map(([goal, met, detail], i) => (
+          {rows.map(([goal, met, detail]) => (
             <li key={goal} className="bg-ink-deep/60 flex items-center gap-2 px-3 py-1.5">
-              <Stars n={i + 1} size="h-3 w-3" label={false} />
+              <StarIcon on={met} className="h-3.5 w-3.5" style={met ? undefined : { opacity: 0.6 }} />
               <span className={`flex-1 ${met ? 'text-cream' : 'text-cream/55'}`}>{goal}</span>
               <span className={`text-xs tabular-nums ${met ? 'text-green' : 'text-lilac'}`}>{detail}</span>
               <span className={`w-4 text-center font-bold ${met ? 'text-green' : 'text-orange/80'}`} aria-label={met ? 'met' : 'missed'}>

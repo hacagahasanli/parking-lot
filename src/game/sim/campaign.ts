@@ -98,7 +98,7 @@ export const CAMPAIGN: LevelDef[] = [
   // ---- Chapter 1: Learner's lot (the open lot, no shoppers) -------------------------------------------------------------
   {
     // EA aisle, the south row: the end bay of the EV row, a car on one side only, a wide left turn from the far lane.
-    id: 'first-bay', n: 1, chapter: 1, name: 'First bay', teaches: 'Find the one free bay and park in it: drive in, stop inside the lines and hold still.',
+    id: 'first-bay', n: 1, chapter: 1, name: 'First bay', teaches: 'Gas, steer, stop inside the lines and hold still.',
     type: 'solo', stage: 1, spawn: at(10, -8.7, E), target: [93], facing: 'any', slack: 0.3, par: 18, limit: 60,
   },
   {
