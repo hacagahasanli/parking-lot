@@ -428,3 +428,57 @@ All of them hold 60 fps (the display's limit); the triangle count is dominated b
 | Add a car body style | `STYLES` in `car.ts` |
 
 Run `npm run test:run` after any change in `src/game/sim/`.
+
+## 14. The portal build (CrazyGames)
+
+A second entry, `portal/`, builds the same game into one static folder with Vite: `npm run build:portal` writes
+`dist/portal/` (9 files, about 1.08 MB, 347 KB gzipped) and then runs `scripts/portal-report.mjs`, which fails the build on
+an absolute path, more than 1500 files, more than 20 MB, any absolute URL other than the CrazyGames SDK, or studio in-jokes in
+the shipped text. `npm run dev:portal` serves it on port 3201 (`?testBreaks` shortens the ad rules in development only).
+Zip the contents of `dist/portal/` (index.html at the root of the zip) to upload.
+
+What differs from the site:
+
+- **No home page and no links.** `portal/main.tsx` renders `<Race>` straight away (players land in the countdown). `Race` only
+  shows a Home/Leave button and the support link when the page passes them (`SiteRace` does; the portal does not).
+- **Neutral words.** `src/game/sim/flavour.ts` has two flavours. The portal passes `flavour="neutral"` and Vite also swaps
+  `copy/studio.ts` for `copy/neutral.ts`, so the studio's jokes are not even in the bundle. The studio credit is
+  `STUDIO_NAME` in `src/lib/studio.ts` (rename the studio there).
+- **P pauses**; Esc is left to the portal (it leaves fullscreen). No fullscreen request on touch (portals provide it).
+- **Fonts** are self-hosted in `portal/public/fonts` (no request leaves the bundle).
+
+### Platform adapter (`src/platform/`)
+
+`types.ts` is the interface the game uses: `init`, `loadingStart/Stop`, `gameplayStart/Stop`, `commercialBreak`,
+`rewardedBreak`, `happytime`, `muted`/`onMutedChange`, `deviceType`, `storage`. `crazygames.ts` wraps SDK v3 (every call
+guarded, gameplay events only on a real change, mute only in `adStarted`, a 12 s guard if an ad never starts). `web.ts` is
+the no-op fallback. `index.ts` `detectPlatform()` returns the web adapter when the SDK script is missing, `init` fails or
+takes over 4 s, or the SDK says `disabled`. A Poki or Yandex adapter is one more file implementing `Platform`.
+
+`breaks.ts` (`BreakScheduler`) decides between rounds: a midgame ad only when the player leaves a result card, after at
+least 2 rounds and 120 s of play, at most every 180 s (the SDK's own cooldown, which counts rewarded ads too), never in the
+same gap as a rewarded hint. The rewarded hint is offered only on a lost round's card, at most every 90 s, with an equal
+"No thanks: retry" button; after 3 losses in a row on a stage it is free. If the SDK answers `adsDisabled` (Basic Launch),
+the hint becomes free instead of leaving a dead button. `src/components/useSession.ts` wires it to the race.
+
+### Pacing (portal and site)
+
+- Round cap 120 s (`RACE.maxTime`). Bot-only tests pass `maxTime: 200` to measure a full search.
+- Stage 1's free bay is within `STAGE1_NEAR` (36 m) of the junction past the barrier, and its bots are a little calmer
+  (`botPace`). The board names the side ("LOOK LEFT/RIGHT") 2 s after GO in stage 1; stages 3-5 show the decks at 26 s, stage 6
+  the zone at 8 s and the decks at 24 s (`hintTimes`).
+- The first two stage-1 countdowns show the rule as three pictures (`Onboarding.tsx`).
+- With a 120 s cap, the bots do not always finish stages 4-6 (their searches there take 60-150 s), so some rounds end
+  "Out of time". That is the intended pressure; loosen `hintTimes` if it feels harsh.
+
+### Quality tiers (`src/game/render/quality.ts`)
+
+low (DPR 1, no shadows, no antialias, shorter view), medium (DPR 1.5, 1024 shadows), high (DPR 2, 2048 shadows). Auto picks
+from the device (phones low or medium, ChromeOS and 4-core/4 GB machines low or medium, software GPUs low), and `FpsGuard`
+steps down once after 4 s under 40 fps. The pause menu has Auto/Low/Mid/High, saved through the platform's storage.
+
+### Covers and screenshots
+
+`Game.setShot()` holds a fixed camera and lights a bay; `scripts/portal-covers.mjs` stages four racers around one free bay
+and renders three variants at 1920x1080, 800x1200 and 800x800 into `docs/portal/covers/` (title only, no other text, as
+CrazyGames asks). `scripts/portal-shots.mjs` captures the flow on desktop and a phone into `docs/portal/screens/`.
