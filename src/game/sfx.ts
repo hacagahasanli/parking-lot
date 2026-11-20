@@ -31,6 +31,8 @@ export interface Sfx {
   click: () => void;
   volumes: Record<VolumeKind, number>;
   setVolume: (k: VolumeKind, v: number) => void;
+  /** Silence everything for a reason ('ad' while a video ad plays, 'portal' when the portal's mute is on), on top of the volumes. */
+  setMuted: (reason: string, on: boolean) => void;
   dispose: () => void;
 }
 
@@ -53,12 +55,14 @@ export const createSfx = (): Sfx => {
   let fxBus: GainNode;
   let noise: AudioBuffer;
   const voices = new Set<{ stop: () => void }>();
+  const muted = new Set<string>();
+  const masterLevel = () => (muted.size ? 0 : volumes.master);
 
   const init = () => {
     if (ctx) return ctx;
     ctx = new AudioContext();
     master = ctx.createGain();
-    master.gain.value = volumes.master;
+    master.gain.value = masterLevel();
     // A gentle compressor keeps four engines and a crash from clipping.
     const comp = ctx.createDynamicsCompressor();
     comp.threshold.value = -18;
@@ -572,7 +576,12 @@ export const createSfx = (): Sfx => {
       }
       if (!ctx) return;
       const node = k === 'master' ? master : k === 'engine' ? engineBus : fxBus;
-      node.gain.setTargetAtTime(v, ctx.currentTime, 0.03);
+      node.gain.setTargetAtTime(k === 'master' ? masterLevel() : v, ctx.currentTime, 0.03);
+    },
+    setMuted: (reason, on) => {
+      if (on) muted.add(reason);
+      else muted.delete(reason);
+      if (ctx) master.gain.setTargetAtTime(masterLevel(), ctx.currentTime, 0.02);
     },
     dispose: () => {
       for (const v of [...voices]) v.stop();

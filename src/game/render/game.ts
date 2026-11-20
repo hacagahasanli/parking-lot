@@ -12,7 +12,8 @@ import { Sky } from 'three/examples/jsm/objects/Sky.js';
 import { createSfx } from '../sfx';
 import { botInput, createBrain } from '../sim/bot';
 import { CAR, DT, PED, RACE } from '../sim/constants';
-import { hintLines, hintOf } from '../sim/hint';
+import { COPY } from '../sim/flavour';
+import { hintArea, hintLines, hintOf } from '../sim/hint';
 import { LEVELS, LEVEL_COLOR, LEVEL_H, levelName, levelOf, levelY } from '../sim/levels';
 import { BAY, buildLot } from '../sim/lot';
 import { radio } from '../sim/radio';
@@ -24,6 +25,7 @@ import { buildParked, buildRacer } from './car';
 import { buildAmbience } from './ambience';
 import { buildPeds } from './peds';
 import { circleHit, boxHit } from './sight';
+import { FpsGuard, lowerTier, TIERS } from './quality';
 import { buildTargetMarker, buildWorld } from './world';
 
 import type { BotBrain } from '../sim/bot';
@@ -32,6 +34,8 @@ import type { Lot } from '../sim/lot';
 import type { Car, GameState, Input, World } from '../sim/types';
 import type { VolumeKind } from '../sfx';
 import type { RacerRig } from './car';
+import type { Flavour } from '../sim/flavour';
+import type { Tier } from './quality';
 
 // ---------------------------------------------------------------------------
 // HUD snapshot for React
@@ -105,6 +109,11 @@ export interface HudState {
   board: { free: number; line: string; deckColor: number | null };
   /** The stage being played (n is 0 on the home page, where the whole site is open), what is new in it, and how far you have got this visit. */
   stage: { n: number; name: string; news: string; total: number; unlocked: number; hasNext: boolean };
+  /** This round has the bonus hint (a circle on the minimap around the free bay). */
+  hinted: boolean;
+  /** The quality tier being drawn, and whether the game is frozen for an ad. */
+  tier: Tier;
+  frozen: boolean;
   /** The minimap's tabs and the one being shown. */
   mapLevel: number;
   mapLevels: { level: number; name: string; color: number }[];
@@ -115,6 +124,15 @@ export interface GameOptions {
   mode: 'race' | 'showcase';
   seed?: number;
   onHud?: (hud: HudState) => void;
+  /** The words (driver names, radio, plates, shop signs): 'studio' on our site, 'neutral' on portals. Default 'studio'. */
+  flavour?: Flavour;
+  /** The quality tier to start with (default 'high'), and whether it was picked automatically (then a low frame rate steps it down). */
+  tier?: Tier;
+  autoTier?: boolean;
+  /** Called when the frame-rate guard steps the tier down. */
+  onTier?: (tier: Tier) => void;
+  /** Esc pauses (default true). Portals reserve Esc for leaving fullscreen, so they pass false and use P. */
+  escPause?: boolean;
 }
 
 const KEYS: Record<string, keyof Pressed> = {
@@ -353,15 +371,20 @@ export class Game {
   /** How far the exit barrier is lifted (0..1), eased. */
   private exitOpen = 0;
   private joltSeen: number[] = [];
+  private tier: Tier;
+  private fpsGuard = new FpsGuard();
+  private hinted = false;
+  private frozen = false;
 
   constructor(
     private canvas: HTMLCanvasElement,
     private opts: GameOptions,
   ) {
     this.seed = opts.seed ?? Math.floor(Math.random() * 1e6);
-    this.renderer = new THREE.WebGLRenderer({ canvas, antialias: true, powerPreference: 'high-performance' });
-    this.renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
-    this.renderer.shadowMap.enabled = true;
+    this.tier = opts.tier ?? 'high';
+    this.renderer = new THREE.WebGLRenderer({ canvas, antialias: TIERS[this.tier].antialias, powerPreference: 'high-performance' });
+    this.renderer.setPixelRatio(Math.min(window.devicePixelRatio, TIERS[this.tier].dprCap));
+    this.renderer.shadowMap.enabled = TIERS[this.tier].shadows;
     this.renderer.shadowMap.type = THREE.PCFShadowMap;
     // Neutral tone mapping keeps paint and foliage saturated (ACES at low exposure washed everything towards grey).
     this.renderer.toneMapping = THREE.NeutralToneMapping;
@@ -391,8 +414,8 @@ export class Game {
 
     this.sun = new THREE.DirectionalLight(0xffb560, 3.6);
     this.sun.position.copy(sunDir).multiplyScalar(80);
-    this.sun.castShadow = true;
-    this.sun.shadow.mapSize.set(2048, 2048);
+    this.sun.castShadow = TIERS[this.tier].shadows;
+    this.sun.shadow.mapSize.set(TIERS[this.tier].shadowMap, TIERS[this.tier].shadowMap);
     const sc = this.sun.shadow.camera;
     sc.left = sc.bottom = -34;
     sc.right = sc.top = 34;
@@ -408,6 +431,10 @@ export class Game {
     this.scene.add(this.fill);
 
     this.lot = buildLot();
+    // Portal builds: neutral shop signs (the sim never reads the names).
+    const copy = COPY[opts.flavour ?? 'studio'];
+    this.lot.shops = this.lot.shops.map((s, i) => ({ ...s, name: copy.shops[i] ?? s.name }));
+    if (this.scene.fog instanceof THREE.Fog) this.scene.fog.far = TIERS[this.tier].fogFar;
     this.worldView = buildWorld(this.lot);
     this.ambience = buildAmbience(this.lot);
     this.scene.add(this.worldView.group);
@@ -432,12 +459,14 @@ export class Game {
 
   // ----- round -----
 
-  newRound = () => {
+  /** Start a round of the current stage; `hint` adds the bonus hint circle to the minimap for this round. */
+  newRound = (opts: { hint?: boolean } = {}) => {
+    this.hinted = opts.hint === true;
     this.roundNo++;
     const seed = this.seed + this.roundNo * 101;
     const bots = this.opts.mode === 'race' ? [false, true, true, true] : [true, true, true, true];
     const stage = this.opts.mode === 'race' ? this.progress.current : undefined;
-    const { state, world } = createRound(this.lot, { seed, bots, stage });
+    const { state, world } = createRound(this.lot, { seed, bots, stage, flavour: this.opts.flavour });
     this.state = state;
     this.world = world;
     this.brains = state.cars.map((c) => (c.bot ? createBrain(world, c, seed) : null));
@@ -483,7 +512,7 @@ export class Game {
     this.marker.group.visible = false;
 
     for (const r of this.rigs) this.scene.remove(r.root);
-    const plates = ['MRG 042', 'STG 001', 'FIX 911', 'OLD 1999', 'PRK 007'];
+    const plates = COPY[this.opts.flavour ?? 'studio'].plates;
     this.rigs = this.allCars().map((c) => {
       const rig = buildRacer(c.color, plates[c.id]);
       this.scene.add(rig.root);
@@ -570,7 +599,7 @@ export class Game {
       this.sfx.unlock();
     }
     if (down && e.code === 'KeyC') this.cycleCamera();
-    if (down && e.code === 'Escape') this.setPaused(!this.paused);
+    if (down && (e.code === 'KeyP' || (e.code === 'Escape' && this.opts.escPause !== false))) this.setPaused(!this.paused);
     if (down && e.code === 'Enter' && (this.state.phase === 'done' || this.state.cars[0].dq !== null)) {
       // (the result card's focused button would also click on Enter: one press, one action)
       e.preventDefault();
@@ -616,6 +645,42 @@ export class Game {
   setPaused = (p: boolean) => {
     if (this.opts.mode !== 'race' || this.state.phase === 'done') return;
     this.paused = p;
+    this.emitHud(true);
+  };
+
+  /** Freeze the game and silence it while a video ad plays (the ad has started; it is not frozen while one is only requested). */
+  setFrozen = (on: boolean) => {
+    this.frozen = on;
+    this.keys = { up: false, down: false, left: false, right: false, handbrake: false, horn: false };
+    this.touch = null;
+    this.sfx.setMuted('ad', on);
+    this.last = performance.now();
+    this.emitHud(true);
+  };
+
+  /** The portal's own mute button. */
+  setPortalMuted = (on: boolean) => this.sfx.setMuted('portal', on);
+
+  /** Draw at another quality tier: pixel ratio, shadows and view distance change at once (antialiasing on the next load). */
+  setTier = (tier: Tier) => {
+    const spec = TIERS[tier];
+    const hadShadows = this.renderer.shadowMap.enabled;
+    this.tier = tier;
+    this.renderer.setPixelRatio(Math.min(window.devicePixelRatio, spec.dprCap));
+    this.renderer.shadowMap.enabled = spec.shadows;
+    this.sun.castShadow = spec.shadows;
+    if (this.sun.shadow.mapSize.x !== spec.shadowMap) {
+      this.sun.shadow.mapSize.set(spec.shadowMap, spec.shadowMap);
+      this.sun.shadow.map?.dispose();
+      this.sun.shadow.map = null as unknown as THREE.WebGLRenderTarget;
+    }
+    if (this.scene.fog instanceof THREE.Fog) this.scene.fog.far = spec.fogFar;
+    // Turning shadows on or off changes the shaders: every material must recompile once.
+    if (hadShadows !== spec.shadows) this.scene.traverse((o) => {
+      const m = (o as THREE.Mesh).material;
+      if (m) for (const mm of Array.isArray(m) ? m : [m]) mm.needsUpdate = true;
+    });
+    this.resize();
     this.emitHud(true);
   };
 
@@ -665,7 +730,11 @@ export class Game {
       this.frames = 0;
       this.fpsAt = now;
     }
-    if (!this.paused) {
+    if (this.opts.autoTier && !this.paused && !this.frozen && this.state.phase === 'race' && this.tier !== 'low' && this.fpsGuard.frame(dt)) {
+      this.setTier(lowerTier(this.tier));
+      this.opts.onTier?.(this.tier);
+    }
+    if (!this.paused && !this.frozen) {
       this.time += dt;
       this.acc += dt;
       while (this.acc >= DT) {
@@ -673,7 +742,7 @@ export class Game {
         this.tick();
       }
     }
-    this.draw(dt, this.paused ? 1 : this.acc / DT);
+    this.draw(dt, this.paused || this.frozen ? 1 : this.acc / DT);
     if (now - this.hudAt > 100) {
       this.hudAt = now;
       this.emitHud(false);
@@ -1086,7 +1155,7 @@ export class Game {
       }
       // The shops along the top, the gates (the entry bottom centre) as short bars.
       for (const shop of this.lot.shops) {
-        g.fillStyle = shop.name === 'MERGE MART' ? 'rgb(238,184,98)' : 'rgb(222,100,62)';
+        g.fillStyle = shop === this.lot.shops[0] ? 'rgb(238,184,98)' : 'rgb(222,100,62)';
         g.fillRect(px(shop.x1), pz(bounds.z1) - 8, (shop.x1 - shop.x0) * sc, 7);
       }
       g.fillStyle = 'rgba(255,210,63,0.95)';
@@ -1142,6 +1211,23 @@ export class Game {
     // Shoppers as small bright dots on this level; the free bay only once the round is over.
     g.fillStyle = 'rgba(255,214,90,0.95)';
     for (const p of this.state.peds) if (here(p.y)) g.fillRect(px(p.x) - 1.2, pz(p.z) - 1.2, 2.4, 2.4);
+    // The bonus hint: a pulsing circle that holds the free bay (not centred on it), on the bay's level.
+    if (this.hinted && this.state.phase !== 'done') {
+      const a = hintArea(this.state, this.lot);
+      if (a.lvl === level) {
+        const r = Math.abs(px(a.x + a.r) - px(a.x));
+        g.save();
+        g.fillStyle = 'rgba(255,210,63,0.16)';
+        g.strokeStyle = `rgba(255,210,63,${0.65 + Math.sin(this.time * 4) * 0.3})`;
+        g.lineWidth = 2.5;
+        g.setLineDash([6, 4]);
+        g.beginPath();
+        g.arc(px(a.x), pz(a.z), r, 0, Math.PI * 2);
+        g.fill();
+        g.stroke();
+        g.restore();
+      }
+    }
     if (this.state.phase === 'done') {
       const bay = this.lot.bays[this.state.winBay >= 0 ? this.state.winBay : this.state.target];
       if (here(bay.y)) {
@@ -1227,6 +1313,9 @@ export class Game {
         return { free: h.free, line: tail || head.replace(/^FREE SPACES: \d+$/, ''), deckColor: h.showing !== null ? LEVEL_COLOR[h.showing] : null };
       })(),
       mapLevel: this.mapShown,
+      hinted: this.hinted,
+      tier: this.tier,
+      frozen: this.frozen,
       stage: (() => {
         const n = this.world.lot.stage ?? 0;
         const def = n ? stageDef(n) : null;
