@@ -68,7 +68,8 @@ describe('bots take in what the stage card says', () => {
     const { state, world } = createRound(lot, { seed: 4, stage, bots: [true, true, true, true] });
     const brains = state.cars.map((c) => createBrain(world, c, 4));
     // Past the countdown and every driver's pull-away delay (a driver reads the board when it sets off).
-    while (state.phase === 'countdown' || state.clock < 4) step(state, world, state.cars.map(() => idle));
+    const setOff = Math.max(...brains.map((b) => b.launch)) + 0.1;
+    while (state.phase === 'countdown' || state.clock < setOff) step(state, world, state.cars.map(() => idle));
     for (const c of state.cars) {
       botInput(state, world, c, brains[c.id]);
       const sw = brains[c.id].sweeps[0];

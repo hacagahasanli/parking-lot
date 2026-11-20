@@ -46,11 +46,13 @@ export const STAGE_COUNT = STAGES.length;
 export const STAGE1_NEAR = 36;
 
 /**
- * How brisk the bots are, by stage: in stage 1 they cruise slower and leave the line later, so a new player can win the first
- * round; from stage 3 on they drive as they always did. Shown honestly: the bots are the same drivers, only less hurried.
+ * How brisk the bots are, by stage: in stages 1 and 2 they cruise slower and leave the line later, so a new player can win the
+ * first rounds; from stage 3 on they drive as they always did. Shown honestly: the bots are the same drivers, only less hurried.
+ * Tuned on headless rounds (four bots, seeds 1-20): the first car parks at a median of about 63 s in stage 1 and 58 s in
+ * stage 2 (it was 39 and 40 s with 0.88/1.2 and 0.94/0.5).
  */
 export const botPace = (stage: number | undefined): { cruise: number; launch: number } =>
-  stage === 1 ? { cruise: 0.88, launch: 1.2 } : stage === 2 ? { cruise: 0.94, launch: 0.5 } : { cruise: 1, launch: 0 };
+  stage === 1 ? { cruise: 0.45, launch: 14 } : stage === 2 ? { cruise: 0.5, launch: 8 } : { cruise: 1, launch: 0 };
 export const stageDef = (n: number): StageDef => STAGES[Math.max(1, Math.min(STAGE_COUNT, n)) - 1];
 
 /** Is a closure shut in this stage? */

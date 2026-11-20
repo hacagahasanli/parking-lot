@@ -492,8 +492,18 @@ the hint becomes free instead of leaving a dead button. `src/components/useSessi
 - The first two stage-1 countdowns show the rule as three pictures (`Onboarding.tsx`).
 - With the 120 s cap the bots finish stages 4-6: in headless rounds (four bots, seeds 1-20) the first car parks at a median
   of about 99 s in stage 4 (the roof is ~500 m of one-way decks from the gate), 66 s in stage 5 and 57 s in stage 6, and
-  `finish.test.ts` checks seeds 1-8 of each. Stages 1-3 got quicker too (medians about 41, 40 and 72 s, from 76, 66 and
-  109 s) because the bots no longer lap a deck after spotting the bay; `botPace` is the knob if stage 1-2 feel too hard.
+  `finish.test.ts` checks seeds 1-8 of each. Stage 3's median is about 72 s (from 109 s) because the bots no longer lap a
+  deck after spotting the bay.
+- Stages 1-2 are slowed on purpose so a first-time player can win (`botPace`): stage 1 bots cruise at 0.45x and leave the
+  line 14 s late, stage 2 at 0.5x and 8 s late. First car parked, four bots, seeds 1-20:
+
+  | | before (0.88/1.2, 0.94/0.5) | after |
+  | --- | --- | --- |
+  | Stage 1 median (min-max) | 39 s (29-79) | 63 s (42-127, one seed over the cap) |
+  | Stage 2 median (min-max) | 40 s (34-99) | 58 s (53-90) |
+
+  The cruise factor moves the median less than you would expect (stage 1's bay is close to the gate, so the slow part is the
+  turn-in); the launch delay is the stronger knob.
 
 ### Quality tiers (`src/game/render/quality.ts`)
 
