@@ -22,7 +22,7 @@ import { DT } from './constants';
 import { levelY } from './levels';
 import { buildLot } from './lot';
 import { locate, shortestPath } from './nav';
-import { carShape, createRound, drive, makeCar, step } from './step';
+import { carShape, createRound, drive, emptyBay, makeCar, step } from './step';
 import { memoryStore } from '~/platform/web';
 import { SCRIPTS, driveScript } from './drive';
 
@@ -127,7 +127,9 @@ describe('every level is playable', () => {
       const me = state.cars[0];
       expect(touching(world, me), 'spawn').toEqual([]);
       if (l.spawn !== 'gate') expect(Math.abs(me.y - levelY(l.spawn.lvl))).toBeLessThan(0.01);
-      for (const id of state.targets ?? []) {
+      for (const [k, id] of (state.targets ?? []).entries()) {
+        // A chain's later bay holds a car until its turn: check it as it will be then.
+        if (k > 0) emptyBay(world, id);
         const bay = world.lot.bays[id];
         expect(bay, `bay ${id}`).toBeDefined();
         // The bay is in the part of the site this stage opens.
@@ -150,6 +152,39 @@ describe('every level is playable', () => {
       }
     });
   }
+
+  // The whole idea of the game: the lot has exactly one free space. Every other bay holds something.
+  for (const l of CAMPAIGN) {
+    it(`${l.n} ${l.name}: exactly one bay is free, and every other bay is filled`, () => {
+      for (const seed of [3, 11]) {
+        const { state, world } = round(l, seed);
+        const me = state.cars[0];
+        const solid = new Set(world.owner.filter((o) => o >= 0));
+        // (The car that pulls out is a moving body, not a solid: its bay is not free yet, unless it is the bay you wait for.)
+        const empty = world.lot.bays.filter((b) => !solid.has(b.id) && (b.id !== state.leaver?.bay || b.id === state.target)).map((b) => b.id);
+        expect(empty, `seed ${seed}`).toHaveLength(1);
+        if (l.type === 'unpark') {
+          // The one free bay is the one you start in: you are leaving it.
+          const bay = world.lot.bays[empty[0]];
+          expect(Math.hypot(bay.x - me.x, bay.z - me.z)).toBeLessThan(1.5);
+        } else expect(empty[0]).toBe(state.target);
+        // The renderer draws a car in every bay the sim has solid, and none in the free one.
+        expect(world.lot.bays.filter((b) => b.use === 'free').map((b) => b.id)).toEqual(empty);
+      }
+    });
+  }
+
+  it('a chain empties its next bay only once the one before is parked', () => {
+    const l = levelById('trial')!;
+    const { state, world } = round(l);
+    const [a, b] = state.targets!;
+    expect(world.owner.includes(b)).toBe(true);
+    const bay = world.lot.bays[a];
+    holdIn(state, world, { x: bay.x, z: bay.z, h: bay.h, y: bay.y });
+    expect(state.target).toBe(b);
+    expect(world.owner.includes(b)).toBe(false);
+    expect(world.lot.bays[b].use).toBe('free');
+  });
 
   it('a nose-in park does not count where the level asks you to back in (and the other way round)', () => {
     for (const l of CAMPAIGN.filter((x) => x.facing !== 'any')) {
@@ -239,12 +274,11 @@ describe('the rules of a level', () => {
     expect(world.lot.bays[157].variant).toBe(4);
     expect(world.lot.bays[159].use).toBe('car');
     const { world: w1 } = round(first);
-    expect(w1.lot.bays[96].use).toBe('free');
-    expect(w1.owner.includes(96)).toBe(false);
-    expect(w1.owner.includes(97)).toBe(false);
-    expect(w1.owner.includes(101)).toBe(true);
+    expect(w1.lot.bays[93].use).toBe('free');
+    expect(w1.owner.includes(93)).toBe(false);
+    expect(w1.owner.includes(94)).toBe(true);
     // The lot itself is untouched.
-    expect(lot.bays[96].use).toBe('car');
+    expect(lot.bays[93].use).toBe('car');
   });
 
   it('a light touch is a graze (the level goes on); a hard one fails it', () => {

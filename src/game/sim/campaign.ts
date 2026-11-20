@@ -97,10 +97,9 @@ const at = (x: number, z: number, h: number, lvl = 0): Pose => ({ x, z, h, lvl }
 export const CAMPAIGN: LevelDef[] = [
   // ---- Chapter 1: Learner's lot (the open lot, no shoppers) -------------------------------------------------------------
   {
-    // EA aisle, the south row, its neighbours emptied: a wide left turn from the far lane.
-    id: 'first-bay', n: 1, chapter: 1, name: 'First bay', teaches: 'Gas, steer, stop inside the lines and hold still.',
-    type: 'solo', stage: 1, spawn: at(21, -8.7, E), target: [97], facing: 'any', slack: 0.3,
-    bays: { 94: 'free', 95: 'free', 96: 'free', 98: 'free', 99: 'free', 100: 'free' }, par: 18, limit: 60,
+    // EA aisle, the south row: the end bay of the EV row, a car on one side only, a wide left turn from the far lane.
+    id: 'first-bay', n: 1, chapter: 1, name: 'First bay', teaches: 'Find the one free bay and park in it: drive in, stop inside the lines and hold still.',
+    type: 'solo', stage: 1, spawn: at(10, -8.7, E), target: [93], facing: 'any', slack: 0.3, par: 18, limit: 60,
   },
   {
     id: 'neighbours', n: 2, chapter: 1, name: 'Neighbours', teaches: 'The same turn with cars on both sides. Leave room each side.',
@@ -118,7 +117,7 @@ export const CAMPAIGN: LevelDef[] = [
   },
   {
     id: 'back-in', n: 5, chapter: 1, name: 'Back it in', teaches: 'Drive past the bay, stop, then reverse in. Nose out.',
-    type: 'solo', stage: 1, spawn: at(8, 30, E), target: [174], facing: 'tail', slack: 0.25, bays: { 173: 'free', 175: 'free' }, par: 28, limit: 75,
+    type: 'solo', stage: 1, spawn: at(8, 30, E), target: [174], facing: 'tail', slack: 0.25, par: 28, limit: 75,
   },
   {
     id: 'vans', n: 6, chapter: 1, name: 'Van squeeze', teaches: 'Two vans, very little room. Line up before you go in.',
@@ -144,9 +143,9 @@ export const CAMPAIGN: LevelDef[] = [
     type: 'solo', stage: 1, spawn: at(-52, -10.7, E), target: [30], facing: 'nose', leaver: { bay: 30, at: 2.5 }, par: 26, limit: 75,
   },
   {
-    // The parallel bays along the west road; the one behind is empty, so you can drive in forwards.
-    id: 'kerbside', n: 11, chapter: 2, name: 'Kerbside', teaches: 'A parallel bay with room behind: drive in at an angle, then straighten.',
-    type: 'solo', stage: 1, spawn: at(-58, -26, N), target: [242], facing: 'nose', slack: 0.3, bays: { 241: 'free' }, par: 15, limit: 60,
+    // The first of the parallel bays along the west road: nothing parks behind it, so you can drive in forwards.
+    id: 'kerbside', n: 11, chapter: 2, name: 'Kerbside', teaches: 'The first parallel bay, with room behind: drive in at an angle, then straighten.',
+    type: 'solo', stage: 1, spawn: at(-58, -31, N), target: [240], facing: 'nose', slack: 0.3, par: 15, limit: 60,
   },
   {
     id: 'parallel', n: 12, chapter: 2, name: 'Proper parallel', teaches: 'Pull up past the gap and reverse in: the S-turn.',

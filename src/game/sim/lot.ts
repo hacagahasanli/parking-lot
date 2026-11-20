@@ -873,11 +873,10 @@ export const buildLot = (seed = 7): Lot => {
 
   // --- What stands in each bay -----------------------------------------------------------------
   for (const bay of bays) {
-    const r = rand();
-    const special = bay.tags.length > 0;
-    if (r < 0.035 && !special) bay.use = 'corral';
-    else if (r < 0.06 && bay.type !== 'parallel') bay.use = 'cones';
-    else bay.use = 'car';
+    // Every bay holds a car: the lot has exactly one free space, and a coned-off bay or a trolley corral read as more of them.
+    // (The draw stays, so the paint and the body styles are the same as before.)
+    rand();
+    bay.use = 'car';
     const v = rand();
     bay.variant = bay.type === 'parallel' ? (v < 0.6 ? 0 : v < 0.8 ? 1 : 3) : v < 0.46 ? 0 : v < 0.62 ? 1 : v < 0.76 ? 2 : v < 0.89 ? 3 : 4;
     bay.color = PAINT[Math.floor(rand() * PAINT.length)];

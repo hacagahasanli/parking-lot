@@ -95,6 +95,24 @@ export const createWorld = (target: number | number[], lot: Lot = buildLot(), le
   };
 };
 
+/**
+ * Empty a bay mid-round (a chain level's next bay: until its leg comes, a car stands in it, so the lot never shows more than one
+ * free space). The bay's colliders are moved far away rather than removed, so every solid keeps its index.
+ */
+export const emptyBay = (world: World, id: number) => {
+  const bay = world.lot.bays[id];
+  if (!bay || bay.use === 'free') return;
+  // (A round's bays are its own copy: the level's `applyLevel` made them.)
+  world.lot.bays[id] = { ...bay, use: 'free' };
+  world.owner.forEach((o, i) => {
+    if (o !== id) return;
+    world.solids[i] = { kind: 'circle', x: 1e5, z: 1e5, r: 0 };
+    world.hard[i] = null;
+    world.owner[i] = -1;
+  });
+  world.grid = buildGrid(world.solids);
+};
+
 export const makeCar = (id: number, name: string, color: number, bot: boolean, x: number, z: number, h: number): Car => ({
   id,
   name,
@@ -254,10 +272,12 @@ const makeLeaver = (bay: Lot['bays'][number], at: number): Leaver => {
  * the shoppers whose walks pass nearest the bay are out.
  */
 const createLevelRound = (fullLot: Lot, level: LevelDef, opts: RoundOptions): { state: GameState; world: World } => {
-  const lot = applyLevel(stageLot(fullLot, level.stage), level);
+  const applied = applyLevel(stageLot(fullLot, level.stage), level);
   const rand = rng(opts.seed * 7919 + 13);
   const rules = rulesOf(level);
-  const targets = level.target.length ? [...level.target] : level.type === 'unpark' ? [] : [pickTarget(lot, rand)];
+  const targets = level.target.length ? [...level.target] : level.type === 'unpark' ? [] : [pickTarget(applied, rand)];
+  // Exactly one free space: the first bay to park in. A chain's later bays hold a car until their turn (see `emptyBay`).
+  const lot = targets.length ? { ...applied, bays: applied.bays.map((b) => (b.id === targets[0] ? { ...b, use: 'free' as const } : b)) } : applied;
   const seats = level.type === 'race' ? 1 + (level.bots?.n ?? 0) : 1;
   const cars: Car[] = Array.from({ length: seats }, (_, i) => {
     const s = level.spawn === 'gate' || i > 0 ? lot.starts[i] : level.spawn;
@@ -273,7 +293,7 @@ const createLevelRound = (fullLot: Lot, level: LevelDef, opts: RoundOptions): { 
     const pool = lot.eligible.filter((id) => !targets.includes(id) && lot.bays[id].use === 'car' && lot.bays[id].variant < 3);
     if (pool.length) leaver = makeLeaver(lot.bays[pool[Math.floor(rand() * pool.length)]], 12 + rand() * 16);
   }
-  const world = createWorld(targets, lot, leaver ? leaver.bay : -1, opts.seed);
+  const world = createWorld(targets.slice(0, 1), lot, leaver ? leaver.bay : -1, opts.seed);
   // Shoppers: everyone in a race unless the level says; in a solo level only the ones whose walks pass nearest the bay.
   const want = level.peds ?? (level.type === 'race' ? world.walks.length : 0);
   if (want < world.walks.length) {
@@ -682,6 +702,7 @@ const parking = (state: GameState, world: World) => {
       state.events.push({ type: 'leg', car: car.id, leg: state.leg, bay: best, precision, time: state.clock });
       state.leg++;
       state.target = state.targets[state.leg];
+      emptyBay(world, state.target);
       car.park = 0;
       continue;
     }
