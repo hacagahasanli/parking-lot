@@ -137,3 +137,182 @@
     animation-duration: 0.01s !important;
   }
 }
+
+/* ------------------------------------------------------------------ */
+/* Main menu and settings                                               */
+/* ------------------------------------------------------------------ */
+
+/* The yellow-and-black hatch of a car park's kerb paint, along the top of a panel. */
+@utility kerb {
+  background-image: repeating-linear-gradient(-45deg, var(--color-gold) 0 12px, #0a0d18 12px 24px);
+}
+
+/* Painted bay lines, very faint, behind the settings panel. */
+@utility bay-lines {
+  background-image: repeating-linear-gradient(90deg, rgba(230, 235, 245, 0.035) 0 2px, transparent 2px 120px);
+}
+
+@keyframes menuIn {
+  from {
+    opacity: 0;
+    transform: translateX(-36px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+@keyframes panelIn {
+  from {
+    transform: translateX(-104%);
+  }
+  to {
+    transform: none;
+  }
+}
+
+@keyframes sheetIn {
+  from {
+    transform: translateY(100%);
+  }
+  to {
+    transform: none;
+  }
+}
+
+@keyframes ledBlink {
+  0%,
+  70% {
+    opacity: 1;
+  }
+  85% {
+    opacity: 0.25;
+  }
+}
+
+@keyframes keyWait {
+  50% {
+    background: rgba(255, 210, 63, 0.35);
+  }
+}
+
+@keyframes shiftFlash {
+  from {
+    transform: scale(1.35);
+    color: #ffffff;
+  }
+  to {
+    transform: none;
+  }
+}
+
+@keyframes limiter {
+  50% {
+    opacity: 0.35;
+  }
+}
+
+/* A menu item: slanted, an accent bar slides in from the left on hover and keyboard focus. */
+.menu-item {
+  position: relative;
+  isolation: isolate;
+  transition:
+    transform 0.18s cubic-bezier(0.2, 0.8, 0.2, 1),
+    color 0.18s;
+}
+.menu-item::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  z-index: -1;
+  background: linear-gradient(90deg, rgba(255, 210, 63, 0.22), rgba(255, 210, 63, 0) 85%);
+  transform: scaleX(0);
+  transform-origin: left;
+  transition: transform 0.22s cubic-bezier(0.2, 0.8, 0.2, 1);
+}
+.menu-item::after {
+  content: '';
+  position: absolute;
+  left: -14px;
+  top: 12%;
+  bottom: 12%;
+  width: 6px;
+  background: var(--color-gold);
+  transform: scaleY(0);
+  transition: transform 0.18s cubic-bezier(0.2, 0.8, 0.2, 1);
+}
+.menu-item:hover,
+.menu-item:focus-visible,
+.menu-item[data-active='true'] {
+  transform: translateX(14px);
+  color: var(--color-gold);
+}
+.menu-item:hover::before,
+.menu-item:focus-visible::before,
+.menu-item[data-active='true']::before {
+  transform: scaleX(1);
+}
+.menu-item:hover::after,
+.menu-item:focus-visible::after,
+.menu-item[data-active='true']::after {
+  transform: scaleY(1);
+}
+.menu-item:focus-visible {
+  outline: 2px solid var(--color-gold);
+  outline-offset: 3px;
+}
+
+/* A clear focus ring on every settings control. */
+.settings :focus-visible {
+  outline: 2px solid var(--color-gold);
+  outline-offset: 2px;
+}
+
+/* Range sliders in the game's colours. */
+.slider {
+  -webkit-appearance: none;
+  appearance: none;
+  height: 28px;
+  background: transparent;
+  cursor: pointer;
+}
+.slider::-webkit-slider-runnable-track {
+  height: 6px;
+  background: linear-gradient(90deg, var(--color-gold) var(--fill, 50%), rgba(230, 235, 245, 0.14) var(--fill, 50%));
+}
+.slider::-moz-range-track {
+  height: 6px;
+  background: linear-gradient(90deg, var(--color-gold) var(--fill, 50%), rgba(230, 235, 245, 0.14) var(--fill, 50%));
+}
+.slider::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  width: 14px;
+  height: 22px;
+  margin-top: -8px;
+  background: var(--color-cream);
+  border: 2px solid #0a0d18;
+  transform: skewX(-12deg);
+}
+.slider::-moz-range-thumb {
+  width: 12px;
+  height: 20px;
+  border-radius: 0;
+  background: var(--color-cream);
+  border: 2px solid #0a0d18;
+}
+
+/* Accessibility: the settings put these classes on <html>. */
+html.pl-cb {
+  /* Colour-blind friendly: "good" becomes blue instead of green, so it never relies on red against green. */
+  --color-green: #3ec5ff;
+}
+html.pl-large {
+  font-size: 112.5%;
+}
+html.pl-calm *,
+html.pl-calm *::before,
+html.pl-calm *::after {
+  animation-duration: 0.01s !important;
+  transition-duration: 0.01s !important;
+}

@@ -41,7 +41,8 @@ export const useSession = (game: Game | null, hud: HudState | null, platform: Pl
   const adsOff = useRef(!platform.ads);
   const loaded = useRef(false);
 
-  const playing = !!hud && !hud.paused && !hud.frozen && !showResult && hud.phase !== 'done' && inBreak === null;
+  // The menu is not play (the bots idling behind it are scenery).
+  const playing = !!hud && !hud.menu && !hud.paused && !hud.frozen && !showResult && hud.phase !== 'done' && inBreak === null;
 
   // Loading ends with the first HUD frame; then gameplay starts (the game lands straight in the countdown).
   useEffect(() => {

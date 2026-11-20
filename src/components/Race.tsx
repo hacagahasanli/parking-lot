@@ -2,30 +2,26 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 
+import { MainMenu } from '~/components/menu/MainMenu';
+import { SettingsPanel } from '~/components/menu/SettingsPanel';
+import { useApplySettings, useSettings } from '~/components/menu/useSettings';
+import { useMenuNav, usePadNav } from '~/components/menu/ui';
 import { Onboarding } from '~/components/Onboarding';
 import { TouchControls, useTouch } from '~/components/TouchControls';
 import { useSession } from '~/components/useSession';
 import { deviceFacts } from '~/game/render/deviceFacts';
-import { parseSetting, resolveTier } from '~/game/render/quality';
-import { CAMERA_KEY, parseCamera } from '~/game/render/view';
+import { resolveTier } from '~/game/render/quality';
+import { keyLabel } from '~/game/settings';
 import { createWebPlatform } from '~/platform/web';
 
 import type { ReactNode } from 'react';
 import type { Session } from '~/components/useSession';
 import type { CameraMode, Game, HudState } from '~/game/render/game';
-import type { QualitySetting, Tier } from '~/game/render/quality';
-import type { VolumeKind } from '~/game/sfx';
+import type { Tier } from '~/game/render/quality';
+import type { Bindings } from '~/game/settings';
 import type { Flavour } from '~/game/sim/flavour';
 import type { Platform } from '~/platform/types';
 
-/** Where the quality choice is saved (through the platform's storage: the portal's cloud save, or localStorage). */
-const QUALITY_KEY = 'parking-lot.quality';
-const QUALITIES: { v: QualitySetting; label: string }[] = [
-  { v: 'auto', label: 'Auto' },
-  { v: 'low', label: 'Low' },
-  { v: 'medium', label: 'Mid' },
-  { v: 'high', label: 'High' },
-];
 
 export interface RaceProps {
   /** The page the game runs on (a portal SDK or the plain web). Default: the plain web, every call a no-op. */
@@ -42,16 +38,15 @@ export interface RaceProps {
   escPause?: boolean;
   /** Development only: shorter ad-break rules, so the screenshot script reaches the break quickly. */
   testBreaks?: boolean;
+  /** Open on the main menu (the portal build): PLAY starts the race, the pause menu can quit back to it. */
+  menu?: boolean;
+  /** The game's logo for the menu (an image URL from the bundler). */
+  logoSrc?: string;
 }
 
 const hex = (c: number) => '#' + c.toString(16).padStart(6, '0');
 const fmtClock = (s: number) => `${Math.floor(s / 60)}:${(s % 60).toFixed(1).padStart(4, '0')}`;
 const CAMERAS: Record<CameraMode, string> = { park: 'Parking view', chase: 'Chase' };
-const VOLUMES: { kind: VolumeKind; label: string }[] = [
-  { kind: 'master', label: 'Master' },
-  { kind: 'engine', label: 'Engines' },
-  { kind: 'effects', label: 'Effects' },
-];
 
 const Key = ({ k }: { k: string }) => (
   <kbd className="bg-cream/10 border-cream/30 text-cream inline-flex min-w-5 items-center justify-center rounded-sm border border-b-2 px-1.5 text-[11px] leading-5 font-bold">{k}</kbd>
@@ -276,7 +271,7 @@ const Stat = ({ label, value }: { label: string; value: string }) => (
   </div>
 );
 
-const Result = ({ hud, game, session, exit, support }: { hud: HudState; game: Game | null; session: Session; exit?: RaceProps['exit']; support?: ReactNode }) => {
+const Result = ({ hud, game, session, exit, support, onMenu }: { hud: HudState; game: Game | null; session: Session; exit?: RaceProps['exit']; support?: ReactNode; onMenu?: () => void }) => {
   const r = hud.result!;
   const st = hud.stage;
   const unlockedNow = r.won && st.hasNext;
@@ -331,6 +326,11 @@ const Result = ({ hud, game, session, exit, support }: { hud: HudState; game: Ga
           >
             Retry
           </button>}
+          {onMenu && (
+            <button type="button" onClick={onMenu} className="panel-cut bg-cream/10 font-display text-cream flex flex-1 items-center justify-center px-4 py-3 text-base transition hover:bg-cream/20 active:scale-95 sm:text-lg">
+              Menu
+            </button>
+          )}
           {exit?.({ className: 'panel-cut bg-cream/10 font-display text-cream flex flex-1 items-center justify-center px-4 py-3 text-base transition hover:bg-cream/20 active:scale-95 sm:text-lg', label: 'Home' })}
         </div>
         <p className="text-lilac mt-3 hidden text-xs sm:block"><Key k="Enter" /> {unlockedNow ? 'goes to the next stage' : 'tries again'}</p>
@@ -344,12 +344,15 @@ const Result = ({ hud, game, session, exit, support }: { hud: HudState; game: Ga
   );
 };
 
+const PAUSE_BTN = 'menu-item font-display flex min-h-12 w-full -skew-x-6 items-center px-5 text-left text-xl uppercase sm:text-2xl';
+
+/** Paused: Resume · Settings · Quit to menu (the same settings panel as the main menu), and the stage chips. */
 const PauseMenu = ({
   hud,
   game,
   onResume,
-  quality,
-  onQuality,
+  onSettings,
+  onQuit,
   exit,
   support,
   credit,
@@ -357,74 +360,108 @@ const PauseMenu = ({
   hud: HudState;
   game: Game | null;
   onResume: () => void;
-  quality: QualitySetting;
-  onQuality: (q: QualitySetting) => void;
+  onSettings: () => void;
+  onQuit?: () => void;
   exit?: RaceProps['exit'];
   support?: ReactNode;
   credit?: string;
-}) => (
-  <div className="absolute inset-0 z-30 flex items-center justify-center bg-ink-deep/75 p-4 backdrop-blur-sm" role="dialog" aria-label="Paused">
-    <div className="panel-cut bg-ink border-blue/20 max-h-[calc(100dvh-16px)] w-full max-w-sm overflow-y-auto border p-4 sm:p-6">
-      <div className="font-display text-gold text-center text-3xl sm:text-4xl">Paused</div>
-      <div className="mt-3 flex flex-col gap-2.5">
-        {VOLUMES.map(({ kind, label }) => (
-          <label key={kind} className="text-cream/80 flex items-center gap-3 text-sm">
-            <span className="w-16 shrink-0">{label}</span>
-            <input
-              type="range"
-              min={0}
-              max={100}
-              value={Math.round(hud.volumes[kind] * 100)}
-              onChange={(e) => game?.setVolume(kind, Number(e.target.value) / 100)}
-              className="h-1.5 flex-1 cursor-pointer accent-[#ffd23f]"
-              aria-label={label}
-            />
-            <span className="w-8 text-right text-xs tabular-nums">{Math.round(hud.volumes[kind] * 100)}</span>
-          </label>
-        ))}
-        <button type="button" onClick={() => game?.cycleCamera()} className="bg-cream/10 text-cream hover:bg-cream/20 mt-1 flex items-center justify-between px-3 py-2 text-sm">
-          <span>Camera</span>
-          <span className="text-gold font-bold">{CAMERAS[hud.camera]}</span>
-        </button>
-        <div className="text-cream/80 flex items-center gap-3 text-sm" role="radiogroup" aria-label="Graphics quality">
-          <span className="w-16 shrink-0">Graphics</span>
-          <div className="flex flex-1 gap-1">
-            {QUALITIES.map(({ v, label }) => (
-              <button
-                key={v}
-                type="button"
-                role="radio"
-                aria-checked={quality === v}
-                onClick={() => onQuality(v)}
-                className={`min-h-9 flex-1 px-1 text-xs font-bold transition ${quality === v ? 'bg-gold text-ink-deep' : 'bg-cream/10 text-cream hover:bg-cream/20'}`}
-              >
-                {label}
-              </button>
-            ))}
-          </div>
+}) => {
+  const ref = useRef<HTMLDivElement>(null);
+  useMenuNav(ref, onResume);
+  usePadNav(ref, { onBack: onResume });
+  return (
+    <div className="bg-ink-deep/70 absolute inset-0 z-30 flex items-stretch backdrop-blur-[3px]" role="dialog" aria-label="Paused" data-keys-capture>
+      <div
+        ref={ref}
+        className="settings bg-ink-deep/95 bay-lines flex w-full max-w-md flex-col justify-center overflow-y-auto px-6 py-6 shadow-[24px_0_80px_rgba(0,0,0,0.6)] sm:px-10"
+        style={{ animation: 'panelIn 0.28s cubic-bezier(0.2,0.8,0.2,1) both', paddingLeft: 'calc(24px + env(safe-area-inset-left))' }}
+      >
+        <div className="kerb mb-5 h-1.5 w-24" aria-hidden="true" />
+        <div className="font-display text-gold -skew-x-6 text-5xl leading-none sm:text-6xl">Paused</div>
+        {hud.stage.n > 0 && <div className="text-lilac mt-2 text-[11px] font-semibold tracking-[0.25em] uppercase">Stage {hud.stage.n} · {hud.stage.name} · {CAMERAS[hud.camera]}</div>}
+        <div className="mt-6 flex flex-col gap-1.5">
+          <button type="button" data-nav autoFocus onClick={onResume} className={`${PAUSE_BTN} bg-gold text-ink-deep hover:!text-ink-deep focus-visible:!text-ink-deep`}>
+            <span className="inline-block skew-x-6">Resume</span>
+          </button>
+          <button type="button" data-nav onClick={onSettings} className={`${PAUSE_BTN} text-cream`}>
+            <span className="inline-block skew-x-6">Settings</span>
+          </button>
+          {onQuit && (
+            <button type="button" data-nav onClick={onQuit} className={`${PAUSE_BTN} text-cream`}>
+              <span className="inline-block skew-x-6">Quit to menu</span>
+            </button>
+          )}
+          {exit?.({ className: `${PAUSE_BTN} text-cream`, label: 'Leave' })}
         </div>
-        {quality === 'auto' && <div className="text-lilac -mt-1 text-right text-[11px]">Now drawing: {TIER_NAME[hud.tier]}</div>}
         {hud.stage.n > 0 && (
-          <div className="mt-2">
-            <div className="text-lilac mb-1.5 text-center text-[11px] font-semibold tracking-[0.25em] uppercase">Stage {hud.stage.n} · {hud.stage.name}</div>
+          <div className="mt-6">
+            <div className="text-lilac mb-1.5 text-[11px] font-semibold tracking-[0.25em] uppercase">Jump to stage</div>
             <StageChips hud={hud} game={game} />
           </div>
         )}
+        {support && <div className="mt-4">{support}</div>}
+        {credit && <div className="text-lilac mt-6 text-[11px] tracking-wide">A game by {credit}</div>}
       </div>
-      <div className="mt-4 flex flex-col gap-2 sm:mt-6">
-        <button type="button" autoFocus onClick={onResume} className="panel-cut bg-gold font-display text-ink-deep px-6 py-2 text-lg transition hover:brightness-110 active:scale-95 sm:py-3">
-          Resume
-        </button>
-        {exit?.({ className: 'panel-cut bg-cream/10 font-display text-cream px-6 py-2 text-center text-lg transition hover:bg-cream/20 sm:py-3', label: 'Leave' })}
-      </div>
-      {support && <div className="mt-3 text-center">{support}</div>}
-      {credit && <div className="text-lilac mt-3 text-center text-[11px] tracking-wide">A game by {credit}</div>}
     </div>
-  </div>
+  );
+};
+
+/** The manual gearbox's dial: a big gear letter, a rev bar with a red zone, and a shift light that flashes at the top. */
+const Tacho = ({ m, speed, compact }: { m: NonNullable<HudState['manual']>; speed: number; compact: boolean }) => {
+  const share = Math.max(0, Math.min(1, (m.rpm - m.idle * 0.6) / (m.redline - m.idle * 0.6)));
+  const segs = compact ? 14 : 20;
+  const lit = Math.round(share * segs);
+  return (
+    <div className={`flex items-end gap-3 ${compact ? 'flex-row-reverse' : ''}`} aria-label={`Gear ${m.gear}, ${Math.round(m.rpm)} rpm`} role="status">
+      <div className="flex flex-col items-end gap-1">
+        <div className="flex items-center gap-1.5">
+          <span
+            className={`h-3 w-3 rounded-full ${m.light || m.limiter ? 'bg-orange shadow-[0_0_14px_var(--color-orange)]' : 'bg-cream/15'}`}
+            style={m.limiter ? { animation: 'limiter 0.12s steps(1) infinite' } : m.light ? { animation: 'limiter 0.3s steps(1) infinite' } : undefined}
+            aria-hidden="true"
+          />
+          <span className="text-lilac text-[10px] font-bold tracking-widest uppercase">{m.limiter ? 'Limiter' : m.light ? 'Shift' : `${(m.rpm / 1000).toFixed(1)}k`}</span>
+        </div>
+        <div className={`flex items-end gap-[3px] ${compact ? 'h-5' : 'h-7'}`} aria-hidden="true">
+          {Array.from({ length: segs }, (_, i) => {
+            const red = i >= segs * 0.84;
+            const on = i < lit;
+            return (
+              <span
+                key={i}
+                className={`w-1.5 -skew-x-12 ${on ? (red ? 'bg-orange' : i >= segs * 0.68 ? 'bg-gold' : 'bg-green') : red ? 'bg-orange/20' : 'bg-cream/12'}`}
+                style={{ height: `${35 + (i / segs) * 65}%` }}
+              />
+            );
+          })}
+        </div>
+        <div className="text-cream/80 text-xs font-bold tabular-nums">{Math.round(speed)} km/h</div>
+      </div>
+      <div
+        key={`${m.shiftId}-${m.denied}`}
+        className={`font-display bg-ink-deep/80 flex items-center justify-center border-2 leading-none ${m.gear === 'R' ? 'border-orange text-orange' : m.gear === 'N' ? 'border-cream/40 text-cream/70' : 'border-gold text-gold'} ${compact ? 'h-12 w-11 text-3xl' : 'h-16 w-14 text-5xl'}`}
+        style={{ animation: 'shiftFlash 0.25s ease-out both' }}
+      >
+        {m.gear}
+      </div>
+    </div>
+  );
+};
+
+/** The keys bound to an action, as keycaps. */
+const BoundKeys = ({ b, a }: { b: Bindings; a: keyof Bindings }) => (
+  <>
+    {b[a].filter(Boolean).map((c, i) => (
+      <span key={c}>
+        {i > 0 && ' '}
+        <Key k={keyLabel(c)} />
+      </span>
+    ))}
+  </>
 );
 
 /** The race: full-screen canvas, the HUD on top, touch controls on phones. */
-export const Race = ({ platform: given, flavour = 'studio', exit, support, credit, escPause = true, testBreaks = false }: RaceProps) => {
+export const Race = ({ platform: given, flavour = 'studio', exit, support, credit, escPause = true, testBreaks = false, menu = false, logoSrc }: RaceProps) => {
   const canvas = useRef<HTMLCanvasElement>(null);
   const minimap = useRef<HTMLCanvasElement>(null);
   const gameRef = useRef<Game | null>(null);
@@ -432,7 +469,13 @@ export const Race = ({ platform: given, flavour = 'studio', exit, support, credi
   const [hud, setHud] = useState<HudState | null>(null);
   const platform = useMemo(() => given ?? createWebPlatform(), [given]);
   const touch = useTouch(platform.deviceType());
-  const [quality, setQuality] = useState<QualitySetting>(() => parseSetting(platform.storage.getItem(QUALITY_KEY)));
+  const [settings, store] = useSettings(platform);
+  const settingsRef = useRef(settings);
+  settingsRef.current = settings;
+  /** The settings panel over the pause menu. */
+  const [pauseSettings, setPauseSettings] = useState(false);
+  const [portalMuted, setPortalMuted] = useState(() => platform.muted());
+  useEffect(() => platform.onMutedChange(setPortalMuted), [platform]);
   /** Enter on the result card goes through the session (an ad break may come first), like the buttons. */
   const confirmRef = useRef<() => void>(() => gameRef.current?.confirm());
   /** Rounds started this visit: the rule card shows on the first stage-1 rounds. */
@@ -444,17 +487,18 @@ export const Race = ({ platform: given, flavour = 'studio', exit, support, credi
     void import('~/game/render/game').then(({ Game }) => {
       if (cancelled || !canvas.current) return;
       const facts = deviceFacts(platform.deviceType());
-      const setting = parseSetting(platform.storage.getItem(QUALITY_KEY));
+      const s = settingsRef.current;
       const g = new Game(canvas.current, {
         mode: 'race',
         onHud: setHud,
         onConfirm: () => confirmRef.current(),
         flavour,
-        tier: resolveTier(setting, facts),
-        autoTier: setting === 'auto',
+        tier: resolveTier(s.graphics.quality, facts),
+        autoTier: s.graphics.quality === 'auto',
         escPause,
-        camera: parseCamera(platform.storage.getItem(CAMERA_KEY)),
-        onCamera: (m) => platform.storage.setItem(CAMERA_KEY, m),
+        camera: s.camera.mode,
+        onCamera: (m) => store.set('camera', { mode: m }),
+        menu,
       });
       g.attachMinimap(minimap.current);
       gameRef.current = g;
@@ -466,22 +510,20 @@ export const Race = ({ platform: given, flavour = 'studio', exit, support, credi
       gameRef.current?.dispose();
       gameRef.current = null;
     };
-  }, [platform, flavour, escPause]);
+  }, [platform, flavour, escPause, menu, store]);
 
-  const pickQuality = useCallback(
-    (q: QualitySetting) => {
-      setQuality(q);
-      platform.storage.setItem(QUALITY_KEY, q);
-      gameRef.current?.setTier(resolveTier(q, deviceFacts(platform.deviceType())));
-    },
-    [platform],
-  );
+  useApplySettings(game, settings, platform);
+  const paused = !!hud?.paused;
+  useEffect(() => {
+    if (!paused) setPauseSettings(false);
+  }, [paused]);
 
   const onInput = useCallback((i: Parameters<Game['setTouch']>[0]) => gameRef.current?.setTouch(i), []);
 
-  const showResult = !!hud?.result && hud.endedFor >= (hud.result.reason === 'pedestrian' || hud.result.reason === 'crash' ? 2.2 : 1.2);
-  const showMeter = !!hud && hud.phase !== 'countdown' && (hud.inBay > 0 || hud.park > 0) && !hud.result;
-  const showHint = !touch && !!hud && hud.phase !== 'done' && hud.clock < 9 && !hud.paused && !showMeter;
+  const inMenu = !!hud?.menu;
+  const showResult = !inMenu && !!hud?.result && hud.endedFor >= (hud.result.reason === 'pedestrian' || hud.result.reason === 'crash' ? 2.2 : 1.2);
+  const showMeter = !inMenu && !!hud && hud.phase !== 'countdown' && (hud.inBay > 0 || hud.park > 0) && !hud.result;
+  const showHint = !inMenu && !touch && !!hud && hud.phase !== 'done' && hud.clock < 9 && !hud.paused && !showMeter;
   const session = useSession(game, hud, platform, showResult, testBreaks ? { firstAfterRounds: 1, firstAfterPlay: 5, interval: 30, hintEvery: 10, freeHintAfter: 3 } : undefined);
 
   confirmRef.current = () => void session.next(() => gameRef.current?.confirm());
@@ -491,17 +533,22 @@ export const Race = ({ platform: given, flavour = 'studio', exit, support, credi
   useEffect(() => {
     if (phase === 'countdown') setRoundsSeen((n) => n + 1);
   }, [phase]);
-  const onboard = !!hud && hud.stage.n === 1 && roundsSeen <= 2 && !hud.hinted;
+  const onboard = !inMenu && !!hud && hud.stage.n === 1 && roundsSeen <= 2 && !hud.hinted;
 
   return (
     <main className="fixed inset-0 overflow-hidden bg-ink-deep select-none" onPointerDown={() => gameRef.current?.unlockAudio()}>
       <canvas ref={canvas} className="absolute inset-0 h-full w-full touch-none" />
+      {settings.graphics.showFps && hud && (
+        <div className="bg-ink-deep/70 text-green pointer-events-none absolute z-[60] px-1.5 py-0.5 font-mono text-[11px] font-bold tabular-nums" style={{ bottom: 'calc(4px + env(safe-area-inset-bottom))', right: 'calc(4px + env(safe-area-inset-right))' }}>
+          {Math.round(hud.fps)} FPS
+        </div>
+      )}
       <div
         className="absolute z-10 flex flex-col gap-1"
         style={{
           left: 'calc(10px + env(safe-area-inset-left))',
           ...(touch ? { top: 'calc(112px + env(safe-area-inset-top))' } : { bottom: 'calc(10px + env(safe-area-inset-bottom))' }),
-          visibility: hud ? 'visible' : 'hidden',
+          visibility: hud && !inMenu ? 'visible' : 'hidden',
         }}
       >
         {hud && <MapTabs hud={hud} game={gameRef.current} />}
@@ -514,7 +561,21 @@ export const Race = ({ platform: given, flavour = 'studio', exit, support, credi
         </div>
       )}
 
-      {hud && (
+      {hud && inMenu && (
+        <MainMenu
+          hud={hud}
+          settings={settings}
+          store={store}
+          touch={touch}
+          tier={hud.tier}
+          portalMuted={portalMuted}
+          logoSrc={logoSrc}
+          onPlay={(n) => gameRef.current?.startRace(n)}
+          onSound={(k) => gameRef.current?.uiSound(k)}
+        />
+      )}
+
+      {hud && !inMenu && (
         <>
           <div className="pointer-events-none absolute z-10" style={{ top: 'calc(10px + env(safe-area-inset-top))', left: 'calc(10px + env(safe-area-inset-left))' }}>
             <div className="flex flex-col gap-2">
@@ -598,8 +659,14 @@ export const Race = ({ platform: given, flavour = 'studio', exit, support, credi
             className={`pointer-events-none absolute z-10 text-right ${touch ? 'top-[calc(112px+env(safe-area-inset-top))] portrait:top-[calc(152px+env(safe-area-inset-top))]' : ''}`}
             style={{ right: 'calc(14px + env(safe-area-inset-right))', ...(touch ? {} : { bottom: 'calc(14px + env(safe-area-inset-bottom))' }) }}
           >
-            <div className={`font-display text-cream tabular-nums drop-shadow-lg ${touch ? 'text-3xl' : 'text-5xl'}`}>{Math.round(hud.speed)}<span className="text-lilac ml-1 text-base">km/h</span></div>
-            <div className="font-display text-gold text-2xl drop-shadow-lg">{hud.gear}</div>
+            {hud.manual ? (
+              <Tacho m={hud.manual} speed={hud.speed} compact={touch} />
+            ) : (
+              <>
+                <div className={`font-display text-cream tabular-nums drop-shadow-lg ${touch ? 'text-3xl' : 'text-5xl'}`}>{Math.round(hud.speed)}<span className="text-lilac ml-1 text-base">km/h</span></div>
+                <div className="font-display text-gold text-2xl drop-shadow-lg">{hud.gear}</div>
+              </>
+            )}
             {(hud.inGarage || hud.level !== 0) && (
               <div className="font-display mt-1 inline-block px-2 py-0.5 text-lg" style={{ background: hex(hud.levelColor), color: hud.level === 2 ? '#15161a' : '#fff' }} aria-label={`Level ${hud.levelName}`}>
                 {hud.levelName}
@@ -616,30 +683,52 @@ export const Race = ({ platform: given, flavour = 'studio', exit, support, credi
           {showHint && (
             <div className="pointer-events-none absolute bottom-24 left-1/2 z-10 flex -translate-x-1/2 flex-wrap justify-center gap-x-4 gap-y-1 text-xs text-cream" style={{ animation: 'fadeIn 0.5s ease-out both' }}>
               <span className="bg-ink-deep/70 flex flex-wrap items-center justify-center gap-x-4 gap-y-1 px-3 py-1.5">
-                <span><Key k="W" /> <Key k="S" /> or <Key k="↑" /> <Key k="↓" /> gas · brake/reverse</span>
-                <span><Key k="A" /> <Key k="D" /> or <Key k="←" /> <Key k="→" /> steer</span>
-                <span><Key k="Space" /> handbrake</span>
-                <span><Key k="H" /> horn</span>
-                <span><Key k="C" /> camera</span>
-                <span><Key k={escPause ? 'Esc' : 'P'} /> pause</span>
+                <span><BoundKeys b={settings.controls.bindings} a="up" /> gas · <BoundKeys b={settings.controls.bindings} a="down" /> {hud.manual ? 'brake' : 'brake/reverse'}</span>
+                <span><BoundKeys b={settings.controls.bindings} a="left" /> <BoundKeys b={settings.controls.bindings} a="right" /> steer</span>
+                <span><BoundKeys b={settings.controls.bindings} a="handbrake" /> handbrake</span>
+                {hud.manual && <span><BoundKeys b={settings.controls.bindings} a="shiftUp" /> <BoundKeys b={settings.controls.bindings} a="shiftDown" /> shift up/down</span>}
+                <span><BoundKeys b={settings.controls.bindings} a="horn" /> horn</span>
+                <span><BoundKeys b={settings.controls.bindings} a="camera" /> camera</span>
+                <span>{escPause && <Key k="Esc" />} <BoundKeys b={settings.controls.bindings} a="pause" /> pause</span>
               </span>
             </div>
           )}
 
           {!touch && (
             <div className="text-lilac pointer-events-none absolute z-10 text-[11px]" style={{ top: 'calc(14px + env(safe-area-inset-top))', right: 'calc(14px + env(safe-area-inset-right))' }}>
-              <Key k={escPause ? 'Esc' : 'P'} /> pause
+              {escPause ? <Key k="Esc" /> : <BoundKeys b={settings.controls.bindings} a="pause" />} pause
             </div>
           )}
 
           {touch && !hud.paused && !hud.result && (
-            <TouchControls onInput={onInput} onCamera={() => gameRef.current?.cycleCamera()} onPause={() => gameRef.current?.setPaused(true)} fullscreen={platform.id === 'web' && !!exit} />
+            <TouchControls
+              onInput={onInput}
+              onCamera={() => gameRef.current?.cycleCamera()}
+              onPause={() => gameRef.current?.setPaused(true)}
+              onShift={hud.manual ? (d) => gameRef.current?.shift(d) : undefined}
+              fullscreen={platform.id === 'web' && !!exit}
+              size={settings.controls.touchSize}
+              opacity={settings.controls.touchOpacity}
+              leftHanded={settings.controls.leftHanded}
+            />
           )}
 
-          {hud.paused && (
-            <PauseMenu hud={hud} game={gameRef.current} onResume={() => session.setPaused(false)} quality={quality} onQuality={pickQuality} exit={exit} support={support} credit={credit} />
+          {hud.paused && !pauseSettings && (
+            <PauseMenu
+              hud={hud}
+              game={gameRef.current}
+              onResume={() => session.setPaused(false)}
+              onSettings={() => (gameRef.current?.uiSound('pick'), setPauseSettings(true))}
+              onQuit={menu ? () => gameRef.current?.enterMenu() : undefined}
+              exit={exit}
+              support={support}
+              credit={credit}
+            />
           )}
-          {showResult && <Result hud={hud} game={gameRef.current} session={session} exit={exit} support={support} />}
+          {hud.paused && pauseSettings && (
+            <SettingsPanel settings={settings} store={store} onBack={() => (gameRef.current?.uiSound('back'), setPauseSettings(false))} tier={hud.tier} touch={touch} portalMuted={portalMuted} kicker="Paused" />
+          )}
+          {showResult && <Result hud={hud} game={gameRef.current} session={session} exit={exit} support={support} onMenu={menu ? () => gameRef.current?.enterMenu() : undefined} />}
           {session.inBreak && <BreakCover kind={session.inBreak} />}
         </>
       )}

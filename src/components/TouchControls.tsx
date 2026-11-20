@@ -91,12 +91,22 @@ export const TouchControls = ({
   onCamera,
   onPause,
   fullscreen = true,
+  onShift,
+  size = 1,
+  opacity = 0.9,
+  leftHanded = false,
 }: {
   onInput: (input: Partial<Input>) => void;
   onCamera: () => void;
   onPause: () => void;
   /** Ask for fullscreen on the first touch (our own site only: portals provide fullscreen and forbid games asking for it). */
   fullscreen?: boolean;
+  /** The manual gearbox's + / − buttons (shown only when given). */
+  onShift?: (dir: 1 | -1) => void;
+  /** Settings: button size (scale), opacity, and the left-handed swap (pedals left, steering right). */
+  size?: number;
+  opacity?: number;
+  leftHanded?: boolean;
 }) => {
   const state = useRef<Record<Key, boolean>>({ left: false, right: false, gas: false, brake: false, hand: false, horn: false });
   const press = (k: Key, on: boolean) => {
@@ -111,22 +121,44 @@ export const TouchControls = ({
     });
   };
   useEffect(() => () => onInput({ steer: 0, throttle: 0, brake: 0, handbrake: false, horn: false }), [onInput]);
+  const steerSide = leftHanded ? 'right' : 'left';
+  const pedalSide = leftHanded ? 'left' : 'right';
   return (
     <div className="pointer-events-none absolute inset-0 z-20 select-none">
       <div
         className="pointer-events-auto absolute"
-        style={{ left: 'calc(16px + env(safe-area-inset-left))', bottom: 'calc(16px + env(safe-area-inset-bottom))', width: 160, height: 84 }}
+        style={{ [steerSide]: `calc(16px + env(safe-area-inset-${steerSide}))`, bottom: 'calc(16px + env(safe-area-inset-bottom))', width: 160, height: 84, transform: `scale(${size})`, transformOrigin: `bottom ${steerSide}`, opacity }}
       >
         <Pad id="left" label="◀" press={press} fullscreen={fullscreen} className="top-0 left-0 h-[84px] w-[76px] rounded-3xl text-3xl" />
         <Pad id="right" label="▶" press={press} fullscreen={fullscreen} className="top-0 right-0 h-[84px] w-[76px] rounded-3xl text-3xl" />
       </div>
       <div
         className="pointer-events-auto absolute"
-        style={{ right: 'calc(16px + env(safe-area-inset-right))', bottom: 'calc(16px + env(safe-area-inset-bottom))', width: 188, height: 150 }}
+        style={{ [pedalSide]: `calc(16px + env(safe-area-inset-${pedalSide}))`, bottom: 'calc(16px + env(safe-area-inset-bottom))', width: 188, height: 150, transform: `scale(${size})`, transformOrigin: `bottom ${pedalSide}`, opacity }}
       >
-        <Pad id="gas" label="Gas" press={press} fullscreen={fullscreen} tone="green" className="right-0 bottom-0 h-24 w-24 rounded-full text-lg" />
-        <Pad id="brake" label="Brake" press={press} fullscreen={fullscreen} className="bottom-0 left-0 h-[68px] w-[68px] rounded-full text-xs" />
-        <Pad id="hand" label="Hand" press={press} fullscreen={fullscreen} tone="gold" className="top-2 left-6 h-14 w-14 rounded-full text-[10px]" />
+        {/* Mirrored for the left hand: gas stays under the thumb at the outer edge. */}
+        <Pad id="gas" label="Gas" press={press} fullscreen={fullscreen} tone="green" className={`bottom-0 h-24 w-24 rounded-full text-lg ${leftHanded ? 'left-0' : 'right-0'}`} />
+        <Pad id="brake" label="Brake" press={press} fullscreen={fullscreen} className={`bottom-0 h-[68px] w-[68px] rounded-full text-xs ${leftHanded ? 'right-0' : 'left-0'}`} />
+        <Pad id="hand" label="Hand" press={press} fullscreen={fullscreen} tone="gold" className={`top-2 h-14 w-14 rounded-full text-[10px] ${leftHanded ? 'right-6' : 'left-6'}`} />
+        {onShift && (
+          <div className={`absolute bottom-0 flex flex-col gap-2 ${leftHanded ? '-right-[66px]' : '-left-[66px]'}`}>
+            {([1, -1] as const).map((d) => (
+              <button
+                key={d}
+                type="button"
+                aria-label={d === 1 ? 'Shift up' : 'Shift down'}
+                onPointerDown={(e) => {
+                  e.preventDefault();
+                  onShift(d);
+                }}
+                onContextMenu={(e) => e.preventDefault()}
+                className="font-display border-gold/70 bg-ink-deep/60 text-gold flex h-[52px] w-[52px] touch-none items-center justify-center rounded-xl border-2 text-2xl shadow-lg select-none active:scale-90 active:bg-gold active:text-ink-deep"
+              >
+                {d === 1 ? '+' : '−'}
+              </button>
+            ))}
+          </div>
+        )}
       </div>
       <div className="pointer-events-auto absolute flex gap-2" style={{ top: 'calc(10px + env(safe-area-inset-top))', right: 'calc(12px + env(safe-area-inset-right))' }}>
         <div className="relative h-11 w-11">
