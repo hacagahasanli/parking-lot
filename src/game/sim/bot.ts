@@ -13,7 +13,7 @@ import { hintOf } from './hint';
 import { levelY, sameStorey } from './levels';
 import { locate, roundCorners, routeLength, routeToDock, routeToSweep, shortestPath } from './nav';
 import { pedLimit } from './ped';
-import { botPace } from './stages';
+import { botPace, stageDef } from './stages';
 import { crosses, SIGHT } from './visibility';
 import { bodies, carBox, forwardSpeed, freeBays, nearSolids, racerInWay, steerLimit } from './step';
 import { DRIVE } from './constants';
@@ -83,8 +83,16 @@ export const sweepEdges = (lot: Lot, sw: Sweep): number[] => {
   return sw.dir > 0 ? ids : ids.reverse();
 };
 
-/** Aisles the bots search: every road and aisle except the entry, exit and the dead end. */
-const searchable = (lot: Lot) => lot.aisles.filter((a) => (a.kind === 'road' || a.kind === 'aisle') && !a.avoid && !a.closed);
+/**
+ * Aisles the bots search: the open roads and aisles (not the entry, exit or the dead end) that have a bay the free bay could be
+ * (`lot.eligible`, which covers the bay a car pulls out of too). A road with no such bay (the car park's connectors and ramps,
+ * the lot's avenue) is only driven through on the way, never swept for its own sake: in the car park those passes were a
+ * lap of a deck each.
+ */
+const searchable = (lot: Lot) => {
+  const holds = new Set(lot.eligible.map((id) => lot.bays[id].aisle));
+  return lot.aisles.filter((a) => (a.kind === 'road' || a.kind === 'aisle') && !a.avoid && !a.closed && holds.has(a.id));
+};
 
 /**
  * The order one driver searches in: it starts at a different aisle depending on its seat, then
@@ -100,9 +108,7 @@ export const planSweeps = (lot: Lot, car: Car, seed: number, plan: { from?: numb
   const pass1: Sweep[] = [];
   const pass2: Sweep[] = [];
   aisles.forEach((a, i) => {
-    // The road into the car park is only searched on the way in.
-    if (a.name === 'GATE') pass1.push({ aisle: a.id, dir: 1 });
-    else if (a.oneWay) pass1.push({ aisle: a.id, dir: 1 });
+    if (a.oneWay) pass1.push({ aisle: a.id, dir: 1 });
     else {
       const flip = bias(i) < 0.5;
       pass1.push({ aisle: a.id, dir: flip ? 1 : -1 });
@@ -198,6 +204,9 @@ export const createBrain = (world: World, car: Car, seed: number): BotBrain => {
 
 const wrap = (a: number) => Math.atan2(Math.sin(a), Math.cos(a));
 
+/** The deck the stage's intro card names for the free bay (stages 2 to 5: the deck that has just opened), or null. */
+export const toldDeck = (lot: Lot): number | null => (lot.stage !== undefined && lot.stage >= 2 && lot.stage <= 5 ? stageDef(lot.stage).newest : null);
+
 /**
  * The bots read the same board as you. When it gives away the part of the site (and then the decks),
  * a bot that has not found the bay moves the passes in that part to the front of its own order
@@ -205,7 +214,11 @@ const wrap = (a: number) => Math.atan2(Math.sin(a), Math.cos(a));
  */
 const readBoard = (state: GameState, world: World, car: Car, brain: BotBrain) => {
   const h = hintOf(state, world.lot);
-  const key = `${h.stage}:${h.decks.join(',')}`;
+  // In stages 2 to 5 the intro card has told everyone which deck the free bay is on (the one that has just opened). The bots
+  // take that in as a player does, so they head for that deck from GO and the board's two flickering decks add nothing.
+  const told = toldDeck(world.lot);
+  const decks = told === null ? h.decks : [told];
+  const key = told === null ? `${h.stage}:${h.decks.join(',')}` : `told:${told}`;
   if (key === brain.hintKey || h.stage === 0) return;
   brain.hintKey = key;
   const lot = world.lot;
@@ -221,11 +234,11 @@ const readBoard = (state: GameState, world: World, car: Car, brain: BotBrain) =>
     const inGarage = a.garage || a.name === 'GATE';
     if (h.zone === 'lot') return !inGarage;
     if (!inGarage) return false;
-    if (!h.decks.length || a.name === 'GATE') return true;
-    return decksOf(sw).some((d) => h.decks.includes(d));
+    if (!decks.length || a.name === 'GATE') return true;
+    return decksOf(sw).some((d) => decks.includes(d));
   };
   // Each driver tries one of the two flickering decks first (not the same one for everybody).
-  const first = h.decks.length ? h.decks[(car.id + state.seed) % h.decks.length] : null;
+  const first = decks.length ? decks[(car.id + state.seed) % decks.length] : null;
   const preferred = (sw: Sweep) => wanted(sw) && (first === null || lot.aisles[sw.aisle].name === 'GATE' || decksOf(sw).includes(first));
   // A hint for the open lot only moves the drivers who are headed for the car park; the others are already searching.
   if (h.zone === 'lot' && !brain.spotted && wanted(brain.sweeps[brain.sweep % brain.sweeps.length])) return;
@@ -268,7 +281,7 @@ export const canSee = (world: World, car: Car, bayId: number) => {
   const dx = bay.x - car.x;
   const dz = bay.z - car.z;
   const d = Math.hypot(dx, dz);
-  if (d > SIGHT.range) return false;
+  if (d > SIGHT.notice) return false;
   // Only the bay on the car's own deck: one floor up is straight overhead, behind a slab.
   if (Math.abs(bay.y - car.y) > 1.2) return false;
   const inView = d < 4 || Math.abs(wrap(Math.atan2(dx, dz) - car.h)) < SIGHT.cone;
@@ -280,12 +293,45 @@ export const canSee = (world: World, car: Car, bayId: number) => {
   return true;
 };
 
+/** How far ahead (m) the start of a bay's swing must still be for a car already in the lane to turn in without going round. */
+export const JOIN_AHEAD = 4;
+
+/**
+ * A car that spots the bay may already be past the approach's dock point (the dock sits about 11 m before the bay, and a bay
+ * across the aisle is noticed at most about 16 m before it), but still short of where the swing in starts. Then it joins the bay's own path from
+ * where it is (the same goes for a car still short of the dock: it is in the lane already). Without this the route to the
+ * dock was a full lap of the deck (or the lot) every time. Returns the route (the car, then the tail), or null when the car
+ * is not in that lane heading along it, or has gone too far.
+ */
+export const lateJoin = (world: World, car: Car, ap: { edge: number; s: number; tail: Vec[] }): Vec[] | null => {
+  const g = world.lot.graph;
+  const e = g.edges[ap.edge];
+  if (Math.sin(car.h) * e.ux + Math.cos(car.h) * e.uz < 0.8) return null;
+  const here = locate(g, car.x, car.z, car.h, true, car.y);
+  if (here.edge !== ap.edge) return null;
+  // Still in the lane (a car that has swung wide plans the long way).
+  const across = Math.abs((car.x - e.a.x) * e.uz - (car.z - e.a.z) * e.ux);
+  if (across > 2.2) return null;
+  const sAt = (p: Vec) => (p.x - e.a.x) * e.ux + (p.z - e.a.z) * e.uz;
+  if (sAt(ap.tail[0]) - sAt(car) < JOIN_AHEAD) return null;
+  return [{ x: car.x, z: car.z }, ...ap.tail];
+};
+
 /** From where the car is, plan the way to the bay it has just seen: the quickest of the bay's approaches. */
 const spotRoute = (world: World, car: Car, bayId: number): Vec[] | null => {
   const bay = world.lot.bays[bayId];
   let best: Vec[] | null = null;
   let bestLen = Infinity;
   for (const ap of bay.approach) {
+    const late = lateJoin(world, car, ap);
+    if (late) {
+      const len = routeLength(late);
+      if (len < bestLen) {
+        bestLen = len;
+        best = late;
+      }
+      continue;
+    }
     const r = routeToDock(world.lot.graph, car, ap.edge, ap.s);
     if (!r) continue;
     const len = routeLength(r);
@@ -327,6 +373,13 @@ const along = (route: Vec[], seg: number, t: number, dist: number): Vec => {
   return route[route.length - 1];
 };
 
+/**
+ * How a bot paces itself, as shares of its own cruising speed: slower while it looks along the aisle it is searching, brisker on
+ * the way to it (the car park's decks are a long way round: a car that drove the whole way at search pace reached the roof only
+ * as the round ran out). `lateral` is the sideways acceleration (m/s²) it allows itself in a bend, about half of what the tyres give.
+ */
+export const PACE = { search: 0.82, transit: 1.2, lateral: 4.5 } as const;
+
 /** The fastest the car should take the bends in the next stretch of route: v = sqrt(lateral grip / curvature). */
 const curveSpeed = (route: Vec[], seg: number, t: number, vF: number) => {
   const reach = 6 + Math.abs(vF) * 1.4;
@@ -343,7 +396,7 @@ const curveSpeed = (route: Vec[], seg: number, t: number, vF: number) => {
     }
   }
   // worst is radians per metre of route (steps of 2 m).
-  return worst < 0.02 ? 99 : Math.max(2.4, Math.sqrt(3.4 / worst));
+  return worst < 0.02 ? 99 : Math.max(2.4, Math.sqrt(PACE.lateral / worst));
 };
 
 const remaining = (route: Vec[], seg: number, p: Vec) => {
@@ -547,7 +600,9 @@ export const botInput = (state: GameState, world: World, car: Car, brain: BotBra
   const steer = Math.max(-1, Math.min(1, wheel / lim + (lineUp ? 0 : Math.sin(state.t * 0.7 + brain.wobble) * 0.04)));
 
   // Speed: slow for the sharpest bend coming up (the tyres can only give so much sideways grip) and for the stop at the end.
-  const cruise = brain.spotted ? brain.cruise : brain.cruise * 0.82;
+  const sweepAisle = brain.spotted ? -1 : brain.sweeps[brain.sweep % brain.sweeps.length].aisle;
+  const searching = !brain.spotted && aisleAt(world.lot, car.x, car.z, car.y) === sweepAisle;
+  const cruise = brain.cruise * (brain.spotted ? 1 : searching ? PACE.search : PACE.transit);
   let want = Math.min(cruise, curveSpeed(route, brain.seg, s.t, vF));
   want = Math.min(want, Math.max(lineUp ? 1.1 : 2.2, Math.sqrt(2 * 2.4 * Math.max(0, toGo - 0.2))));
   // Coming up to the bay: slow, and slower still for the last turn in (the bay is tight, with a car on each side).
@@ -555,7 +610,9 @@ export const botInput = (state: GameState, world: World, car: Car, brain: BotBra
   if (lineUp) want = Math.min(want, 2);
   // How deep into the bay along its axis (0 at the centre).
   const depth = bay ? (car.x - bay.x) * bay.ax + (car.z - bay.z) * bay.az : 0;
-  if (lineUp && (car.inBay === 1 || depth > 0.1) && car.bay === brain.target) want = 0;
+  // Stop once wholly inside and not short of the middle. Stopping the moment the last corner crossed the line left a car that
+  // came in a little crooked rocking on that line (in, brake, rolls back out, creep, in...) and never held still long enough.
+  if (lineUp && ((car.inBay === 1 && depth > -0.3) || depth > 0.1) && car.bay === brain.target) want = 0;
   // Never faster than it could stop short of something that would put it out.
   if (state.t - brain.roomAt > 0.04) {
     brain.roomAt = state.t;

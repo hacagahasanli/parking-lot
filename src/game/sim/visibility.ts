@@ -4,8 +4,13 @@
  */
 import type { Box, Lot } from './lot';
 
-/** How far a driver can make out an empty bay, and how wide its view is. */
-export const SIGHT = { range: 14, cone: (75 * Math.PI) / 180, peek: 7, react: 0.35 } as const;
+/**
+ * How far a driver can make out an empty bay, and how wide its view is. `range` is what choosing the free bay counts on (every
+ * candidate can be made out from within it); `notice` is how far a bot driving down the aisle really notices one. It is a little
+ * further, because a bay seen any later is already too close to swing into from the far side of the aisle (the swing starts
+ * about 11 m before the bay), and the bot would have to go round the deck again.
+ */
+export const SIGHT = { range: 14, notice: 18, cone: (75 * Math.PI) / 180, peek: 7, react: 0.35 } as const;
 
 const wrap = (a: number) => Math.atan2(Math.sin(a), Math.cos(a));
 

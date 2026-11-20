@@ -185,7 +185,7 @@ describe('bots in every stage', () => {
       for (let i = 0; i < 60 * LIMIT && state.phase !== 'done'; i++) {
         step(state, world, state.cars.map((c) => botInput(state, world, c, brains[c.id])));
         for (const b of brains) {
-          for (const e of b.outbox.splice(0)) if (e.type === 'spot') expect(e.dist).toBeLessThanOrEqual(SIGHT.range + 0.01);
+          for (const e of b.outbox.splice(0)) if (e.type === 'spot') expect(e.dist).toBeLessThanOrEqual(SIGHT.notice + 0.01);
           if (!b.spotted) {
             expect(b.target).toBe(-1);
             for (const id of [state.target, state.extra].filter((x) => x >= 0)) for (const pt of approaches(id)) expect(b.route.some((r) => r.x === pt.x && r.z === pt.z)).toBe(false);

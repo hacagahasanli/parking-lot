@@ -352,7 +352,7 @@ describe('a round', () => {
       }
     }
     // Nobody saw it from further than their eyes reach, or from the start line.
-    for (const d of spots) expect(d).toBeLessThanOrEqual(SIGHT.range + 0.01);
+    for (const d of spots) expect(d).toBeLessThanOrEqual(SIGHT.notice + 0.01);
   }, 60000);
 });
 
