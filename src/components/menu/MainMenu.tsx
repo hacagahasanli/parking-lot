@@ -43,7 +43,7 @@ const Item = ({ id, label, sub, onPick, primary = false, delay, autoFocus = fals
       autoFocus={autoFocus}
       onClick={onPick}
       className={`menu-item font-display flex w-full -skew-x-[8deg] items-baseline gap-3 text-left uppercase outline-none ${
-        primary ? 'bg-gold text-ink-deep hover:!text-ink-deep focus-visible:!text-ink-deep min-h-16 px-5 py-3 text-4xl shadow-[0_10px_40px_rgba(255,210,63,0.25)] sm:text-5xl' : 'text-cream min-h-12 px-5 py-2 text-xl sm:text-2xl'
+        primary ? 'bg-gold text-ink-deep hover:!text-ink-deep focus-visible:!text-ink-deep min-h-16 px-5 py-3 text-4xl [@media(max-height:500px)]:min-h-11 [@media(max-height:500px)]:py-1 [@media(max-height:500px)]:text-3xl shadow-[0_10px_40px_rgba(255,210,63,0.25)] sm:text-5xl' : 'text-cream min-h-12 px-5 py-2 text-xl sm:text-2xl [@media(max-height:500px)]:min-h-9 [@media(max-height:500px)]:py-0.5 [@media(max-height:500px)]:text-lg'
       }`}
     >
       <span className="inline-block skew-x-[8deg]">{label}</span>
@@ -228,10 +228,12 @@ export const MainMenu = ({ hud, settings, store, touch, tier, portalMuted, logoS
       >
         <div className="flex flex-1 flex-col justify-center px-6 pt-6 sm:px-10 [@media(max-height:500px)]:pt-3 portrait:max-sm:justify-between portrait:max-sm:pt-[calc(16px+env(safe-area-inset-top))]">
           <header style={{ animation: 'menuIn 0.6s cubic-bezier(0.2,0.8,0.2,1) both' }}>
-            <Led />
+            <div className="[@media(max-height:500px)]:hidden">
+              <Led />
+            </div>
             <h1 className="mt-4 [@media(max-height:500px)]:mt-2">
               {logoSrc ? (
-                <img src={logoSrc} alt={GAME_TITLE} className="h-auto w-full max-w-[460px] drop-shadow-[0_12px_30px_rgba(0,0,0,0.6)] [@media(max-height:500px)]:max-w-[260px] portrait:max-sm:max-w-[300px]" draggable={false} />
+                <img src={logoSrc} alt={GAME_TITLE} className="h-auto w-full max-w-[460px] drop-shadow-[0_12px_30px_rgba(0,0,0,0.6)] [@media(max-height:500px)]:max-w-[210px] portrait:max-sm:max-w-[300px]" draggable={false} />
               ) : (
                 <span className="font-display text-cream block -skew-x-6 text-6xl leading-none">
                   Parking <span className="text-gold">Lot</span>
