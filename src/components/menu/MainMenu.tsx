@@ -241,7 +241,7 @@ export const MainMenu = ({ hud, settings, store, touch, tier, portalMuted, logoS
             <p className="text-cream/85 mt-3 text-sm font-semibold tracking-wide sm:text-base [@media(max-height:500px)]:hidden">Four company cars. One free space. Touch nothing.</p>
           </header>
 
-          <nav aria-label="Main menu" className="mt-8 [@media(max-height:500px)]:mt-3 portrait:max-sm:bg-ink-deep/80 portrait:max-sm:-mx-6 portrait:max-sm:mt-0 portrait:max-sm:px-6 portrait:max-sm:pt-4 portrait:max-sm:pb-2 portrait:max-sm:backdrop-blur-md" style={{ animation: touch ? 'sheetIn 0.45s cubic-bezier(0.2,0.8,0.2,1) both' : undefined }}>
+          <nav aria-label="Main menu" className="mt-8 [@media(max-height:500px)]:mt-3 portrait:max-sm:bg-ink-deep/80 portrait:max-sm:-mx-6 portrait:max-sm:mt-0 portrait:max-sm:px-6 portrait:max-sm:pt-4 portrait:max-sm:pb-2 portrait:max-sm:backdrop-blur-md portrait:max-sm:[animation:sheetIn_0.45s_cubic-bezier(0.2,0.8,0.2,1)_both]">
             <div className="kerb mb-3 hidden h-1 portrait:max-sm:block" aria-hidden="true" />
             <ul className="flex flex-col gap-1.5 [@media(max-height:500px)]:gap-0.5">
               <Item id="play" label="Play" sub={stage ? `Stage ${current} · ${stage.name.split(' — ')[1] ?? stage.name}` : undefined} primary delay={0.08} autoFocus={initialView === 'root'} onPick={() => (onSound('pick'), onPlay())} />
