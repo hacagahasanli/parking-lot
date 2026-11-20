@@ -1,6 +1,7 @@
 import type { Flavour } from './flavour';
 import type { ManualGear, ShiftResult } from './gearbox';
 import type { Lot, Shape } from './lot';
+import type { Rules } from './campaign';
 
 /** One frame of a driver's controls. Keyboard, touch and bots all produce this. */
 export interface Input {
@@ -14,6 +15,8 @@ export interface Input {
   horn: boolean;
   /** Manual gearbox only: shift one gear up (1) or down (-1) this step (one key press is one step's shift). */
   shift?: 1 | -1;
+  /** The steering is on/off (keys or buttons, not a stick): the wheel turns slower at a crawl for fine corrections. */
+  fine?: boolean;
 }
 
 export const NO_INPUT: Input = { throttle: 0, brake: 0, steer: 0, handbrake: false, horn: false };
@@ -76,6 +79,9 @@ export interface Car {
   bay: number;
   /** 0..1 kick from the last speed bump, decaying; the renderer pitches the body with it. */
   jolt: number;
+  /** Light touches (a campaign level goes on after one; it costs the third star), and the race clock of the last one. */
+  grazes: number;
+  grazeAt: number;
 }
 
 /** What a shopper is doing. */
@@ -166,6 +172,10 @@ export type GameEvent =
   | { type: 'recover'; car: number }
   /** The parked car starts to pull out, and the bay it leaves is free from now on. */
   | { type: 'leave'; bay: number; lvl: number; garage: boolean }
+  /** A light touch by `car` (a campaign level goes on; the clean star is lost). */
+  | { type: 'graze'; car: number; speed: number; x: number; z: number }
+  /** A chain level: `car` parked in bay `bay`, leg `leg` of the chain, scoring `precision`; the next bay is the target now. */
+  | { type: 'leg'; car: number; leg: number; bay: number; precision: number; time: number }
   | { type: 'vacated'; bay: number };
 
 export interface GameState {
@@ -200,6 +210,16 @@ export interface GameState {
   alarms: Record<number, number>;
   events: GameEvent[];
   seed: number;
+  /** How parking and touching are judged (a campaign level's rules; the race's own when left out). */
+  rules?: Rules;
+  /** A campaign level: its bays in order (a chain has more than one), the one you are on, and the precision of each bay parked. */
+  targets?: number[];
+  leg?: number;
+  legPrecision?: number[];
+  /** An unpark level: drive into this circle. */
+  exit?: { x: number; z: number; r: number; lvl: number };
+  /** A solo level waits on the start line until you press gas or brake (no countdown); false once you have. */
+  waiting?: boolean;
 }
 
 /** Fixed per round: the lot and the colliders (the parked cars with the target bay left empty). */
@@ -220,4 +240,6 @@ export interface World {
   trolley: boolean[];
   /** Which solids are near which 12 m cell (a solid is listed in every cell its bounding circle plus a car's reach touches): `crashes` only tests those. */
   grid: Map<number, number[]>;
+  /** How brisk the bots are (a campaign level's own pace; by stage when left out, see `botPace`). */
+  pace?: { cruise: number; launch: number };
 }

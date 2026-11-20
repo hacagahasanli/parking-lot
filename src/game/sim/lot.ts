@@ -242,6 +242,8 @@ export interface Lot {
   shops: Shop[];
   /** Bays that can be the target this round. */
   candidates: number[];
+  /** A campaign level's extra cones (also in `solids`), for the renderer to stand a cone on each. */
+  extras?: Circle[];
 }
 
 export const BAY = {

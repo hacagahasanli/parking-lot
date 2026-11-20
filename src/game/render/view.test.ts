@@ -1,4 +1,4 @@
-import { CAMERA_MODES, parkFollow, parkPose, parseCamera } from './view';
+import { CAMERA_MODES, PRECISION, parkFollow, parkPose, parseCamera, precisionPose, styleFov } from './view';
 
 describe('camera views', () => {
   it('defaults to the parking view and remembers chase; old or broken saves fall back to the parking view', () => {
@@ -36,5 +36,24 @@ describe('camera views', () => {
   it('turns calmly: slower at a crawl, capped when fast', () => {
     expect(parkFollow(0)).toBeLessThan(parkFollow(5));
     expect(parkFollow(40)).toBeLessThanOrEqual(1.8);
+  });
+
+  it('the precision view looks nearly straight down through a long lens, and shows about as much ground as the classic view', () => {
+    for (const portrait of [false, true]) {
+      const p = precisionPose(5, 0, 5, 0.7, 0, portrait);
+      const flat = Math.hypot(p.look[0] - p.eye[0], p.look[2] - p.eye[2]);
+      expect((Math.atan2(p.eye[1] - p.look[1], flat) * 180) / Math.PI).toBeCloseTo(PRECISION.pitch, 0);
+      const ground = (pose: typeof p, fov: number) => Math.hypot(pose.eye[0] - pose.look[0], pose.eye[1] - pose.look[1], pose.eye[2] - pose.look[2]) * Math.tan(((fov / 2) * Math.PI) / 180);
+      const classic = parkPose(5, 0, 5, 0.7, 0, portrait);
+      const ratio = ground(p, styleFov('precision', portrait)) / ground(classic, styleFov('classic', portrait));
+      expect(ratio).toBeGreaterThan(0.85);
+      expect(ratio).toBeLessThan(1.25);
+    }
+  });
+
+  it('eases in for the last metres of a park, and top-down is straight down', () => {
+    expect(precisionPose(0, 0, 0, 0, 0, false, 1).eye[1]).toBeLessThan(precisionPose(0, 0, 0, 0, 0, false, 0).eye[1]);
+    const t = precisionPose(0, 0, 0, 0, 0, false, 0, true);
+    expect(Math.hypot(t.eye[0] - t.look[0], t.eye[2] - t.look[2])).toBeLessThan(0.5);
   });
 });

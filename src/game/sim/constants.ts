@@ -49,6 +49,12 @@ export const DRIVE = {
   /** How fast the wheel turns towards lock (rad/s, about 0.3 s centre to lock), and back to centre when let go. */
   steerRate: 2.3,
   steerReturn: 3.2,
+  /**
+   * On/off steering (keys, the phone's arrow buttons) turns the wheel slower when crawling, so a tap is a small correction:
+   * this rate at a standstill, rising to `steerRate` by `fineSpeed` (m/s). Analogue sticks and the bots keep `steerRate`.
+   */
+  steerRateFine: 1.3,
+  fineSpeed: 2,
   /** Forward engine: acceleration at a standstill, and top speed (≈ 38 km/h). */
   accel: 2.8,
   topSpeed: 10.5,
