@@ -1006,6 +1006,8 @@ export class Game {
       this.fpsAt = now;
     }
     this.pollPad();
+    // The mix follows the screen: the menu (and the home page) is a quiet backdrop, a pause drops the idling engines.
+    this.sfx.setScene(!this.racing ? 'menu' : this.paused || this.frozen ? 'paused' : 'race');
     if (this.opts.autoTier && !this.paused && !this.frozen && this.state.phase === 'race' && this.tier !== 'low' && this.fpsGuard.frame(dt)) {
       this.setTier(lowerTier(this.tier));
       this.opts.onTier?.(this.tier);
