@@ -2,6 +2,7 @@
  * The rules: one fixed 1/60 s step of every car, the crashes between them, and who parked first.
  * Pure functions over plain objects, so the same code can later run on a host for online play.
  */
+import { manualDrive, shift } from './gearbox';
 import { CAR, CONTACT, DRIVE, DRIVERS, DT, IMPACT, PARK, RACE } from './constants';
 import { collide, corners, insideBox, nearShape } from './collide';
 import { bayShape, buildLot, rng } from './lot';
@@ -102,6 +103,11 @@ export const makeCar = (id: number, name: string, color: number, bot: boolean, x
   w: 0,
   steer: 0,
   gear: 1,
+  box: 'auto',
+  mgear: 1,
+  rpm: 0,
+  limiter: false,
+  shifted: null,
   throttle: 0,
   braking: false,
   handbrake: false,
@@ -136,6 +142,8 @@ export interface RoundOptions {
   maxTime?: number;
   /** The words of the round (driver names and radio lines); default 'studio'. */
   flavour?: Flavour;
+  /** The people's cars use the manual gearbox (the player's option; bots always drive the automatic). They start in 1st. */
+  manual?: boolean;
 }
 
 /**
@@ -165,7 +173,9 @@ export const createRound = (fullLot: Lot, opts: RoundOptions): { state: GameStat
   const target = opts.target ?? pickTarget(lot, rand);
   const cars: Car[] = opts.bots.map((bot, i) => {
     const s = lot.starts[i];
-    return makeCar(i, opts.names?.[i] ?? (i > 0 ? COPY[opts.flavour ?? 'studio'].rivals[i - 1] : undefined) ?? DRIVERS[i].name, DRIVERS[i].color, bot, s.x, s.z, s.h);
+    const car = makeCar(i, opts.names?.[i] ?? (i > 0 ? COPY[opts.flavour ?? 'studio'].rivals[i - 1] : undefined) ?? DRIVERS[i].name, DRIVERS[i].color, bot, s.x, s.z, s.h);
+    if (opts.manual && !bot) car.box = 'manual';
+    return car;
   });
   // One parked car will pull out part-way through the round, and the bay it leaves is free too.
   // In the open lot it is an ordinary car in an angled bay and backs straight out; in the car park it
@@ -257,29 +267,43 @@ export const drive = (c: Car, input: Input, dt = DT) => {
   const lim = steerLimit(vF);
   c.steer = Math.max(-lim, Math.min(lim, c.steer));
 
-  // Automatic gearbox: S at a standstill selects reverse, W at a standstill selects drive.
-  if (c.gear === 1 && input.brake > 0 && vF < 0.4 && input.throttle === 0) c.gear = -1;
-  else if (c.gear === -1 && input.throttle > 0 && vF > -0.4) c.gear = 1;
-
   let engine = 0;
   let resist = DRIVE.roll + DRIVE.drag * vF * vF;
   c.braking = false;
-  if (c.gear === 1) {
-    if (input.throttle > 0) engine = input.throttle * DRIVE.accel * Math.max(0, 1 - (Math.max(0, vF) / DRIVE.topSpeed) ** 2);
-    if (input.brake > 0) {
-      resist += input.brake * DRIVE.brake;
-      c.braking = true;
-    }
+  c.shifted = null;
+  if (c.box === 'manual') {
+    // The player's manual gearbox (gearbox.ts): the gas drives the gear you are in, the brake only brakes.
+    if (input.shift) c.shifted = shift(c, input.shift, vF);
+    const m = manualDrive(c, input.throttle, input.brake, vF);
+    engine = m.engine;
+    resist += m.resist;
+    c.braking = input.brake > 0;
+    c.gear = c.mgear === -1 ? -1 : 1;
+    c.rpm = m.rpm;
+    c.limiter = m.limiter;
+    c.throttle = input.throttle;
   } else {
-    if (input.brake > 0) engine = -input.brake * DRIVE.reverseAccel * Math.max(0, 1 - Math.max(0, -vF) / DRIVE.reverseTop);
-    if (input.throttle > 0) {
-      resist += input.throttle * DRIVE.brake;
-      c.braking = true;
+    // Automatic gearbox: S at a standstill selects reverse, W at a standstill selects drive.
+    if (c.gear === 1 && input.brake > 0 && vF < 0.4 && input.throttle === 0) c.gear = -1;
+    else if (c.gear === -1 && input.throttle > 0 && vF > -0.4) c.gear = 1;
+
+    if (c.gear === 1) {
+      if (input.throttle > 0) engine = input.throttle * DRIVE.accel * Math.max(0, 1 - (Math.max(0, vF) / DRIVE.topSpeed) ** 2);
+      if (input.brake > 0) {
+        resist += input.brake * DRIVE.brake;
+        c.braking = true;
+      }
+    } else {
+      if (input.brake > 0) engine = -input.brake * DRIVE.reverseAccel * Math.max(0, 1 - Math.max(0, -vF) / DRIVE.reverseTop);
+      if (input.throttle > 0) {
+        resist += input.throttle * DRIVE.brake;
+        c.braking = true;
+      }
     }
+    c.throttle = c.gear === 1 ? input.throttle : input.brake;
   }
   c.handbrake = input.handbrake;
   if (input.handbrake) resist += DRIVE.handbrakeDecel;
-  c.throttle = c.gear === 1 ? input.throttle : input.brake;
 
   vF += engine * dt;
   // A ramp: gravity along the slope slows the climb and speeds the descent (only once rolling, so a stopped car holds still).
@@ -659,7 +683,7 @@ export const step = (state: GameState, world: World, inputs: Input[]) => {
     }
     // Before GO the cars hold on the brake (you can still rev); after the end, the losers coast.
     if (state.phase === 'countdown') {
-      drive(car, { throttle: 0, brake: 0, steer: input?.steer ?? 0, handbrake: true, horn: input?.horn ?? false });
+      drive(car, { throttle: 0, brake: 0, steer: input?.steer ?? 0, handbrake: true, horn: input?.horn ?? false, shift: input?.shift });
       car.throttle = input?.throttle ?? 0;
     } else if (car.parkedAt !== null) {
       drive(car, { throttle: 0, brake: 0, steer: 0, handbrake: true, horn: false });

@@ -1,4 +1,5 @@
 import type { Flavour } from './flavour';
+import type { ManualGear, ShiftResult } from './gearbox';
 import type { Lot, Shape } from './lot';
 
 /** One frame of a driver's controls. Keyboard, touch and bots all produce this. */
@@ -11,6 +12,8 @@ export interface Input {
   steer: number;
   handbrake: boolean;
   horn: boolean;
+  /** Manual gearbox only: shift one gear up (1) or down (-1) this step (one key press is one step's shift). */
+  shift?: 1 | -1;
 }
 
 export const NO_INPUT: Input = { throttle: 0, brake: 0, steer: 0, handbrake: false, horn: false };
@@ -33,8 +36,18 @@ export interface Car {
   w: number;
   /** Front wheel angle (rad); positive is to the right. */
   steer: number;
-  /** 1 drive, -1 reverse. Switches by itself like an automatic. */
+  /** 1 drive, -1 reverse. Switches by itself like an automatic (with the manual box it follows `mgear`: -1 only in R). */
   gear: 1 | -1;
+  /** 'auto' (every bot, and the player by default) or 'manual' (the player's option, see gearbox.ts). */
+  box: 'auto' | 'manual';
+  /** The manual gear: -1 R, 0 N, 1..4 (kept at 1 with the automatic). */
+  mgear: ManualGear;
+  /** Engine revs from the manual gearbox (0 with the automatic: the renderer works its own out). */
+  rpm: number;
+  /** The manual engine is on the rev limiter this step. */
+  limiter: boolean;
+  /** What the last shift request did this step ('up', 'down', 'denied'), for the sound; null when there was none. */
+  shifted: ShiftResult | null;
   /** What the pedals did this step, for lights and sound. */
   throttle: number;
   braking: boolean;
