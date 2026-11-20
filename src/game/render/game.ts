@@ -1105,8 +1105,8 @@ export class Game {
       el.style.opacity = '0';
       return;
     }
-    // Push the direction out to the edge (a margin in from it), keeping its angle.
-    const k = 1 / Math.max(Math.abs(nx) / 0.86, Math.abs(ny) / 0.8, 1e-6);
+    // Push the direction out to the edge (a margin in from it, a deeper one at the top where the HUD sits), keeping its angle.
+    const k = 1 / Math.max(Math.abs(nx) / 0.86, ny > 0 ? ny / 0.6 : -ny / 0.72, 1e-6);
     nx *= k;
     ny *= k;
     const W = el.parentElement?.clientWidth ?? window.innerWidth;
