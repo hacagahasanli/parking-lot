@@ -16,7 +16,7 @@ export const metadata: Metadata = {
   creator: STUDIO_NAME,
   description: 'Four company cars. One free space. No insurance. First to park wins.',
   appleWebApp: { capable: true, title: 'Parking Lot', statusBarStyle: 'black-translucent' },
-  metadataBase: new URL('https://parking-lot.vercel.app'),
+  metadataBase: new URL('https://parkinglot.nalbakigames.com'),
   icons: {
     icon: [
       { url: '/favicon.ico', sizes: '48x48' },

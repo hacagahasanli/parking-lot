@@ -8,7 +8,7 @@
 
 A game by **[Nalbaki Games](https://nalbakigames.com)**.
 
-### [▶ Play (coming: parking-lot.vercel.app)](https://parking-lot.vercel.app) · [Studio](https://nalbakigames.com) · [Floor 42](https://floor-42.vercel.app) · [Last Commit Standing](https://last-commit-standing.vercel.app)
+### [▶ Play](https://parkinglot.nalbakigames.com) · [Studio](https://nalbakigames.com) · [Floor 42](https://floor42.nalbakigames.com) · [Last Commit Standing](https://lastcommit.nalbakigames.com)
 
 </div>
 
@@ -16,7 +16,7 @@ A careful-driving race in the browser, set in a supermarket car park at the end 
 line up at the entrance. The lot is full except for one bay, and everyone wants it. First car
 parked and still wins. Touching another car, a post or a shopper puts you out of the round, and parking crooked does not count.
 
-Status: the play link is **coming**; it will be deployed on Vercel at `parking-lot.vercel.app`.
+Play it at [parkinglot.nalbakigames.com](https://parkinglot.nalbakigames.com).
 Today you play offline, you against 3 bots. Online play is next.
 
 ## How a round goes
