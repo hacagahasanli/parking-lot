@@ -99,12 +99,12 @@ export const CAMPAIGN: LevelDef[] = [
   {
     // EA aisle, the south row, its neighbours emptied: a wide left turn from the far lane.
     id: 'first-bay', n: 1, chapter: 1, name: 'First bay', teaches: 'Gas, steer, stop inside the lines and hold still.',
-    type: 'solo', stage: 1, spawn: at(14, -8.7, E), target: [97], facing: 'any', slack: 0.3,
+    type: 'solo', stage: 1, spawn: at(21, -8.7, E), target: [97], facing: 'any', slack: 0.3,
     bays: { 94: 'free', 95: 'free', 96: 'free', 98: 'free', 99: 'free', 100: 'free' }, par: 18, limit: 60,
   },
   {
     id: 'neighbours', n: 2, chapter: 1, name: 'Neighbours', teaches: 'The same turn with cars on both sides. Leave room each side.',
-    type: 'solo', stage: 1, spawn: at(20, -8.7, E), target: [100], facing: 'any', slack: 0.25, par: 18, limit: 60,
+    type: 'solo', stage: 1, spawn: at(28, -8.7, E), target: [100], facing: 'any', slack: 0.25, par: 18, limit: 60,
   },
   {
     // The angled row north of the main road, from the westbound lane.
