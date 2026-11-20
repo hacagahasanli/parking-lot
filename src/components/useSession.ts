@@ -22,8 +22,8 @@ export interface Session {
   hintOffer: HintOffer;
   /** A short message after the hint offer ("Hint ready…", "No video right now"). */
   notice: string | null;
-  /** Leave the result card: the next stage, a retry, or a stage chip (a midgame ad may come first). */
-  next: (action: () => void) => Promise<void>;
+  /** Leave the result card with Next stage or Retry (a midgame ad may come first); `noBreak` for a menu-like choice (a stage chip). */
+  next: (action: () => void, opts?: { noBreak?: boolean }) => Promise<void>;
   /** The rewarded (or free) hint: on success the next round starts with the hint circle. */
   takeHint: () => Promise<void>;
   /** Pause/resume through the menu (tells the platform). */
@@ -97,9 +97,9 @@ export const useSession = (game: Game | null, hud: HudState | null, platform: Pl
   const freeze = useCallback(() => game?.setFrozen(true), [game]);
 
   const next = useCallback(
-    async (action: () => void) => {
+    async (action: () => void, opts: { noBreak?: boolean } = {}) => {
       if (inBreak) return;
-      if (platform.ads && !adsOff.current && sched.current.shouldBreak(now())) {
+      if (!opts.noBreak && platform.ads && !adsOff.current && sched.current.shouldBreak(now())) {
         setInBreak('midgame');
         const r = await platform.commercialBreak({ onStart: freeze });
         game?.setFrozen(false);

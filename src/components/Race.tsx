@@ -288,7 +288,7 @@ const Result = ({ hud, game, session, exit, support }: { hud: HudState; game: Ga
         </div>
         {st.n > 0 && (
           <div className="mt-4">
-            <StageChips hud={hud} game={game} via={session.next} />
+            <StageChips hud={hud} game={game} via={(go) => session.next(go, { noBreak: true })} />
           </div>
         )}
         {session.hintOffer && (
