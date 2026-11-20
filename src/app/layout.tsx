@@ -16,6 +16,18 @@ export const metadata: Metadata = {
   creator: STUDIO_NAME,
   description: 'Four company cars. One free space. No insurance. First to park wins.',
   appleWebApp: { capable: true, title: 'Parking Lot', statusBarStyle: 'black-translucent' },
+  metadataBase: new URL('https://parking-lot.vercel.app'),
+  icons: {
+    icon: [
+      { url: '/favicon.ico', sizes: '48x48' },
+      { url: '/favicon.svg', type: 'image/svg+xml' },
+      { url: '/favicon-32.png', type: 'image/png', sizes: '32x32' },
+      { url: '/favicon-16.png', type: 'image/png', sizes: '16x16' },
+    ],
+    apple: { url: '/apple-touch-icon.png', sizes: '180x180' },
+  },
+  openGraph: { images: [{ url: '/og.jpg', width: 1200, height: 630 }] },
+  twitter: { card: 'summary_large_image', images: ['/og.jpg'] },
 };
 
 export const viewport: Viewport = {
@@ -24,7 +36,7 @@ export const viewport: Viewport = {
   maximumScale: 1,
   userScalable: false,
   viewportFit: 'cover',
-  themeColor: '#0a0d18',
+  themeColor: '#17181D',
 };
 
 const RootLayout = ({ children }: { children: ReactNode }) => (
