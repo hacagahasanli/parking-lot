@@ -230,6 +230,19 @@ export const buildCanopy = (c: Canopy, posts: { x: number; z: number }[]): THREE
   const strips: THREE.BufferGeometry[] = [];
   for (let x = c.x0 + 3; x < c.x1; x += 5.4) for (const side of [-1, 1]) strips.push(block(1.4, 0.05, 0.12, x, c.h - 0.55, cz + side * (half * 0.5)));
   group.add(new THREE.Mesh(merge(strips), new THREE.MeshStandardMaterial({ color: 0xffffff, emissive: 0xfff0d0, emissiveIntensity: 0.8 })));
+  // The parking view looks down through the roof when you are near it (`fade(1)` solid, lower is see-through), so the bays
+  // under it can be read like any others.
+  const roof = [panelMat, frameMat];
+  let shown = 1;
+  group.userData.fade = (a: number) => {
+    if (Math.abs(a - shown) < 0.01) return;
+    shown = a;
+    for (const m of roof) {
+      m.transparent = a < 0.99;
+      m.opacity = a;
+      m.depthWrite = a >= 0.99;
+    }
+  };
   return group;
 };
 

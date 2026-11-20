@@ -491,7 +491,10 @@ the hint becomes free instead of leaving a dead button. `src/components/useSessi
 
 ### Pacing (portal and site)
 
-- Round cap 120 s (`RACE.maxTime`). Bot-only tests pass `maxTime: 200` to measure a full search.
+- Round cap by stage (`ROUND_CAP` in `stages.ts`): 75 s in stages 1-2, 90 s in stage 3, 120 s in stage 4 (the roof), 110 s in
+  stages 5-6; `RACE.maxTime` (120 s) without a stage. The caps sit just past the bots' usual first park, so rounds end in the
+  last stretch of the clock; in stage 1 the slow bots miss the cap now and then (2 of seeds 1-12: "TIME UP"). The clock turns
+  red, pulses and ticks for the last ten seconds. Bot-only tests pass `maxTime: 200` to measure a full search.
 - Stage 1's free bay is within `STAGE1_NEAR` (36 m) of the junction past the barrier, and its bots are a little calmer
   (`botPace`). The board names the side ("LOOK LEFT/RIGHT") 2 s after GO in stage 1; stages 3-5 show the decks at 26 s, stage 6
   the zone at 8 s and the decks at 24 s (`hintTimes`).
@@ -510,6 +513,21 @@ the hint becomes free instead of leaving a dead button. `src/components/useSessi
 
   The cruise factor moves the median less than you would expect (stage 1's bay is close to the gate, so the slow part is the
   turn-in); the launch delay is the stronger knob.
+
+### The fun pass: finding the bay, tension, punctuation
+
+- **Free bay paint** (`buildFreeBayPaint` in `world.ts`, rules in `render/reveal.ts`): the free bay gets a bright yellow box and
+  a painted P, invisible until your car is within `REVEAL.far` (17 m, same deck), full at `REVEAL.near` (13 m), when it counts as
+  **found**: "FOUND IT!", a chime (`sfx.found`) and a yellow flash; from then on it stays lit and shows on your minimap. A
+  driver passing along the aisle in front of a bay passes ~6 m from it, so you find it by driving past, not by looking across
+  the lot. The bots do not read it (their own sight is `SIGHT`, 18 m). The carport roof goes see-through near you in the
+  parking view so the bays under it can be found too.
+- **Rivals**: the first time a bot spots the bay you get "A RIVAL SPOTTED IT!" and a sting, and every bot that has seen it carries
+  an orange "!" over its roof until it parks (you can follow it: that is the race for the same bay).
+- **Near miss**: another car slides past your side within 2.7 m (centres) while you do over 4.5 m/s: "CLOSE ONE!" and a whoosh.
+- **Speed**: the view widens up to 6 degrees with speed.
+- **The end**: the winning park plays at 0.3x for 1.2 s; your win flashes white ("PARKED!", or "STOLEN IT!" if a rival that had
+  seen the bay was within 12 m), a loss flashes red ("<NAME> GOT IT", "SO CLOSE!" if your park ring was a quarter full, "TIME UP").
 
 ### Quality tiers (`src/game/render/quality.ts`)
 

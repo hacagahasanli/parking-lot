@@ -536,7 +536,14 @@ export const Race = ({ platform: given, flavour = 'studio', exit, support, credi
                 STAGE {hud.stage.n}<span className="text-cream/60 hidden pl-1.5 sm:inline">{hud.stage.name.split(' — ')[0]}</span>
               </div>
             )}
-            <div className="panel-cut bg-ink-deep/75 font-display text-cream px-3 py-1 text-base tabular-nums sm:px-5 sm:py-1.5 sm:text-xl">{fmtClock(hud.clock)}</div>
+            {/* The clock counts up; in the last ten seconds it turns red, pulses and shows what is left. */}
+            <div
+              className={`panel-cut bg-ink-deep/75 font-display px-3 py-1 text-base tabular-nums sm:px-5 sm:py-1.5 sm:text-xl ${hud.phase === 'race' && hud.left <= 10 ? 'text-orange' : 'text-cream'}`}
+              style={hud.phase === 'race' && hud.left <= 10 ? { animation: 'hurry 1s ease-in-out infinite' } : undefined}
+              aria-label={hud.phase === 'race' && hud.left <= 10 ? `${Math.ceil(hud.left)} seconds left` : undefined}
+            >
+              {hud.phase === 'race' && hud.left <= 10 ? `0:${String(Math.ceil(hud.left)).padStart(2, '0')}` : fmtClock(hud.clock)}
+            </div>
           </div>
 
           {hud.phase === 'countdown' && <Intro hud={hud} touch={touch} onboard={onboard} />}
@@ -557,6 +564,26 @@ export const Race = ({ platform: given, flavour = 'studio', exit, support, credi
                 </div>
                 <div className="font-display text-lg tracking-widest sm:text-3xl">DISQUALIFIED</div>
                 {hud.dqWhy?.kind === 'car' && <div className="text-sm font-semibold tracking-wide sm:text-xl">{hud.dqWhy.what}</div>}
+              </div>
+            </div>
+          )}
+          {hud.flash && hud.endedFor < 3 && (
+            <div
+              key={`f${hud.flash.id}`}
+              className="fx-motion pointer-events-none absolute inset-0 z-20"
+              style={{
+                animation: 'screenFlash 0.6s ease-out both',
+                background: hud.flash.kind === 'found' ? 'radial-gradient(circle, rgba(255,210,63,0.15) 30%, rgba(255,210,63,0.75))' : hud.flash.kind === 'win' ? 'rgba(255,255,255,0.8)' : 'radial-gradient(circle, rgba(255,60,40,0) 35%, rgba(255,60,40,0.7))',
+              }}
+            />
+          )}
+          {hud.callout && !showResult && (
+            <div key={`c${hud.callout.id}`} className="pointer-events-none absolute inset-x-0 top-[38%] z-20 flex justify-center" role="status">
+              <div
+                className={`fx-motion font-display px-4 text-center text-4xl drop-shadow-[0_4px_0_#0a0d18] sm:text-6xl ${hud.callout.tone === 'good' ? 'text-gold' : hud.callout.tone === 'bad' ? 'text-orange' : 'text-cream'}`}
+                style={{ animation: 'calloutPop 1.6s ease-out both', WebkitTextStroke: '2px #0a0d18' }}
+              >
+                {hud.callout.text}
               </div>
             </div>
           )}

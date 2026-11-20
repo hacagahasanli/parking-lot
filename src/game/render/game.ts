@@ -27,7 +27,8 @@ import { buildPeds } from './peds';
 import { circleHit, boxHit } from './sight';
 import { FpsGuard, lowerTier, TIERS } from './quality';
 import { CAMERA_MODES, parkFollow, parkPose } from './view';
-import { buildTargetMarker, buildWorld } from './world';
+import { NEAR_MISS, REVEAL, revealOf } from './reveal';
+import { buildFreeBayPaint, buildTargetMarker, buildWorld } from './world';
 
 import type { BotBrain } from '../sim/bot';
 import type { Progress } from '../sim/stages';
@@ -82,6 +83,12 @@ export interface HudState {
   inBay: number;
   camera: CameraMode;
   paused: boolean;
+  /** A full-screen flash (a new id each time): finding the bay, winning, losing. */
+  flash: { id: number; kind: 'found' | 'win' | 'lose' } | null;
+  /** A big word in the middle of the screen for a moment (a new id each time). */
+  callout: { id: number; text: string; tone: 'good' | 'bad' | 'warn' } | null;
+  /** Seconds left in the round (the clock turns red in the last ten). */
+  left: number;
   /** Set when the round is over. */
   result: null | {
     winner: string | null;
@@ -175,6 +182,32 @@ interface Pressed {
 }
 
 const lerpAngle = (a: number, b: number, t: number) => a + Math.atan2(Math.sin(b - a), Math.cos(b - a)) * t;
+
+/** The "!" over a rival that has spotted the free bay: a round orange badge that faces the camera. */
+const rivalMark = () => {
+  const c = document.createElement('canvas');
+  c.width = 128;
+  c.height = 128;
+  const g = c.getContext('2d')!;
+  g.fillStyle = '#ff7a2e';
+  g.beginPath();
+  g.arc(64, 64, 56, 0, Math.PI * 2);
+  g.fill();
+  g.lineWidth = 8;
+  g.strokeStyle = '#0a0d18';
+  g.stroke();
+  g.fillStyle = '#ffffff';
+  g.font = 'bold 92px Arial, sans-serif';
+  g.textAlign = 'center';
+  g.textBaseline = 'middle';
+  g.fillText('!', 64, 70);
+  const tex = new THREE.CanvasTexture(c);
+  tex.colorSpace = THREE.SRGBColorSpace;
+  const m = new THREE.Sprite(new THREE.SpriteMaterial({ map: tex, depthTest: false, transparent: true }));
+  m.renderOrder = 11;
+  m.visible = false;
+  return m;
+};
 
 // ---------------------------------------------------------------------------
 // Small pooled effects: tyre smoke, skid marks, sparks, hazard lights
@@ -355,6 +388,21 @@ export class Game {
   private mapShown = 0;
   private parked: THREE.Group | null = null;
   private marker = buildTargetMarker();
+  /** The free bays' yellow paint (the target, and the second bay when a car pulls out), lit only up close (reveal.ts). */
+  private paints = [buildFreeBayPaint(), buildFreeBayPaint()];
+  private found = [false, false];
+  private fx: HudState['flash'] = null;
+  private callout: HudState['callout'] = null;
+  private fxId = 0;
+  /** Which bots have spotted the bay (they get a "!" over the roof). */
+  private rivalMarks: THREE.Sprite[] = [];
+  private rivalWarned = false;
+  private nearMissAt = -99;
+  private lastTick = -1;
+  /** Real time until which the world runs in slow motion (the winning park). */
+  private slowUntil = -1;
+  private fovKick = 0;
+  private canopyFade = 1;
   private worldView;
   private ambience;
   private effects;
@@ -459,6 +507,12 @@ export class Game {
     this.scene.add(this.worldView.group);
     this.scene.add(this.ambience.group);
     this.scene.add(this.marker.group);
+    for (const p of this.paints) this.scene.add(p.group);
+    this.rivalMarks = [1, 2, 3].map(() => {
+      const m = rivalMark();
+      this.scene.add(m);
+      return m;
+    });
     this.scene.add(this.pedView.group);
     // The free bay is not marked: the outline is only shown for a moment when the round is over.
     this.marker.group.visible = false;
@@ -497,6 +551,12 @@ export class Game {
     this.endedAt = -1;
     this.dqAt = -1;
     this.paused = false;
+    this.found = [false, false];
+    this.fx = null;
+    this.callout = null;
+    this.rivalWarned = false;
+    this.lastTick = -1;
+    this.slowUntil = -1;
 
     // Parked cars: everything except the free bay.
     if (this.parked) {
@@ -744,7 +804,7 @@ export class Game {
     this.camera.aspect = w / h;
     // Portrait phones: widen the view so the car and the lane ahead both fit.
     this.portrait = w < h;
-    this.camera.fov = w < h ? 78 : 62;
+    this.camera.fov = (w < h ? 78 : 62) + this.fovKick;
     this.camera.updateProjectionMatrix();
   };
 
@@ -765,7 +825,8 @@ export class Game {
     }
     if (!this.paused && !this.frozen) {
       this.time += dt;
-      this.acc += dt;
+      // The winning park plays in slow motion for a moment.
+      this.acc += this.time < this.slowUntil ? dt * 0.3 : dt;
       while (this.acc >= DT) {
         this.acc -= DT;
         this.tick();
@@ -790,6 +851,7 @@ export class Game {
     // What the bots did on their own (spotted the bay, honked, backed out) goes to the radio with the sim's events.
     const botEvents = this.brains.flatMap((b) => (b ? b.outbox.splice(0) : []));
     radio(s, [...s.events, ...botEvents]);
+    if (this.opts.mode === 'race') this.tension(botEvents);
     for (const e of s.events) {
       if (e.type === 'count') this.sfx.beep(false);
       else if (e.type === 'go') this.sfx.beep(true);
@@ -825,15 +887,110 @@ export class Game {
       } else if (e.type === 'end') {
         if (this.endedAt < 0) this.endedAt = this.time;
         if (this.opts.mode === 'race') {
+          if (e.winner !== null) this.slowUntil = this.time + 1.2;
           if (e.winner === 0) {
             this.sfx.win();
             this.progress = won(this.progress);
-          } else this.sfx.lose();
+            // A steal: a rival was right there, going for it too.
+            const bay = this.lot.bays[s.winBay];
+            const close = s.cars.some((c) => c.id !== 0 && (this.brains[c.id]?.spotted ?? false) && Math.hypot(c.x - bay.x, c.z - bay.z) < 12);
+            this.pop('win', close ? 'STOLEN IT!' : 'PARKED!', 'good');
+          } else {
+            this.sfx.lose();
+            const me = s.cars[0];
+            if (me.dq === null) this.pop('lose', e.winner === null ? 'TIME UP' : me.park > 0.25 ? 'SO CLOSE!' : `${s.cars[e.winner].name.toUpperCase()} GOT IT`, 'bad');
+          }
         }
       }
     }
     // Home page: start the next round a few seconds after someone parks.
     if (this.opts.mode === 'showcase' && s.phase === 'done' && this.time - this.endedAt > 4) this.newRound();
+  }
+
+  /** Show a flash and a word (both optional), and push the HUD at once. */
+  private pop(flash: 'found' | 'win' | 'lose' | null, text: string | null, tone: 'good' | 'bad' | 'warn' = 'good') {
+    this.fxId++;
+    if (flash) this.fx = { id: this.fxId, kind: flash };
+    if (text) this.callout = { id: this.fxId, text, tone };
+    this.emitHud(true);
+  }
+
+  /** The race's tension, once a tick: a rival spotting the bay, near misses, the last ten seconds. */
+  private tension(botEvents: { type: string; car?: number }[]) {
+    const s = this.state;
+    if (s.phase !== 'race') return;
+    const me = s.cars[0];
+    if (!this.rivalWarned && me.parkedAt === null && me.dq === null && botEvents.some((e) => e.type === 'spot')) {
+      this.rivalWarned = true;
+      this.sfx.sting();
+      this.pop(null, 'A RIVAL SPOTTED IT!', 'warn');
+    }
+    // Near miss: another car slides past your side, close, while you are quick, and nobody touched.
+    const v = Math.hypot(me.vx, me.vz);
+    if (v > NEAR_MISS.speed && this.time - this.nearMissAt > NEAR_MISS.cooldown && me.dq === null) {
+      for (const c of s.cars) {
+        if (c.id === 0 || Math.abs(c.y - me.y) > 1.5) continue;
+        const dx = c.x - me.x;
+        const dz = c.z - me.z;
+        const side = Math.abs(dx * Math.cos(me.h) - dz * Math.sin(me.h));
+        const along = Math.abs(dx * Math.sin(me.h) + dz * Math.cos(me.h));
+        if (side > 1.75 && side < NEAR_MISS.gap && along < 2.2) {
+          this.nearMissAt = this.time;
+          this.sfx.whoosh();
+          this.pop(null, 'CLOSE ONE!', 'warn');
+          break;
+        }
+      }
+    }
+    // The last ten seconds tick.
+    const left = Math.ceil(s.maxTime - s.clock);
+    if (left <= 10 && left > 0 && left !== this.lastTick) {
+      this.lastTick = left;
+      this.sfx.tick(left <= 3);
+    }
+  }
+
+  /** The free bays' paint: hidden until you are close, then a "found it" moment; the bots' "!" when they have seen it. */
+  private updatePaint(t: number) {
+    const s = this.state;
+    const race = this.opts.mode === 'race' && s.phase !== 'countdown';
+    const me = this.rigs[0]?.root.position;
+    [s.target, s.extra].forEach((id, k) => {
+      const paint = this.paints[k];
+      if (!race || s.phase === 'done' || id < 0 || !me || this.shot) {
+        paint.set(0, t);
+        return;
+      }
+      const bay = this.lot.bays[id];
+      const r = revealOf(Math.hypot(bay.x - me.x, bay.z - me.z), bay.y - me.y, this.found[k]);
+      if (r.found && !this.found[k] && s.cars[0].dq === null) {
+        this.found[k] = true;
+        this.sfx.found();
+        this.pop('found', 'FOUND IT!', 'good');
+      }
+      paint.group.position.set(bay.x, bay.y, bay.z);
+      paint.group.rotation.y = bay.h;
+      paint.group.scale.set(bay.w / BAY.width, 1, bay.d / BAY.depth);
+      // The deck it is on may be hidden (looking from another level): then so is the paint.
+      paint.set(this.worldView.garage.floorShown(bay.x, bay.y + 0.1, bay.z) ? r.paint : 0, t);
+    });
+    this.rivalMarks.forEach((m, i) => {
+      const c = s.cars[i + 1];
+      const rig = this.rigs[i + 1];
+      const on = race && s.phase === 'race' && !!c && !!rig && rig.root.visible && c.parkedAt === null && (this.brains[i + 1]?.spotted ?? false);
+      m.visible = on;
+      if (on) {
+        m.position.set(rig.root.position.x, rig.root.position.y + 2.6 + Math.sin(t * 6) * 0.15, rig.root.position.z);
+        const k = this.cameraMode === 'park' ? 2.6 : 1.3;
+        m.scale.set(k, k, 1);
+      }
+    });
+    // In the parking view the carport roof goes see-through when you are near it, so the bays under it read like any others.
+    for (const c of this.worldView.canopies) {
+      const near = !!me && this.cameraMode === 'park' && this.opts.mode === 'race' && me.x > c.x0 - REVEAL.far && me.x < c.x1 + REVEAL.far && me.z > c.z0 - REVEAL.far && me.z < c.z1 + REVEAL.far;
+      this.canopyFade += ((near ? 0.22 : 1) - this.canopyFade) * 0.08;
+      c.fade(this.canopyFade);
+    }
   }
 
   private focusCar() {
@@ -952,6 +1109,7 @@ export class Game {
       this.marker.sign.position.y = 3.4 + Math.sin(t * 2) * 0.15;
       (this.marker.sign.material as THREE.SpriteMaterial).opacity = fade;
     }
+    this.updatePaint(t);
     // Which decks are drawn first, then whatever stands on a hidden one goes with it (or it hangs in the sky).
     this.updateGarage(dt);
     const floorShown = this.worldView.garage.floorShown;
@@ -1087,6 +1245,16 @@ export class Game {
     const n = (f: number, p: number) => Math.sin(this.time * f + p) * 0.6 + Math.sin(this.time * f * 2.3 + p) * 0.4;
     this.camera.position.set(this.cam.x + n(23, 1.3) * 0.25 * shake, Math.min(this.cam.y + n(19, 4.1) * 0.18 * shake, ceil), this.cam.z + n(17, 2.2) * 0.25 * shake);
     this.camera.lookAt(this.cam.look);
+    // Speed feel: the view widens a little as you go faster (up to 6 degrees), and snaps back when you brake.
+    if (!this.shot && !showcase) {
+      const kick = Math.min(6, Math.max(0, forwardSpeed(s.cars[car.id]) - 3) * 0.55);
+      const next = this.fovKick + (kick - this.fovKick) * Math.min(1, dt * 3);
+      if (Math.abs(next - this.fovKick) > 0.01) {
+        this.camera.fov += next - this.fovKick;
+        this.fovKick = next;
+        this.camera.updateProjectionMatrix();
+      }
+    }
     this.trauma = Math.max(0, this.trauma - dt * 1.4);
     this.sfx.listener(this.camera.position.x, this.camera.position.y, this.camera.position.z, Math.sin(this.cam.yaw), Math.cos(this.cam.yaw));
 
@@ -1280,6 +1448,18 @@ export class Game {
         g.restore();
       }
     }
+    // A bay you found yourself stays on your map (yellow) until the round is over.
+    if (this.state.phase !== 'done') {
+      [this.state.target, this.state.extra].forEach((id, k) => {
+        if (id < 0 || !this.found[k]) return;
+        const bay = this.lot.bays[id];
+        if (!here(bay.y)) return;
+        g.fillStyle = `rgba(255,210,63,${0.7 + Math.sin(this.time * 6) * 0.3})`;
+        g.beginPath();
+        g.arc(px(bay.x), pz(bay.z), 5, 0, Math.PI * 2);
+        g.fill();
+      });
+    }
     if (this.state.phase === 'done') {
       const bay = this.lot.bays[this.state.winBay >= 0 ? this.state.winBay : this.state.target];
       if (here(bay.y)) {
@@ -1351,6 +1531,9 @@ export class Game {
       inBay: me.inBay,
       camera: this.cameraMode,
       paused: this.paused,
+      flash: this.fx,
+      callout: this.callout,
+      left: Math.max(0, s.maxTime - s.clock),
       result,
       endedFor: this.endedAt < 0 ? 0 : this.time - this.endedAt,
       fps: this.fps,

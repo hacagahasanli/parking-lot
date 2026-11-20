@@ -95,3 +95,45 @@
     box-shadow: 0 0 22px rgba(61, 220, 132, 0.55);
   }
 }
+
+/* The race's punctuation: a full-screen flash (found the bay, won, lost) and a big word that pops and fades. */
+@keyframes screenFlash {
+  0% {
+    opacity: 0.85;
+  }
+  100% {
+    opacity: 0;
+  }
+}
+@keyframes calloutPop {
+  0% {
+    opacity: 0;
+    transform: scale(1.9);
+  }
+  14% {
+    opacity: 1;
+    transform: scale(1);
+  }
+  80% {
+    opacity: 1;
+    transform: scale(1.04);
+  }
+  100% {
+    opacity: 0;
+    transform: scale(1.1);
+  }
+}
+@keyframes hurry {
+  0%,
+  100% {
+    transform: scale(1);
+  }
+  50% {
+    transform: scale(1.12);
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .fx-motion {
+    animation-duration: 0.01s !important;
+  }
+}

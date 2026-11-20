@@ -225,6 +225,8 @@ const buildTrees = (spots: { x: number; z: number; s: number }[], seed: number):
 
 export interface WorldView {
   group: THREE.Group;
+  /** The carport roofs, and how to make one see-through (1 solid). */
+  canopies: { x0: number; x1: number; z0: number; z1: number; fade: (a: number) => void }[];
   trees: Trees;
   /** The neon letters on the shops, for a flicker. */
   signs: THREE.MeshStandardMaterial[];
@@ -519,7 +521,11 @@ export const buildWorld = (lot: Lot): WorldView => {
   // --- The gates, the carport, chargers, the truck, the yard and the signs.
   const gates = buildGates(lot);
   group.add(gates.group);
-  for (const c of lot.canopies) group.add(buildCanopy(c, lot.posts));
+  const canopies = lot.canopies.map((c) => {
+    const g = buildCanopy(c, lot.posts);
+    group.add(g);
+    return { x0: c.x0, x1: c.x1, z0: c.z0, z1: c.z1, fade: g.userData.fade as (a: number) => void };
+  });
   group.add(buildChargers(lot.props));
   for (const p of lot.props) if (p.kind === 'truck') group.add(buildTruck(p));
   group.add(buildYardProps(lot));
@@ -566,7 +572,7 @@ export const buildWorld = (lot: Lot): WorldView => {
   }
   group.add(new THREE.Mesh(merge(bollards), new THREE.MeshStandardMaterial({ color: 0xe0b72e, roughness: 0.5 })));
 
-  return { group, trees, signs, gates, garage, setBoothBoard: boothBoard.setBoard,
+  return { group, canopies, trees, signs, gates, garage, setBoothBoard: boothBoard.setBoard,
     setClosures: (shut) => closures.groups.forEach((v, id) => (v.group.visible = shut.includes(id))), setGates: (entry, exit) => animateGates(gates, entry, exit) };
 };
 
@@ -765,4 +771,48 @@ export const buildTargetMarker = () => {
   sign.renderOrder = 10;
   group.add(sign);
   return { group, lineMat, fillMat, beamMat, sign };
+};
+
+/**
+ * The free bay's paint: a bright yellow box with a yellow fill and a painted P, flat on the ground. It is hidden until you
+ * drive close (render/reveal.ts), then fades in and pulses. One per free bay (the target, and the second when a car pulls out).
+ */
+export const buildFreeBayPaint = () => {
+  const group = new THREE.Group();
+  const w = BAY.width;
+  const d = BAY.depth;
+  const t = 0.26;
+  const lineMat = new THREE.MeshBasicMaterial({ color: 0xffd23f, transparent: true, opacity: 0, depthWrite: false, toneMapped: false });
+  const outline = merge([flat(t, d, -w / 2 + t / 2, 0, 0, 0.035), flat(t, d, w / 2 - t / 2, 0, 0, 0.035), flat(w, t, 0, d / 2 - t / 2, 0, 0.035), flat(w, t, 0, -d / 2 + t / 2, 0, 0.035)]);
+  group.add(new THREE.Mesh(outline, lineMat));
+  const fillMat = new THREE.MeshBasicMaterial({ color: 0xffc400, transparent: true, opacity: 0, depthWrite: false, toneMapped: false });
+  group.add(new THREE.Mesh(flat(w - t * 2, d - t * 2, 0, 0, 0, 0.03), fillMat));
+  // A painted P in the middle of the bay (a canvas texture on a flat quad).
+  const c = document.createElement('canvas');
+  c.width = 128;
+  c.height = 128;
+  const g = c.getContext('2d')!;
+  g.fillStyle = '#ffd23f';
+  g.font = 'bold 112px Arial, sans-serif';
+  g.textAlign = 'center';
+  g.textBaseline = 'middle';
+  g.fillText('P', 64, 70);
+  const tex = new THREE.CanvasTexture(c);
+  tex.colorSpace = THREE.SRGBColorSpace;
+  const letterMat = new THREE.MeshBasicMaterial({ map: tex, transparent: true, opacity: 0, depthWrite: false, toneMapped: false });
+  const letter = new THREE.Mesh(new THREE.PlaneGeometry(1.7, 1.7), letterMat);
+  letter.rotation.x = -Math.PI / 2;
+  letter.position.y = 0.04;
+  group.add(letter);
+  group.visible = false;
+  group.renderOrder = 2;
+  /** `paint` 0..1 (how revealed), `t` the game time for the pulse. */
+  const set = (paint: number, time: number) => {
+    group.visible = paint > 0.01;
+    const pulse = 0.82 + Math.sin(time * 5) * 0.18;
+    lineMat.opacity = paint * pulse;
+    fillMat.opacity = paint * 0.22 * pulse;
+    letterMat.opacity = paint * 0.9;
+  };
+  return { group, set };
 };

@@ -28,6 +28,14 @@ export interface Sfx {
   beep: (high: boolean) => void;
   win: () => void;
   lose: () => void;
+  /** The free bay lit up near you: a bright two-note sparkle. */
+  found: () => void;
+  /** A rival has spotted the bay: a short low sting. */
+  sting: () => void;
+  /** A car went past close at speed: a filtered-noise whoosh. */
+  whoosh: () => void;
+  /** The last seconds of the round: a tick (high on the final three). */
+  tick: (high: boolean) => void;
   click: () => void;
   volumes: Record<VolumeKind, number>;
   setVolume: (k: VolumeKind, v: number) => void;
@@ -547,6 +555,26 @@ export const createSfx = (): Sfx => {
     o.stop(t + len + 0.02);
   };
 
+  const whoosh = () => {
+    if (!ctx || ctx.state !== 'running') return;
+    const c = ctx;
+    const t = c.currentTime;
+    const n = noiseSource();
+    const bp = c.createBiquadFilter();
+    bp.type = 'bandpass';
+    bp.Q.value = 1.4;
+    bp.frequency.setValueAtTime(500, t);
+    bp.frequency.exponentialRampToValueAtTime(2400, t + 0.18);
+    bp.frequency.exponentialRampToValueAtTime(700, t + 0.42);
+    const g = c.createGain();
+    g.gain.setValueAtTime(0, t);
+    g.gain.linearRampToValueAtTime(0.22, t + 0.12);
+    g.gain.linearRampToValueAtTime(0, t + 0.45);
+    n.connect(bp).connect(g).connect(fxBus);
+    n.start(t);
+    n.stop(t + 0.5);
+  };
+
   return {
     unlock: () => {
       const c = init();
@@ -572,6 +600,10 @@ export const createSfx = (): Sfx => {
     win: () => [523, 659, 784, 1047].forEach((f, i) => tone(f, i * 0.11, 0.22, 0.12)),
     lose: () => [392, 330, 262].forEach((f, i) => tone(f, i * 0.16, 0.26, 0.1)),
     click: () => tone(1100, 0, 0.04, 0.04, 'sine'),
+    found: () => [988, 1319, 1976].forEach((f, i) => tone(f, i * 0.07, 0.2, 0.11, 'sine')),
+    sting: () => [196, 185].forEach((f, i) => tone(f, i * 0.14, 0.22, 0.12, 'sawtooth')),
+    whoosh,
+    tick: (high) => tone(high ? 1320 : 990, 0, 0.06, 0.06, 'square'),
     volumes,
     setVolume: (k, v) => {
       volumes[k] = v;
