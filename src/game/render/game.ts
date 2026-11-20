@@ -1071,6 +1071,8 @@ export class Game {
       handbrake: k.handbrake || !!t?.handbrake || !!p?.handbrake,
       horn: k.horn || !!t?.horn || !!p?.horn,
       shift,
+      // Keys and the phone's arrow buttons are on/off: fine steering at a crawl. A stick that is being moved is analogue.
+      fine: !(p && Math.abs(p.steer) > 0.05),
     };
   }
 

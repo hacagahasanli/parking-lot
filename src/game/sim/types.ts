@@ -15,6 +15,8 @@ export interface Input {
   horn: boolean;
   /** Manual gearbox only: shift one gear up (1) or down (-1) this step (one key press is one step's shift). */
   shift?: 1 | -1;
+  /** The steering is on/off (keys or buttons, not a stick): the wheel turns slower at a crawl for fine corrections. */
+  fine?: boolean;
 }
 
 export const NO_INPUT: Input = { throttle: 0, brake: 0, steer: 0, handbrake: false, horn: false };

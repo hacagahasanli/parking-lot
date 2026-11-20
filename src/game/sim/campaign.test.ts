@@ -22,7 +22,7 @@ import { DT } from './constants';
 import { levelY } from './levels';
 import { buildLot } from './lot';
 import { locate, shortestPath } from './nav';
-import { carShape, createRound, step } from './step';
+import { carShape, createRound, drive, makeCar, step } from './step';
 import { memoryStore } from '~/platform/web';
 import { SCRIPTS, driveScript } from './drive';
 
@@ -377,4 +377,17 @@ describe('the levels a bot cannot drive', () => {
       expect(state.clock).toBeLessThan(l.limit);
     });
   }
+});
+
+describe('fine steering', () => {
+  it('on/off steering turns the wheel slower at a crawl, as fast as ever once moving', () => {
+    const turned = (fine: boolean, speed: number) => {
+      const c = makeCar(0, 'You', 0, false, 0, 0, 0);
+      c.vz = speed;
+      drive(c, press({ steer: 1, fine }));
+      return c.steer;
+    };
+    expect(turned(true, 0)).toBeLessThan(turned(false, 0) * 0.7);
+    expect(turned(true, 5)).toBeCloseTo(turned(false, 5), 5);
+  });
 });
