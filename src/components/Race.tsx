@@ -1,12 +1,47 @@
 'use client';
 
-import Link from 'next/link';
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 
-import { SupportLink } from '~/components/SupportLink';
+import { Onboarding } from '~/components/Onboarding';
 import { TouchControls, useTouch } from '~/components/TouchControls';
+import { useSession } from '~/components/useSession';
+import { deviceFacts } from '~/game/render/deviceFacts';
+import { parseSetting, resolveTier } from '~/game/render/quality';
+import { createWebPlatform } from '~/platform/web';
+
+import type { ReactNode } from 'react';
+import type { Session } from '~/components/useSession';
 import type { CameraMode, Game, HudState } from '~/game/render/game';
+import type { QualitySetting, Tier } from '~/game/render/quality';
 import type { VolumeKind } from '~/game/sfx';
+import type { Flavour } from '~/game/sim/flavour';
+import type { Platform } from '~/platform/types';
+
+/** Where the quality choice is saved (through the platform's storage: the portal's cloud save, or localStorage). */
+const QUALITY_KEY = 'parking-lot.quality';
+const QUALITIES: { v: QualitySetting; label: string }[] = [
+  { v: 'auto', label: 'Auto' },
+  { v: 'low', label: 'Low' },
+  { v: 'medium', label: 'Mid' },
+  { v: 'high', label: 'High' },
+];
+
+export interface RaceProps {
+  /** The page the game runs on (a portal SDK or the plain web). Default: the plain web, every call a no-op. */
+  platform?: Platform;
+  /** 'neutral' on portals: no studio in-jokes in names, radio, plates or signs. */
+  flavour?: Flavour;
+  /** Our own site's way out to the home page (portals pass nothing: the game is the whole page, no outbound links). */
+  exit?: (p: { className: string; label: string }) => ReactNode;
+  /** Our own site's support link (portals pass nothing). */
+  support?: ReactNode;
+  /** A small credit line in the pause menu ("A game by …"). */
+  credit?: string;
+  /** Esc pauses (default true). Portals reserve Esc for leaving fullscreen; P always pauses. */
+  escPause?: boolean;
+  /** Development only: shorter ad-break rules, so the screenshot script reaches the break quickly. */
+  testBreaks?: boolean;
+}
 
 const hex = (c: number) => '#' + c.toString(16).padStart(6, '0');
 const fmtClock = (s: number) => `${Math.floor(s / 60)}:${(s % 60).toFixed(1).padStart(4, '0')}`;
@@ -95,9 +130,9 @@ const StageDots = ({ hud }: { hud: HudState }) => (
  * The card before each countdown: which stage this is and what is new in it, with the countdown number at its foot (one column,
  * so the number can never land on the text). On a phone it sits between the standings and the right-hand buttons.
  */
-const Intro = ({ hud, touch }: { hud: HudState; touch: boolean }) => (
+const Intro = ({ hud, touch, onboard }: { hud: HudState; touch: boolean; onboard: boolean }) => (
   <div
-    className={`pointer-events-none absolute z-[5] flex flex-col items-center gap-1.5 bg-[radial-gradient(ellipse_at_center,rgba(10,13,24,0.72),rgba(10,13,24,0.3)_70%,transparent)] px-6 py-3 text-center sm:gap-3 sm:py-6 ${touch ? 'portrait:top-[250px] portrait:inset-x-2 landscape:top-2 landscape:inset-x-[10.5rem]' : 'inset-x-0'}`}
+    className={`pointer-events-none absolute z-[5] flex flex-col items-center gap-1.5 bg-[radial-gradient(ellipse_at_center,rgba(10,13,24,0.72),rgba(10,13,24,0.3)_70%,transparent)] px-6 py-3 text-center sm:gap-3 sm:py-6 ${touch ? 'portrait:top-[250px] portrait:inset-x-2 landscape:top-[96px] landscape:inset-x-[10.5rem] landscape:py-1' : 'inset-x-0'}`}
     style={{ ...(touch ? {} : { top: 'calc(48px + env(safe-area-inset-top))' }), animation: 'fadeIn 0.3s ease-out both' }}
     role="group"
     aria-label={`Stage ${hud.stage.n}: ${hud.stage.name}`}
@@ -105,17 +140,23 @@ const Intro = ({ hud, touch }: { hud: HudState; touch: boolean }) => (
     <div className="text-green/90 font-mono text-[10px] tracking-[0.3em] sm:text-xs">
       ONE SPACE LEFT{hud.stage.n > 0 && <> · STAGE {hud.stage.n} OF {hud.stage.total}</>}
     </div>
-    <div className="font-display text-gold text-2xl leading-none drop-shadow-[0_4px_24px_rgba(0,0,0,0.85)] sm:text-6xl" style={{ animation: 'riseIn 0.5s ease-out both' }}>
+    <div className="font-display text-gold text-2xl leading-none drop-shadow-[0_4px_24px_rgba(0,0,0,0.85)] sm:text-6xl [@media(max-height:420px)]:text-xl" style={{ animation: 'riseIn 0.5s ease-out both' }}>
       {hud.stage.n > 0 ? hud.stage.name : 'ONE SPACE LEFT'}
     </div>
-    {hud.stage.news && (
+    {onboard && <Onboarding touch={touch} />}
+    {hud.hinted && (
+      <div className="panel-cut bg-gold/90 text-ink-deep px-3 py-1 text-xs font-bold tracking-wide sm:text-sm" style={{ animation: 'fadeIn 0.4s ease-out both' }}>
+        HINT: the free space is inside the yellow circle on your map
+      </div>
+    )}
+    {!onboard && hud.stage.news && (
       <div className="text-cream/90 max-w-md text-xs drop-shadow-[0_2px_8px_rgba(0,0,0,0.8)] sm:text-base [@media(max-height:420px)]:hidden portrait:max-sm:hidden" style={{ animation: 'fadeIn 0.8s ease-out both' }}>
         {hud.stage.news} Three rivals are looking too.
       </div>
     )}
     {hud.stage.n > 0 && <StageDots hud={hud} />}
     {hud.countdown > 0 && (
-      <div key={hud.countdown} className="font-display text-gold mt-1 text-6xl leading-none drop-shadow-lg sm:mt-4 sm:text-9xl" style={{ animation: 'countPop 1s ease-out both' }}>
+      <div key={hud.countdown} className="font-display text-gold mt-1 text-6xl leading-none drop-shadow-lg sm:mt-4 sm:text-9xl [@media(max-height:420px)]:text-4xl" style={{ animation: 'countPop 1s ease-out both' }}>
         {hud.countdown}
       </div>
     )}
@@ -129,7 +170,7 @@ const Lock = () => (
 );
 
 /** The stage chips: cleared and open stages can be played, the rest are locked until you park first in the one before. */
-const StageChips = ({ hud, game, onPick }: { hud: HudState; game: Game | null; onPick?: () => void }) => (
+const StageChips = ({ hud, game, onPick, via }: { hud: HudState; game: Game | null; onPick?: () => void; via?: (action: () => void) => Promise<void> }) => (
   <div className="flex flex-wrap justify-center gap-1.5" role="group" aria-label="Stages">
     {Array.from({ length: hud.stage.total }, (_, i) => {
       const n = i + 1;
@@ -143,7 +184,9 @@ const StageChips = ({ hud, game, onPick }: { hud: HudState; game: Game | null; o
           aria-current={now ? 'step' : undefined}
           aria-label={`Stage ${n}${locked ? ', locked' : now ? ', current' : ''}`}
           onClick={() => {
-            game?.selectStage(n);
+            const go = () => game?.selectStage(n);
+            if (via) void via(go);
+            else go();
             onPick?.();
           }}
           className={`font-display min-h-9 min-w-9 px-2 text-sm transition ${now ? 'bg-gold text-ink-deep' : locked ? 'bg-cream/5 text-cream/30 cursor-not-allowed' : 'bg-cream/10 text-cream hover:bg-cream/20'}`}
@@ -192,6 +235,27 @@ const MapTabs = ({ hud, game }: { hud: HudState; game: Game | null }) =>
   </div>
   );
 
+const HINT_BTN = 'panel-cut bg-blue/90 text-ink-deep flex flex-1 items-center justify-center gap-2 px-3 py-2.5 text-sm font-bold uppercase leading-tight tracking-wide transition hover:brightness-110 active:scale-95';
+
+const TIER_NAME: Record<Tier, string> = { low: 'Low', medium: 'Mid', high: 'High' };
+
+/** The "this needs a video ad" mark on the rewarded button. */
+const VideoIcon = () => (
+  <svg viewBox="0 0 24 24" className="h-5 w-5 shrink-0" aria-label="Video ad" role="img" fill="currentColor">
+    <rect x="2" y="5" width="15" height="14" rx="2" />
+    <path d="M18 10l4-2.5v9L18 14z" />
+  </svg>
+);
+
+/** While an ad is requested or plays: the game is paused and the UI blocked until it ends (the portal draws the ad on top). */
+const BreakCover = ({ kind }: { kind: 'midgame' | 'rewarded' }) => (
+  <div className="bg-ink-deep/90 absolute inset-0 z-50 flex flex-col items-center justify-center gap-3 p-6 text-center" role="alertdialog" aria-label="Ad break" aria-busy="true">
+    <div className="font-display text-gold text-2xl sm:text-4xl">{kind === 'rewarded' ? 'Your hint is loading' : 'Quick break'}</div>
+    <div className="text-cream/80 text-sm sm:text-base">The next round starts right after the ad.</div>
+    <div className="border-gold/30 border-t-gold mt-2 h-8 w-8 animate-spin rounded-full border-4" aria-hidden="true" />
+  </div>
+);
+
 const Stat = ({ label, value }: { label: string; value: string }) => (
   <div className="bg-ink-deep/70 px-3 py-2 text-center">
     <div className="text-lilac text-[10px] font-semibold tracking-widest uppercase">{label}</div>
@@ -199,7 +263,7 @@ const Stat = ({ label, value }: { label: string; value: string }) => (
   </div>
 );
 
-const Result = ({ hud, game }: { hud: HudState; game: Game | null }) => {
+const Result = ({ hud, game, session, exit, support }: { hud: HudState; game: Game | null; session: Session; exit?: RaceProps['exit']; support?: ReactNode }) => {
   const r = hud.result!;
   const st = hud.stage;
   const unlockedNow = r.won && st.hasNext;
@@ -224,37 +288,68 @@ const Result = ({ hud, game }: { hud: HudState; game: Game | null }) => {
         </div>
         {st.n > 0 && (
           <div className="mt-4">
-            <StageChips hud={hud} game={game} />
+            <StageChips hud={hud} game={game} via={session.next} />
           </div>
         )}
+        {session.hintOffer && (
+          // The optional hint, and the plain retry beside it in exactly the same size, font and colour: skipping is as easy as watching.
+          <div className="mt-4 flex gap-2" role="group" aria-label="Optional hint">
+            <button type="button" onClick={() => void session.takeHint()} className={HINT_BTN}>
+              {session.hintOffer === 'ad' && <VideoIcon />}
+              <span>{session.hintOffer === 'ad' ? 'Watch ad: retry with a hint' : 'Free hint: retry with a hint'}</span>
+            </button>
+            <button type="button" onClick={() => void session.next(() => game?.newRound())} className={HINT_BTN}>
+              <span>No thanks: retry</span>
+            </button>
+          </div>
+        )}
+        {session.notice && <p className="text-cream/80 mt-3 text-sm">{session.notice}</p>}
         <div className="mt-4 flex flex-col gap-3 sm:mt-5 sm:flex-row [@media(max-height:420px)]:flex-row [@media(max-height:420px)]:gap-2">
           {unlockedNow && (
-            <button type="button" autoFocus onClick={() => game?.nextStage()} className="panel-cut bg-gold font-display text-ink-deep flex flex-[1.7] items-center justify-center px-4 py-3 text-base whitespace-nowrap [@media(max-height:420px)]:py-2 transition hover:brightness-110 active:scale-95 sm:text-lg">
+            <button type="button" autoFocus onClick={() => void session.next(() => game?.nextStage())} className="panel-cut bg-gold font-display text-ink-deep flex flex-[1.7] items-center justify-center px-4 py-3 text-base whitespace-nowrap [@media(max-height:420px)]:py-2 transition hover:brightness-110 active:scale-95 sm:text-lg">
               Next stage →
             </button>
           )}
-          <button
+          {!session.hintOffer && <button
             type="button"
             autoFocus={!unlockedNow}
-            onClick={() => game?.newRound()}
+            onClick={() => void session.next(() => game?.newRound())}
             className={`panel-cut font-display flex flex-1 items-center justify-center px-4 py-3 text-base transition active:scale-95 sm:text-lg ${unlockedNow ? 'bg-cream/10 text-cream hover:bg-cream/20' : 'bg-gold text-ink-deep hover:brightness-110'}`}
           >
             Retry
-          </button>
-          <Link href="/" className="panel-cut bg-cream/10 font-display text-cream flex flex-1 items-center justify-center px-4 py-3 text-base transition hover:bg-cream/20 active:scale-95 sm:text-lg">
-            Home
-          </Link>
+          </button>}
+          {exit?.({ className: 'panel-cut bg-cream/10 font-display text-cream flex flex-1 items-center justify-center px-4 py-3 text-base transition hover:bg-cream/20 active:scale-95 sm:text-lg', label: 'Home' })}
         </div>
         <p className="text-lilac mt-3 hidden text-xs sm:block"><Key k="Enter" /> {unlockedNow ? 'goes to the next stage' : 'tries again'}</p>
-        <p className="text-lilac mt-3 flex flex-wrap items-center justify-center gap-x-2 text-sm">
-          Enjoyed it? <SupportLink />
-        </p>
+        {support && (
+          <p className="text-lilac mt-3 flex flex-wrap items-center justify-center gap-x-2 text-sm">
+            Enjoyed it? {support}
+          </p>
+        )}
       </div>
     </div>
   );
 };
 
-const PauseMenu = ({ hud, game, onResume }: { hud: HudState; game: Game | null; onResume: () => void }) => (
+const PauseMenu = ({
+  hud,
+  game,
+  onResume,
+  quality,
+  onQuality,
+  exit,
+  support,
+  credit,
+}: {
+  hud: HudState;
+  game: Game | null;
+  onResume: () => void;
+  quality: QualitySetting;
+  onQuality: (q: QualitySetting) => void;
+  exit?: RaceProps['exit'];
+  support?: ReactNode;
+  credit?: string;
+}) => (
   <div className="absolute inset-0 z-30 flex items-center justify-center bg-ink-deep/75 p-4 backdrop-blur-sm" role="dialog" aria-label="Paused">
     <div className="panel-cut bg-ink border-blue/20 max-h-[calc(100dvh-16px)] w-full max-w-sm overflow-y-auto border p-4 sm:p-6">
       <div className="font-display text-gold text-center text-3xl sm:text-4xl">Paused</div>
@@ -278,6 +373,24 @@ const PauseMenu = ({ hud, game, onResume }: { hud: HudState; game: Game | null; 
           <span>Camera</span>
           <span className="text-gold font-bold">{CAMERAS[hud.camera]}</span>
         </button>
+        <div className="text-cream/80 flex items-center gap-3 text-sm" role="radiogroup" aria-label="Graphics quality">
+          <span className="w-16 shrink-0">Graphics</span>
+          <div className="flex flex-1 gap-1">
+            {QUALITIES.map(({ v, label }) => (
+              <button
+                key={v}
+                type="button"
+                role="radio"
+                aria-checked={quality === v}
+                onClick={() => onQuality(v)}
+                className={`min-h-9 flex-1 px-1 text-xs font-bold transition ${quality === v ? 'bg-gold text-ink-deep' : 'bg-cream/10 text-cream hover:bg-cream/20'}`}
+              >
+                {label}
+              </button>
+            ))}
+          </div>
+        </div>
+        {quality === 'auto' && <div className="text-lilac -mt-1 text-right text-[11px]">Now drawing: {TIER_NAME[hud.tier]}</div>}
         {hud.stage.n > 0 && (
           <div className="mt-2">
             <div className="text-lilac mb-1.5 text-center text-[11px] font-semibold tracking-[0.25em] uppercase">Stage {hud.stage.n} · {hud.stage.name}</div>
@@ -289,32 +402,40 @@ const PauseMenu = ({ hud, game, onResume }: { hud: HudState; game: Game | null; 
         <button type="button" autoFocus onClick={onResume} className="panel-cut bg-gold font-display text-ink-deep px-6 py-2 text-lg transition hover:brightness-110 active:scale-95 sm:py-3">
           Resume
         </button>
-        <Link href="/" className="panel-cut bg-cream/10 font-display text-cream px-6 py-2 text-center text-lg transition hover:bg-cream/20 sm:py-3">
-          Leave
-        </Link>
+        {exit?.({ className: 'panel-cut bg-cream/10 font-display text-cream px-6 py-2 text-center text-lg transition hover:bg-cream/20 sm:py-3', label: 'Leave' })}
       </div>
-      <div className="mt-3 text-center">
-        <SupportLink />
-      </div>
+      {support && <div className="mt-3 text-center">{support}</div>}
+      {credit && <div className="text-lilac mt-3 text-center text-[11px] tracking-wide">A game by {credit}</div>}
     </div>
   </div>
 );
 
 /** The race: full-screen canvas, the HUD on top, touch controls on phones. */
-export const Race = () => {
+export const Race = ({ platform: given, flavour = 'studio', exit, support, credit, escPause = true, testBreaks = false }: RaceProps) => {
   const canvas = useRef<HTMLCanvasElement>(null);
   const minimap = useRef<HTMLCanvasElement>(null);
   const gameRef = useRef<Game | null>(null);
+  const [game, setGame] = useState<Game | null>(null);
   const [hud, setHud] = useState<HudState | null>(null);
-  const touch = useTouch();
+  const platform = useMemo(() => given ?? createWebPlatform(), [given]);
+  const touch = useTouch(platform.deviceType());
+  const [quality, setQuality] = useState<QualitySetting>(() => parseSetting(platform.storage.getItem(QUALITY_KEY)));
+  /** Enter on the result card goes through the session (an ad break may come first), like the buttons. */
+  const confirmRef = useRef<() => void>(() => gameRef.current?.confirm());
+  /** Rounds started this visit: the rule card shows on the first stage-1 rounds. */
+  const [roundsSeen, setRoundsSeen] = useState(0);
 
   useEffect(() => {
     let cancelled = false;
+    platform.loadingStart();
     void import('~/game/render/game').then(({ Game }) => {
       if (cancelled || !canvas.current) return;
-      const g = new Game(canvas.current, { mode: 'race', onHud: setHud });
+      const facts = deviceFacts(platform.deviceType());
+      const setting = parseSetting(platform.storage.getItem(QUALITY_KEY));
+      const g = new Game(canvas.current, { mode: 'race', onHud: setHud, onConfirm: () => confirmRef.current(), flavour, tier: resolveTier(setting, facts), autoTier: setting === 'auto', escPause });
       g.attachMinimap(minimap.current);
       gameRef.current = g;
+      setGame(g);
       if (process.env.NODE_ENV !== 'production') (window as unknown as { __game?: Game }).__game = g;
     });
     return () => {
@@ -322,13 +443,32 @@ export const Race = () => {
       gameRef.current?.dispose();
       gameRef.current = null;
     };
-  }, []);
+  }, [platform, flavour, escPause]);
+
+  const pickQuality = useCallback(
+    (q: QualitySetting) => {
+      setQuality(q);
+      platform.storage.setItem(QUALITY_KEY, q);
+      gameRef.current?.setTier(resolveTier(q, deviceFacts(platform.deviceType())));
+    },
+    [platform],
+  );
 
   const onInput = useCallback((i: Parameters<Game['setTouch']>[0]) => gameRef.current?.setTouch(i), []);
 
   const showResult = !!hud?.result && hud.endedFor >= (hud.result.reason === 'pedestrian' || hud.result.reason === 'crash' ? 2.2 : 1.2);
   const showMeter = !!hud && hud.phase !== 'countdown' && (hud.inBay > 0 || hud.park > 0) && !hud.result;
   const showHint = !touch && !!hud && hud.phase !== 'done' && hud.clock < 9 && !hud.paused && !showMeter;
+  const session = useSession(game, hud, platform, showResult, testBreaks ? { firstAfterRounds: 1, firstAfterPlay: 5, interval: 30, hintEvery: 10, freeHintAfter: 3 } : undefined);
+
+  confirmRef.current = () => void session.next(() => gameRef.current?.confirm());
+
+  // Count the rounds (each new countdown is a new round), for the rule card.
+  const phase = hud?.phase;
+  useEffect(() => {
+    if (phase === 'countdown') setRoundsSeen((n) => n + 1);
+  }, [phase]);
+  const onboard = !!hud && hud.stage.n === 1 && roundsSeen <= 2 && !hud.hinted;
 
   return (
     <main className="fixed inset-0 overflow-hidden bg-ink-deep select-none" onPointerDown={() => gameRef.current?.unlockAudio()}>
@@ -361,7 +501,6 @@ export const Race = () => {
           </div>
           {touch && (
             <div className="pointer-events-none absolute z-10 flex flex-col items-start gap-1" style={{ top: 'calc(232px + env(safe-area-inset-top))', left: 'calc(10px + env(safe-area-inset-left))' }}>
-              {hud.phase === 'race' && !hud.result && <Board hud={hud} />}
               <Radio hud={hud} compact />
             </div>
           )}
@@ -377,9 +516,9 @@ export const Race = () => {
             <div className="panel-cut bg-ink-deep/75 font-display text-cream px-3 py-1 text-base tabular-nums sm:px-5 sm:py-1.5 sm:text-xl">{fmtClock(hud.clock)}</div>
           </div>
 
-          {hud.phase === 'countdown' && <Intro hud={hud} touch={touch} />}
-          {!touch && hud.phase === 'race' && !hud.result && (
-            <div className="pointer-events-none absolute left-1/2 z-10 -translate-x-1/2" style={{ top: 'calc(54px + env(safe-area-inset-top))' }}>
+          {hud.phase === 'countdown' && <Intro hud={hud} touch={touch} onboard={onboard} />}
+          {hud.phase === 'race' && !hud.result && (
+            <div className="pointer-events-none absolute left-1/2 z-10 -translate-x-1/2" style={{ top: touch ? 'calc(10px + env(safe-area-inset-top))' : 'calc(54px + env(safe-area-inset-top))' }}>
               <Board hud={hud} />
             </div>
           )}
@@ -401,7 +540,7 @@ export const Race = () => {
           )}
 
 
-          <div className="pointer-events-none absolute z-10 text-right" style={{ right: 'calc(14px + env(safe-area-inset-right))', ...(touch ? { top: 'calc(92px + env(safe-area-inset-top))' } : { bottom: 'calc(14px + env(safe-area-inset-bottom))' }) }}>
+          <div className="pointer-events-none absolute z-10 text-right" style={{ right: 'calc(14px + env(safe-area-inset-right))', ...(touch ? { top: 'calc(112px + env(safe-area-inset-top))' } : { bottom: 'calc(14px + env(safe-area-inset-bottom))' }) }}>
             <div className={`font-display text-cream tabular-nums drop-shadow-lg ${touch ? 'text-3xl' : 'text-5xl'}`}>{Math.round(hud.speed)}<span className="text-lilac ml-1 text-base">km/h</span></div>
             <div className="font-display text-gold text-2xl drop-shadow-lg">{hud.gear}</div>
             {(hud.inGarage || hud.level !== 0) && (
@@ -420,28 +559,31 @@ export const Race = () => {
           {showHint && (
             <div className="pointer-events-none absolute bottom-24 left-1/2 z-10 flex -translate-x-1/2 flex-wrap justify-center gap-x-4 gap-y-1 text-xs text-cream" style={{ animation: 'fadeIn 0.5s ease-out both' }}>
               <span className="bg-ink-deep/70 flex flex-wrap items-center justify-center gap-x-4 gap-y-1 px-3 py-1.5">
-                <span><Key k="W" /> <Key k="S" /> gas · brake/reverse</span>
-                <span><Key k="A" /> <Key k="D" /> steer</span>
+                <span><Key k="W" /> <Key k="S" /> or <Key k="↑" /> <Key k="↓" /> gas · brake/reverse</span>
+                <span><Key k="A" /> <Key k="D" /> or <Key k="←" /> <Key k="→" /> steer</span>
                 <span><Key k="Space" /> handbrake</span>
                 <span><Key k="H" /> horn</span>
                 <span><Key k="C" /> camera</span>
-                <span><Key k="Esc" /> pause</span>
+                <span><Key k={escPause ? 'Esc' : 'P'} /> pause</span>
               </span>
             </div>
           )}
 
           {!touch && (
             <div className="text-lilac pointer-events-none absolute z-10 text-[11px]" style={{ top: 'calc(14px + env(safe-area-inset-top))', right: 'calc(14px + env(safe-area-inset-right))' }}>
-              <Key k="Esc" /> pause
+              <Key k={escPause ? 'Esc' : 'P'} /> pause
             </div>
           )}
 
           {touch && !hud.paused && !hud.result && (
-            <TouchControls onInput={onInput} onCamera={() => gameRef.current?.cycleCamera()} onPause={() => gameRef.current?.setPaused(true)} />
+            <TouchControls onInput={onInput} onCamera={() => gameRef.current?.cycleCamera()} onPause={() => gameRef.current?.setPaused(true)} fullscreen={platform.id === 'web' && !!exit} />
           )}
 
-          {hud.paused && <PauseMenu hud={hud} game={gameRef.current} onResume={() => gameRef.current?.setPaused(false)} />}
-          {showResult && <Result hud={hud} game={gameRef.current} />}
+          {hud.paused && (
+            <PauseMenu hud={hud} game={gameRef.current} onResume={() => session.setPaused(false)} quality={quality} onQuality={pickQuality} exit={exit} support={support} credit={credit} />
+          )}
+          {showResult && <Result hud={hud} game={gameRef.current} session={session} exit={exit} support={support} />}
+          {session.inBreak && <BreakCover kind={session.inBreak} />}
         </>
       )}
     </main>

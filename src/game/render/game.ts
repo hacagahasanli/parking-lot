@@ -131,6 +131,8 @@ export interface GameOptions {
   autoTier?: boolean;
   /** Called when the frame-rate guard steps the tier down. */
   onTier?: (tier: Tier) => void;
+  /** Enter on the result card: the page decides (it may show an ad break first). Default: `confirm()` at once. */
+  onConfirm?: () => void;
   /** Esc pauses (default true). Portals reserve Esc for leaving fullscreen, so they pass false and use P. */
   escPause?: boolean;
 }
@@ -603,7 +605,7 @@ export class Game {
     if (down && e.code === 'Enter' && (this.state.phase === 'done' || this.state.cars[0].dq !== null)) {
       // (the result card's focused button would also click on Enter: one press, one action)
       e.preventDefault();
-      this.confirm();
+      (this.opts.onConfirm ?? this.confirm)();
     }
   };
 

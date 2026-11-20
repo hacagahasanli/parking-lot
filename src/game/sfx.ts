@@ -384,7 +384,9 @@ export const createSfx = (): Sfx => {
   };
 
   const bump = (speed: number, x: number, z: number, metal: boolean) => {
-    const c = init();
+    // One-shots wait for the first tap or key: before it the browser keeps audio suspended, and they would only queue up.
+    if (!ctx || ctx.state !== 'running') return;
+    const c = ctx;
     const t = c.currentTime;
     const k = Math.min(1, speed / 9);
     const p = panner(x, z);
@@ -451,7 +453,8 @@ export const createSfx = (): Sfx => {
 
   /** The classic two-tone sweep of a car alarm, rounded so it nags without stabbing. */
   const alarm = (x: number, z: number, seconds: number) => {
-    const c = init();
+    if (!ctx || ctx.state !== 'running') return;
+    const c = ctx;
     const t = c.currentTime;
     const o = c.createOscillator();
     o.setPeriodicWave(wave('alarm', 9, 2, 0));
@@ -477,7 +480,8 @@ export const createSfx = (): Sfx => {
 
   /** A shout: a voice sliding down through two vowel filters, over a long two-note horn. */
   const shout = (x: number, z: number) => {
-    const c = init();
+    if (!ctx || ctx.state !== 'running') return;
+    const c = ctx;
     const t = c.currentTime;
     const p = panner(x, z);
     p.connect(fxBus);
@@ -516,14 +520,16 @@ export const createSfx = (): Sfx => {
   };
 
   const toot = (x: number, z: number) => {
-    const c = init();
+    if (!ctx || ctx.state !== 'running') return;
+    const c = ctx;
     const p = panner(x, z);
     p.connect(fxBus);
     hornBlast(c, p, c.currentTime, 0.24, 0.045);
   };
 
   const tone = (freq: number, at: number, len: number, vol = 0.18, type: OscillatorType = 'triangle') => {
-    const c = init();
+    if (!ctx || ctx.state !== 'running') return;
+    const c = ctx;
     const t = c.currentTime + at;
     const o = c.createOscillator();
     o.type = type;

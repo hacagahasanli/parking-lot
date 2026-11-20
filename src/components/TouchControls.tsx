@@ -6,12 +6,19 @@ import type { Input } from '~/game/sim/types';
 
 type Key = 'left' | 'right' | 'gas' | 'brake' | 'hand' | 'horn';
 
-/** True on phones and tablets (known only after mount). */
-export const useTouch = () => {
+/**
+ * True on phones and tablets (known only after mount). The portal's own device type wins when it gives one (CrazyGames asks
+ * games not to rely on touch detection alone); otherwise a coarse pointer decides. A laptop with a touch screen switches to
+ * touch controls on its first touch.
+ */
+export const useTouch = (device: 'desktop' | 'tablet' | 'mobile' | null = null) => {
   const [touch, setTouch] = useState(false);
   useEffect(() => {
-    setTouch(window.matchMedia?.('(pointer: coarse)').matches || 'ontouchstart' in window);
-  }, []);
+    setTouch(device ? device !== 'desktop' : !!window.matchMedia?.('(pointer: coarse)').matches);
+    const onTouch = () => setTouch(true);
+    window.addEventListener('touchstart', onTouch, { once: true, passive: true });
+    return () => window.removeEventListener('touchstart', onTouch);
+  }, [device]);
   return touch;
 };
 
@@ -33,12 +40,14 @@ const Pad = ({
   press,
   className,
   tone = 'plain',
+  fullscreen,
 }: {
   id: Key;
   label: string;
   press: (k: Key, on: boolean) => void;
   className: string;
   tone?: 'plain' | 'gold' | 'green';
+  fullscreen: boolean;
 }) => {
   const [down, setDown] = useState(false);
   const set = (on: boolean) => {
@@ -58,7 +67,7 @@ const Pad = ({
       aria-label={label}
       className={`font-display absolute flex touch-none items-center justify-center border-2 uppercase shadow-lg transition-transform select-none ${colour} ${className}`}
       onPointerDown={(e) => {
-        goFullscreen();
+        if (fullscreen) goFullscreen();
         e.currentTarget.setPointerCapture(e.pointerId);
         set(true);
       }}
@@ -81,10 +90,13 @@ export const TouchControls = ({
   onInput,
   onCamera,
   onPause,
+  fullscreen = true,
 }: {
   onInput: (input: Partial<Input>) => void;
   onCamera: () => void;
   onPause: () => void;
+  /** Ask for fullscreen on the first touch (our own site only: portals provide fullscreen and forbid games asking for it). */
+  fullscreen?: boolean;
 }) => {
   const state = useRef<Record<Key, boolean>>({ left: false, right: false, gas: false, brake: false, hand: false, horn: false });
   const press = (k: Key, on: boolean) => {
@@ -105,20 +117,20 @@ export const TouchControls = ({
         className="pointer-events-auto absolute"
         style={{ left: 'calc(16px + env(safe-area-inset-left))', bottom: 'calc(16px + env(safe-area-inset-bottom))', width: 160, height: 84 }}
       >
-        <Pad id="left" label="◀" press={press} className="top-0 left-0 h-[84px] w-[76px] rounded-3xl text-3xl" />
-        <Pad id="right" label="▶" press={press} className="top-0 right-0 h-[84px] w-[76px] rounded-3xl text-3xl" />
+        <Pad id="left" label="◀" press={press} fullscreen={fullscreen} className="top-0 left-0 h-[84px] w-[76px] rounded-3xl text-3xl" />
+        <Pad id="right" label="▶" press={press} fullscreen={fullscreen} className="top-0 right-0 h-[84px] w-[76px] rounded-3xl text-3xl" />
       </div>
       <div
         className="pointer-events-auto absolute"
         style={{ right: 'calc(16px + env(safe-area-inset-right))', bottom: 'calc(16px + env(safe-area-inset-bottom))', width: 188, height: 150 }}
       >
-        <Pad id="gas" label="Gas" press={press} tone="green" className="right-0 bottom-0 h-24 w-24 rounded-full text-lg" />
-        <Pad id="brake" label="Brake" press={press} className="bottom-0 left-0 h-[68px] w-[68px] rounded-full text-xs" />
-        <Pad id="hand" label="Hand" press={press} tone="gold" className="top-2 left-6 h-14 w-14 rounded-full text-[10px]" />
+        <Pad id="gas" label="Gas" press={press} fullscreen={fullscreen} tone="green" className="right-0 bottom-0 h-24 w-24 rounded-full text-lg" />
+        <Pad id="brake" label="Brake" press={press} fullscreen={fullscreen} className="bottom-0 left-0 h-[68px] w-[68px] rounded-full text-xs" />
+        <Pad id="hand" label="Hand" press={press} fullscreen={fullscreen} tone="gold" className="top-2 left-6 h-14 w-14 rounded-full text-[10px]" />
       </div>
       <div className="pointer-events-auto absolute flex gap-2" style={{ top: 'calc(10px + env(safe-area-inset-top))', right: 'calc(12px + env(safe-area-inset-right))' }}>
         <div className="relative h-11 w-11">
-          <Pad id="horn" label="Horn" press={press} className="inset-0 rounded-full text-[9px]" />
+          <Pad id="horn" label="Horn" press={press} fullscreen={fullscreen} className="inset-0 rounded-full text-[9px]" />
         </div>
         <button
           type="button"

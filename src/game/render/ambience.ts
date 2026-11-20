@@ -201,7 +201,7 @@ export const buildAmbience = (lot: Lot): Ambience => {
   }
   group.add(...paint);
 
-  // A fountain on the pavement by COMMIT COFFEE: basin and jets of droplets.
+  // A fountain on the pavement by the cafe: basin and jets of droplets.
   const fx = 22.5;
   const fz = bounds.z1 + 3.2;
   const basin = new THREE.Mesh(new THREE.CylinderGeometry(1.8, 1.9, 0.5, 24), std(0xcfc9bd));

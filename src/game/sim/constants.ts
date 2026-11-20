@@ -123,7 +123,8 @@ export const RACE = {
 /** Car colours and the names on the scoreboard. Player 0 is you offline. */
 export const DRIVERS = [
   { name: 'You', color: 0xd8222b },
-  { name: 'Staging', color: 0x2c6fd6 },
-  { name: 'Hotfix', color: 0xf2f2ee },
-  { name: 'Legacy', color: 0x3a3d44 },
+  // The rivals' names come from the flavour (sim/flavour.ts); these are only a fallback.
+  { name: 'Blue', color: 0x2c6fd6 },
+  { name: 'White', color: 0xf2f2ee },
+  { name: 'Grey', color: 0x3a3d44 },
 ] as const;

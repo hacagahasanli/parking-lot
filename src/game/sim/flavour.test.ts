@@ -1,7 +1,10 @@
-import { COPY, OFFICE_WORDS } from './flavour';
+import { COPY } from './flavour';
 import { buildLot } from './lot';
 import { radio } from './radio';
 import { createRound } from './step';
+
+/** Words that would betray a developer joke. */
+const OFFICE_WORDS = /\b(merge|merged|commit|git|deploy|deploying|pull request|code|review|sprint|backlog|ticket|release|rollback|rolled back|revert|rebas|build|bug|prod|production|hotfix|staging|legacy|changelog|unit test|stand-?up|lgtm|main|ship|shipped|shipping|push|force|critical path|race condition|hot desk|company|insurance)\b/i;
 
 describe('the neutral copy (portal builds)', () => {
   const all = (f: keyof typeof COPY) => [...COPY[f].rivals, ...COPY[f].plates, ...COPY[f].shops, ...Object.values(COPY[f].radio).flat()];

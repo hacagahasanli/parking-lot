@@ -5,6 +5,7 @@ import { useEffect, useRef, useState } from 'react';
 
 import { SupportCard } from '~/components/SupportLink';
 import type { Game } from '~/game/render/game';
+import { STUDIO_NAME } from '~/lib/studio';
 
 const STEPS = [
   ['Line up', 'Four company cars side by side at the entrance. Engines on.'],
@@ -49,7 +50,7 @@ export const Home = () => {
 
       <section className="relative z-10 flex min-h-screen flex-col justify-center px-6 py-10 sm:px-14" style={{ animation: 'riseIn 0.7s ease-out both' }}>
         <a href="https://merge-conflict-drab.vercel.app" className="text-lilac mb-5 text-xs font-semibold tracking-[0.3em] uppercase hover:text-cream">
-          Merge Conflict · Game 03
+          {STUDIO_NAME} · Game 03
         </a>
         <h1 className="font-display text-cream text-5xl leading-none sm:text-7xl">
           Parking

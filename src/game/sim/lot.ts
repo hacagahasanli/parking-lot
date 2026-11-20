@@ -735,8 +735,9 @@ export const buildLot = (seed = 7): Lot => {
   // --- The shops and the service yard ------------------------------------------------------------
   const kerb = bounds.z1;
   const shops: Shop[] = [
-    { name: 'MERGE MART', x0: -46, x1: 20, z0: kerb + 5, z1: kerb + 38, doorX, accent: 0x14915a },
-    { name: 'COMMIT COFFEE', x0: 31, x1: 58, z0: kerb + 5, z1: kerb + 24, doorX: 44.5, accent: 0xd9822b },
+    // The signs are set by the flavour (sim/flavour.ts) when the scene is built; these are neutral defaults.
+    { name: 'MARKET', x0: -46, x1: 20, z0: kerb + 5, z1: kerb + 38, doorX, accent: 0x14915a },
+    { name: 'CAFE', x0: 31, x1: 58, z0: kerb + 5, z1: kerb + 24, doorX: 44.5, accent: 0xd9822b },
   ];
   const store = { ...shops[0], kerb };
   // Delivery yard (x -52..-30, z 32..44): a box truck, a van, pallets and roll cages.
