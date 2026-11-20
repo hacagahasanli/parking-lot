@@ -392,7 +392,13 @@ the sim and the board all see it:
 - **Light.** There is one sun and one sky, so inside is made by turning them down: `dark` (0 outdoors to 1 on P-1, eased) scales the
   hemisphere light to 28 % and the environment to 20 %, and a point light 2.6 m over the car (38 intensity, 20 m, decay 1.5; blue-white
   on P-1) lights the aisle. The slabs cast and receive shadows, so the sun reaches only through the open sides of P1 and the roof.
-- **Camera** (`updateCamera`): the chase camera is clamped under the ceiling (`levelY + 2.4`, 0.7 m below it so the flat lights are not in its face) and `camSolids` (the garage's walls,
+- **Camera views** (`view.ts`): the default is the **parking view** (`park`): 17.5 m up and 6.5 m behind the car, looking 4 m
+  ahead of it (about 60 degrees down; on a portrait screen 22 m up, 4 m back, so the car sits a little below the middle and
+  about 30 m of lot shows ahead). It turns with the car on a slow spring (`parkFollow`, 0.5/s at a crawl up to 1.8/s), so the
+  car's left stays screen-left without the world spinning. The decks above are hidden, so it never meets a ceiling or a ramp.
+  The CAM button (or C) switches to the chase camera and back; the choice is saved under `parking-lot.camera` through the
+  platform storage (guarded; old saves of 'high'/'top' read as the parking view).
+- **Chase camera** (`updateCamera`): the chase camera is clamped under the ceiling (`levelY + 2.4`, 0.7 m below it so the flat lights are not in its face) and `camSolids` (the garage's walls,
   columns, ramp sides) are tested with `circleHit`/`boxHit` on the line car to camera; a hit pulls the camera in (not closer than 28 % of
   the way), and the height follows. The sun's shadow box follows the car's height too.
 - **Cars on ramps** lean with the slope: `rotation.order = 'YXZ'` and `rotation.x = -atan(grade)`, eased.

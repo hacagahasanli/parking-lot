@@ -7,6 +7,7 @@ import { TouchControls, useTouch } from '~/components/TouchControls';
 import { useSession } from '~/components/useSession';
 import { deviceFacts } from '~/game/render/deviceFacts';
 import { parseSetting, resolveTier } from '~/game/render/quality';
+import { CAMERA_KEY, parseCamera } from '~/game/render/view';
 import { createWebPlatform } from '~/platform/web';
 
 import type { ReactNode } from 'react';
@@ -45,7 +46,7 @@ export interface RaceProps {
 
 const hex = (c: number) => '#' + c.toString(16).padStart(6, '0');
 const fmtClock = (s: number) => `${Math.floor(s / 60)}:${(s % 60).toFixed(1).padStart(4, '0')}`;
-const CAMERAS: Record<CameraMode, string> = { chase: 'Chase', high: 'High', top: 'Overhead' };
+const CAMERAS: Record<CameraMode, string> = { park: 'Parking view', chase: 'Chase' };
 const VOLUMES: { kind: VolumeKind; label: string }[] = [
   { kind: 'master', label: 'Master' },
   { kind: 'engine', label: 'Engines' },
@@ -444,7 +445,17 @@ export const Race = ({ platform: given, flavour = 'studio', exit, support, credi
       if (cancelled || !canvas.current) return;
       const facts = deviceFacts(platform.deviceType());
       const setting = parseSetting(platform.storage.getItem(QUALITY_KEY));
-      const g = new Game(canvas.current, { mode: 'race', onHud: setHud, onConfirm: () => confirmRef.current(), flavour, tier: resolveTier(setting, facts), autoTier: setting === 'auto', escPause });
+      const g = new Game(canvas.current, {
+        mode: 'race',
+        onHud: setHud,
+        onConfirm: () => confirmRef.current(),
+        flavour,
+        tier: resolveTier(setting, facts),
+        autoTier: setting === 'auto',
+        escPause,
+        camera: parseCamera(platform.storage.getItem(CAMERA_KEY)),
+        onCamera: (m) => platform.storage.setItem(CAMERA_KEY, m),
+      });
       g.attachMinimap(minimap.current);
       gameRef.current = g;
       setGame(g);

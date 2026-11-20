@@ -26,6 +26,7 @@ import { buildAmbience } from './ambience';
 import { buildPeds } from './peds';
 import { circleHit, boxHit } from './sight';
 import { FpsGuard, lowerTier, TIERS } from './quality';
+import { CAMERA_MODES, parkFollow, parkPose } from './view';
 import { buildTargetMarker, buildWorld } from './world';
 
 import type { BotBrain } from '../sim/bot';
@@ -36,12 +37,13 @@ import type { VolumeKind } from '../sfx';
 import type { RacerRig } from './car';
 import type { Flavour } from '../sim/flavour';
 import type { Tier } from './quality';
+import type { CameraMode } from './view';
 
 // ---------------------------------------------------------------------------
 // HUD snapshot for React
 // ---------------------------------------------------------------------------
 
-export type CameraMode = 'chase' | 'high' | 'top';
+export type { CameraMode } from './view';
 
 export interface Standing {
   id: number;
@@ -144,6 +146,10 @@ export interface GameOptions {
   onConfirm?: () => void;
   /** Esc pauses (default true). Portals reserve Esc for leaving fullscreen, so they pass false and use P. */
   escPause?: boolean;
+  /** The camera to start with (the player's saved choice). Default 'park'. */
+  camera?: CameraMode;
+  /** Called when the player switches camera (CAM button or C), so the page can remember it. */
+  onCamera?: (mode: CameraMode) => void;
 }
 
 const KEYS: Record<string, keyof Pressed> = {
@@ -368,7 +374,8 @@ export class Game {
   private fps = 60;
   private trauma = 0;
   private cam = { x: 0, y: 6, z: -50, yaw: 0, look: new THREE.Vector3() };
-  private cameraMode: CameraMode = 'chase';
+  private cameraMode: CameraMode = 'park';
+  private portrait = false;
   private paused = false;
   private endedAt = -1;
   /** Game time you were disqualified at, or -1. */
@@ -457,6 +464,8 @@ export class Game {
     this.marker.group.visible = false;
     this.effects = createEffects(this.scene);
 
+    this.cameraMode = opts.camera ?? 'park';
+    this.portrait = (canvas.clientWidth || window.innerWidth) < (canvas.clientHeight || window.innerHeight);
     this.newRound();
     this.resize();
     window.addEventListener('resize', this.resize);
@@ -534,13 +543,19 @@ export class Game {
     this.engines = [];
     this.rpm = this.allCars().map(() => 850);
 
-    // Camera starts behind your car (or high over the lot on the home page).
+    // Camera starts where the chosen view puts it (the home page's showcase eases in from behind the car).
     const me = state.cars[0];
     this.cam.yaw = me.h;
-    this.cam.x = me.x - Math.sin(me.h) * 7;
-    this.cam.z = me.z - Math.cos(me.h) * 7;
-    this.cam.y = 3;
-    this.cam.look.set(me.x, 1, me.z);
+    if (this.cameraMode === 'park' && this.opts.mode === 'race') {
+      const { eye, look } = parkPose(me.x, 0, me.z, me.h, 0, this.portrait);
+      [this.cam.x, this.cam.y, this.cam.z] = eye;
+      this.cam.look.set(...look);
+    } else {
+      this.cam.x = me.x - Math.sin(me.h) * 7;
+      this.cam.z = me.z - Math.cos(me.h) * 7;
+      this.cam.y = 3;
+      this.cam.look.set(me.x, 1, me.z);
+    }
   };
 
   /** The racers and, if there is one, the parked car that pulls out. */
@@ -650,8 +665,9 @@ export class Game {
   };
 
   cycleCamera = () => {
-    const order: CameraMode[] = ['chase', 'high', 'top'];
-    this.cameraMode = order[(order.indexOf(this.cameraMode) + 1) % order.length];
+    this.cameraMode = CAMERA_MODES[(CAMERA_MODES.indexOf(this.cameraMode) + 1) % CAMERA_MODES.length];
+    this.opts.onCamera?.(this.cameraMode);
+    this.emitHud(true);
   };
 
   setPaused = (p: boolean) => {
@@ -727,6 +743,7 @@ export class Game {
     this.renderer.setSize(w, h, false);
     this.camera.aspect = w / h;
     // Portrait phones: widen the view so the car and the lane ahead both fit.
+    this.portrait = w < h;
     this.camera.fov = w < h ? 78 : 62;
     this.camera.updateProjectionMatrix();
   };
@@ -1025,23 +1042,27 @@ export class Game {
       const a = Math.sin(this.time * 0.1) * 0.55 + 0.25;
       want = new THREE.Vector3(x - Math.sin(a) * 16, y + 6.2, z - Math.cos(a) * 16);
       look = new THREE.Vector3(x + 5 + Math.sin(a) * 4, y + 0.9, z + 13);
-    } else if (this.cameraMode === 'top') {
-      // Straight down, north up: for squeezing into the bay (the decks above are hidden so you can see in).
-      want = new THREE.Vector3(x, y + 22, z - 0.01);
-      look = new THREE.Vector3(x, y, z);
+    } else if (this.cameraMode === 'park') {
+      // The parking view (view.ts): high and tilted, turning slowly with the car. The decks above are hidden (updateGarage),
+      // so it sees into the car park from above and is never inside a ceiling, a wall or a ramp.
+      const vF = forwardSpeed(s.cars[car.id]);
+      this.cam.yaw = lerpAngle(this.cam.yaw, h, Math.min(1, dt * parkFollow(vF)));
+      const pose = parkPose(x, y, z, this.cam.yaw, vF, this.portrait);
+      want = new THREE.Vector3(...pose.eye);
+      look = new THREE.Vector3(...pose.look);
     } else {
       // Chase: behind the car, the yaw catching up with the heading on a spring so turns feel
       // like turns (a camera bolted to the car makes the world spin instead).
       const vF = forwardSpeed(s.cars[car.id]);
       const follow = Math.abs(vF) < 0.5 ? 1.2 : 3.2;
       this.cam.yaw = lerpAngle(this.cam.yaw, h, Math.min(1, dt * follow));
-      const dist = this.cameraMode === 'high' ? 10.5 : 6.4 + Math.min(1.6, Math.abs(vF) * 0.09);
-      const height = this.cameraMode === 'high' ? 6.5 : 2.55;
+      const dist = 6.4 + Math.min(1.6, Math.abs(vF) * 0.09);
+      const height = 2.55;
       want = new THREE.Vector3(x - Math.sin(this.cam.yaw) * dist, y + height, z - Math.cos(this.cam.yaw) * dist);
       look = new THREE.Vector3(x + Math.sin(h) * 2.4, y + 1.05, z + Math.cos(h) * 2.4);
     }
     // Inside the car park: keep under the ceiling, and pull in so the camera never ends up inside a wall, a column or a ramp's side.
-    if (!showcase && inside) {
+    if (!showcase && inside && this.cameraMode === 'chase') {
       want.y = Math.min(want.y, ceil);
       let t = 1;
       for (const { s: sh } of this.camSolids) {
@@ -1056,7 +1077,7 @@ export class Game {
         want.y = y + 1.6 + (want.y - y - 1.6) * Math.max(0.5, t);
       }
     }
-    const k = Math.min(1, dt * (showcase ? 1.5 : this.cameraMode === 'top' ? 5 : 8));
+    const k = Math.min(1, dt * (showcase ? 1.5 : this.cameraMode === 'park' ? 6 : 8));
     this.cam.x += (want.x - this.cam.x) * k;
     this.cam.y += (want.y - this.cam.y) * k;
     this.cam.z += (want.z - this.cam.z) * k;
@@ -1066,7 +1087,6 @@ export class Game {
     const n = (f: number, p: number) => Math.sin(this.time * f + p) * 0.6 + Math.sin(this.time * f * 2.3 + p) * 0.4;
     this.camera.position.set(this.cam.x + n(23, 1.3) * 0.25 * shake, Math.min(this.cam.y + n(19, 4.1) * 0.18 * shake, ceil), this.cam.z + n(17, 2.2) * 0.25 * shake);
     this.camera.lookAt(this.cam.look);
-    if (this.cameraMode === 'top' && !showcase) this.camera.up.set(0, 1, 0);
     this.trauma = Math.max(0, this.trauma - dt * 1.4);
     this.sfx.listener(this.camera.position.x, this.camera.position.y, this.camera.position.z, Math.sin(this.cam.yaw), Math.cos(this.cam.yaw));
 
