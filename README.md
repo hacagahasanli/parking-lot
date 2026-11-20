@@ -6,7 +6,7 @@
 
 *Touch nothing. Park first.*
 
-A game by **[Merge Conflict](https://merge-conflict-drab.vercel.app)**, the studio where coworkers settle their conflicts.
+A game by **[Nalbaki Games](https://merge-conflict-drab.vercel.app)**.
 
 ### [▶ Play (coming: parking-lot.vercel.app)](https://parking-lot.vercel.app) · [Studio](https://merge-conflict-drab.vercel.app) · [Floor 42](https://floor-42.vercel.app) · [Last Commit Standing](https://last-commit-standing.vercel.app)
 

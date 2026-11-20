@@ -12,6 +12,8 @@ const ui = Chakra_Petch({ weight: ['400', '500', '600', '700'], subsets: ['latin
 
 export const metadata: Metadata = {
   title: { default: `${GAME_TITLE} · ${STUDIO_NAME}`, template: `%s · ${GAME_TITLE}` },
+  authors: [{ name: STUDIO_NAME }],
+  creator: STUDIO_NAME,
   description: 'Four company cars. One free space. No insurance. First to park wins.',
   appleWebApp: { capable: true, title: 'Parking Lot', statusBarStyle: 'black-translucent' },
 };

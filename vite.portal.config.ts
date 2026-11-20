@@ -6,7 +6,7 @@
 import path from 'path';
 import { defineConfig } from 'vite';
 
-import { GAME_TITLE } from './src/lib/studio';
+import { GAME_TITLE, STUDIO_NAME } from './src/lib/studio';
 
 export default defineConfig({
   root: path.resolve(__dirname, 'portal'),
@@ -33,7 +33,7 @@ export default defineConfig({
     },
     {
       name: 'game-title',
-      transformIndexHtml: (html) => html.replace('%GAME_TITLE%', GAME_TITLE),
+      transformIndexHtml: (html) => html.replace('%GAME_TITLE%', GAME_TITLE).replace('%STUDIO_NAME%', STUDIO_NAME),
     },
   ],
   build: {

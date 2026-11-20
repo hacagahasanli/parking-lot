@@ -1,6 +1,6 @@
 # Parking Lot: design
 
-A Merge Conflict game. **A four-car race to the one free bay on a full supermarket site: an open
+A Nalbaki Games game. **A four-car race to the one free bay on a full supermarket site: an open
 lot and a four-storey car park (rounds of one to three minutes), played in six stages: you start in the
 open lot, and each stage you win opens one more floor of the car park.** Nobody is told exactly where the bay
 is: you find it by driving the aisles, the ramps and the decks and looking, at the same time as the bots
