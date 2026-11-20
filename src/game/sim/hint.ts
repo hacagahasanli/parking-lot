@@ -63,7 +63,8 @@ export interface Hint {
 
 export const hintOf = (state: GameState, lot: Lot): Hint => {
   const bay = lot.bays[state.target];
-  const free = state.extra >= 0 ? 2 : 1;
+  // Always one: the game is "one free space" (even when a car pulls out and leaves a second bay, the board keeps saying 1).
+  const free = 1;
   // In stages 2 to 5 the free bay is known to be in the car park from the start; the open decks are the ones that can flicker.
   const told = lot.stage !== undefined && lot.stage >= 2 && lot.stage <= 5;
   const open = lot.open?.levels ?? LEVELS;

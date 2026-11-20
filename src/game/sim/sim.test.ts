@@ -831,7 +831,7 @@ describe('the free-spaces board', () => {
     expect([...shown].sort()).toEqual(h.decks);
   });
 
-  it('only names the open lot when the bay is outdoors, and counts two once a car has pulled out', () => {
+  it('only names the open lot when the bay is outdoors, and still says one free space after a car has pulled out', () => {
     const { state } = createRound(lot, { seed: 5, bots: [true], target: lotTarget });
     state.clock = HINT.deckAt + 5;
     const h = hintOf(state, lot);
@@ -839,8 +839,8 @@ describe('the free-spaces board', () => {
     expect(h.decks).toEqual([]);
     expect(hintLines(h)[1]).toBe('IN THE OPEN LOT');
     state.extra = 7;
-    expect(hintOf(state, lot).free).toBe(2);
-    expect(hintLines(hintOf(state, lot))[0]).toBe('FREE SPACES: 2');
+    expect(hintOf(state, lot).free).toBe(1);
+    expect(hintLines(hintOf(state, lot))[0]).toBe('FREE SPACES: 1');
   });
 });
 
