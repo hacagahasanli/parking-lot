@@ -6,9 +6,9 @@
 
 *Touch nothing. Park first.*
 
-A game by **[Nalbaki Games](https://merge-conflict-drab.vercel.app)**.
+A game by **[Nalbaki Games](https://nalbakigames.com)**.
 
-### [▶ Play (coming: parking-lot.vercel.app)](https://parking-lot.vercel.app) · [Studio](https://merge-conflict-drab.vercel.app) · [Floor 42](https://floor-42.vercel.app) · [Last Commit Standing](https://last-commit-standing.vercel.app)
+### [▶ Play (coming: parking-lot.vercel.app)](https://parking-lot.vercel.app) · [Studio](https://nalbakigames.com) · [Floor 42](https://floor-42.vercel.app) · [Last Commit Standing](https://last-commit-standing.vercel.app)
 
 </div>
 
@@ -66,8 +66,8 @@ npm run type-check
 
 Open `http://localhost:3200/play` to drive; the home page shows four bots racing.
 
-Support: Parking Lot is free. If you enjoyed it, you can [☕ support the studio](https://merge-conflict-drab.vercel.app/donate.html).
+Support: Parking Lot is free. If you enjoyed it, you can [☕ support the studio](https://nalbakigames.com/support).
 
 Design: [docs/DESIGN.md](docs/DESIGN.md). How the code works: [docs/TECHNICAL.md](docs/TECHNICAL.md).
 Assets: [ASSETS.md](ASSETS.md).
-Studio repo: [github.com/hacagahasanli/merge-conflict](https://github.com/hacagahasanli/merge-conflict).
+Studio repo: [github.com/hacagahasanli/nalbaki-games](https://github.com/hacagahasanli/nalbaki-games).
