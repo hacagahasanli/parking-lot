@@ -146,11 +146,11 @@ export const CAMPAIGN: LevelDef[] = [
   {
     // The parallel bays along the west road; the one behind is empty, so you can drive in forwards.
     id: 'kerbside', n: 11, chapter: 2, name: 'Kerbside', teaches: 'A parallel bay with room behind: drive in at an angle, then straighten.',
-    type: 'solo', stage: 1, spawn: at(-58, -26, N), target: [242], facing: 'nose', slack: 0.3, bays: { 241: 'free' }, par: 20, limit: 60,
+    type: 'solo', stage: 1, spawn: at(-58, -26, N), target: [242], facing: 'nose', slack: 0.3, bays: { 241: 'free' }, par: 15, limit: 60,
   },
   {
     id: 'parallel', n: 12, chapter: 2, name: 'Proper parallel', teaches: 'Pull up past the gap and reverse in: the S-turn.',
-    type: 'solo', stage: 1, spawn: at(-58, 2, N), target: [245], facing: 'nose', bays: { 244: 'car', 246: 'suv' }, par: 30, limit: 80,
+    type: 'solo', stage: 1, spawn: at(-58, 2, N), target: [245], facing: 'nose', bays: { 244: 'car', 246: 'suv' }, par: 25, limit: 80,
   },
   {
     // Parked nose-in in the dead-end pocket between two vans; out to the main road.
@@ -216,7 +216,7 @@ export const CAMPAIGN: LevelDef[] = [
   // ---- Chapter 4: Closing time (the whole site) --------------------------------------------------------------------------
   {
     id: 'last-space', n: 25, chapter: 4, name: 'Last space', teaches: 'Reverse in between an SUV and a van, dead straight.',
-    type: 'solo', stage: 6, spawn: at(14, 10.7, E), target: [146], facing: 'tail', slack: 0.12, maxAngleDeg: 10, bays: { 147: 'van' }, par: 32, limit: 80,
+    type: 'solo', stage: 6, spawn: at(14, 10.7, E), target: [146], facing: 'tail', slack: 0.12, maxAngleDeg: 10, bays: { 147: 'van' }, par: 26, limit: 80,
   },
   {
     id: 'leaver-race', n: 26, chapter: 4, name: 'Leaver race', teaches: 'A second bay opens mid-race. Change plan when it does.',

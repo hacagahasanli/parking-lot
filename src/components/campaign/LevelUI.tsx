@@ -212,8 +212,11 @@ export const LevelResult = ({
         )}
         <div className="mt-3 flex flex-col gap-2 sm:mt-4 sm:flex-row [@media(max-height:420px)]:flex-row">
           {next && (
-            <button type="button" autoFocus onClick={onNext} className="panel-cut bg-gold font-display text-ink-deep flex flex-[1.6] items-center justify-center px-4 py-3 text-base whitespace-nowrap transition hover:brightness-110 active:scale-95 sm:text-lg [@media(max-height:420px)]:py-2">
-              Next: {next.name} →
+            <button type="button" autoFocus onClick={onNext} className="panel-cut bg-gold font-display text-ink-deep flex min-w-0 flex-[1.6] items-center justify-center px-4 py-3 text-base whitespace-nowrap transition hover:brightness-110 active:scale-95 sm:text-lg [@media(max-height:420px)]:py-2">
+              <span className="truncate">
+                Next<span className="max-sm:hidden [@media(max-height:420px)]:hidden">: {next.name}</span>
+              </span>
+              <span className="ml-1">→</span>
             </button>
           )}
           <button
