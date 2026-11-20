@@ -63,6 +63,8 @@ export interface Hint {
 
 export const hintOf = (state: GameState, lot: Lot): Hint => {
   const bay = lot.bays[state.target];
+  // An unpark level has no bay to find: the board stays blank.
+  if (!bay) return { free: 1, stage: 0, zone: null, decks: [], showing: null, side: null };
   // Always one: the game is "one free space" (even when a car pulls out and leaves a second bay, the board keeps saying 1).
   const free = 1;
   // In stages 2 to 5 the free bay is known to be in the car park from the start; the open decks are the ones that can flicker.
@@ -97,7 +99,7 @@ export const HINT_AREA_R = 18;
  * distance away from it so it narrows the search without pointing at the bay. Only the player sees it; the bots never read it.
  */
 export const hintArea = (state: GameState, lot: Lot): { x: number; z: number; r: number; lvl: number } => {
-  const bay = lot.bays[state.target];
+  const bay = lot.bays[Math.max(0, state.target)];
   const a = ((state.seed * 2654435761) % 6283) / 1000;
   const d = HINT_AREA_R * (0.25 + (((state.seed * 40503) % 1000) / 1000) * 0.35);
   return { x: bay.x + Math.cos(a) * d, z: bay.z + Math.sin(a) * d, r: HINT_AREA_R, lvl: bay.garage ? bay.lvl : 0 };

@@ -12,6 +12,10 @@ import { followRoute, routeToNode } from './nav';
 import type { Flavour } from './flavour';
 import { buildWalks, createPeds, pedLimit, stepPeds } from './ped';
 import { roundCap, stageLot } from './stages';
+import { RACE_RULES, angleOff, applyLevel, precisionOf, rulesOf } from './campaign';
+import { levelY } from './levels';
+
+import type { LevelDef } from './campaign';
 
 import type { Box, Lot, Shape } from './lot';
 import { OWNER_ENTRY, OWNER_EXIT } from './types';
@@ -49,7 +53,8 @@ const buildGrid = (solids: Shape[]) => {
  * The colliders for a round. The free bay is empty; so is the bay of the car that pulls out
  * mid-round (`leaving`), whose car is a moving body instead of a solid.
  */
-export const createWorld = (target: number, lot: Lot = buildLot(), leaving = -1, seed = 1): World => {
+export const createWorld = (target: number | number[], lot: Lot = buildLot(), leaving = -1, seed = 1): World => {
+  const free = Array.isArray(target) ? target : [target];
   const solids: Shape[] = [...lot.solids];
   const owner: number[] = lot.solids.map(() => -1);
   // Hard things (hitting one is out): posts, lamps and columns, the van and the truck, pallets, cages and the ticket machines.
@@ -63,7 +68,7 @@ export const createWorld = (target: number, lot: Lot = buildLot(), leaving = -1,
     return prop ? propNames[prop.kind]! : null;
   });
   for (const bay of lot.bays) {
-    if (bay.id === target || bay.id === leaving) continue;
+    if (free.includes(bay.id) || bay.id === leaving) continue;
     for (const shape of bayShapes(bay)) {
       solids.push(shape);
       owner.push(bay.id);
@@ -127,6 +132,8 @@ export const makeCar = (id: number, name: string, color: number, bot: boolean, x
   incidents: 0,
   bay: -1,
   jolt: 0,
+  grazes: 0,
+  grazeAt: -99,
 });
 
 export interface RoundOptions {
@@ -146,6 +153,11 @@ export interface RoundOptions {
   flavour?: Flavour;
   /** The people's cars use the manual gearbox (the player's option; bots always drive the automatic). They start in 1st. */
   manual?: boolean;
+  /**
+   * A campaign level (campaign.ts): its stage, bays, spawn, rules, shoppers and rivals. Seat 0 is you; `bots` then only says how
+   * many seats there are (one, plus the level's rivals).
+   */
+  level?: LevelDef;
 }
 
 /**
@@ -170,6 +182,7 @@ export const pickTarget = (lot: Lot, rand: () => number): number => {
 };
 
 export const createRound = (fullLot: Lot, opts: RoundOptions): { state: GameState; world: World } => {
+  if (opts.level) return createLevelRound(fullLot, opts.level, opts);
   const lot = opts.stage ? stageLot(fullLot, opts.stage) : fullLot;
   const rand = rng(opts.seed * 7919 + 13);
   const target = opts.target ?? pickTarget(lot, rand);
@@ -223,6 +236,83 @@ export const createRound = (fullLot: Lot, opts: RoundOptions): { state: GameStat
     alarms: {},
     events: [],
     seed: opts.seed,
+  };
+  return { state, world };
+};
+
+/** The leaver of a round: the car parked in `bay` that pulls out at `at` seconds. */
+const makeLeaver = (bay: Lot['bays'][number], at: number): Leaver => {
+  const forward = bay.garage;
+  const car = makeCar(10, 'Parked car', bay.color, true, bay.x + Math.sin(bay.h) * 0.12, bay.z + Math.cos(bay.h) * 0.12, forward ? bay.h + Math.PI : bay.h);
+  car.y = bay.y;
+  return { car, bay: bay.id, at, phase: 'wait', t: 0, route: [], seg: 0, forward };
+};
+
+/**
+ * A campaign level's round. You start where the level says (a solo level waits for your first press, no countdown; a race
+ * starts at the gate after the countdown), the bays it names are free and nothing else is, its rules judge the park, and only
+ * the shoppers whose walks pass nearest the bay are out.
+ */
+const createLevelRound = (fullLot: Lot, level: LevelDef, opts: RoundOptions): { state: GameState; world: World } => {
+  const lot = applyLevel(stageLot(fullLot, level.stage), level);
+  const rand = rng(opts.seed * 7919 + 13);
+  const rules = rulesOf(level);
+  const targets = level.target.length ? [...level.target] : level.type === 'unpark' ? [] : [pickTarget(lot, rand)];
+  const seats = level.type === 'race' ? 1 + (level.bots?.n ?? 0) : 1;
+  const cars: Car[] = Array.from({ length: seats }, (_, i) => {
+    const s = level.spawn === 'gate' || i > 0 ? lot.starts[i] : level.spawn;
+    const car = makeCar(i, opts.names?.[i] ?? (i > 0 ? COPY[opts.flavour ?? 'studio'].rivals[i - 1] : undefined) ?? DRIVERS[i].name, DRIVERS[i].color, i > 0, s.x, s.z, s.h);
+    if (i === 0 && level.spawn !== 'gate') car.y = levelY(level.spawn.lvl);
+    if (opts.manual && i === 0) car.box = 'manual';
+    return car;
+  });
+  // The parked car that pulls out: the level's own, the race's random one, or none.
+  let leaver: Leaver | null = null;
+  if (typeof level.leaver === 'object') leaver = makeLeaver(lot.bays[level.leaver.bay], level.leaver.at);
+  else if (level.leaver === true) {
+    const pool = lot.eligible.filter((id) => !targets.includes(id) && lot.bays[id].use === 'car' && lot.bays[id].variant < 3);
+    if (pool.length) leaver = makeLeaver(lot.bays[pool[Math.floor(rand() * pool.length)]], 12 + rand() * 16);
+  }
+  const world = createWorld(targets, lot, leaver ? leaver.bay : -1, opts.seed);
+  // Shoppers: everyone in a race unless the level says; in a solo level only the ones whose walks pass nearest the bay.
+  const want = level.peds ?? (level.type === 'race' ? world.walks.length : 0);
+  if (want < world.walks.length) {
+    const focus = targets.length ? lot.bays[targets[0]] : level.exit ? { x: level.exit.x, z: level.exit.z, y: levelY(level.exit.lvl) } : { x: 0, z: 0, y: 0 };
+    const near = (w: World['walks'][number]) => Math.min(...w.points.map((p) => Math.hypot(p.x - focus.x, p.z - focus.z))) + Math.abs((w.y ?? 0) - focus.y) * 10;
+    const keep = world.walks.map((w, i) => ({ i, d: near(w) })).sort((a, b) => a.d - b.d).slice(0, want).map((k) => k.i).sort((a, b) => a - b);
+    world.walks = keep.map((i) => world.walks[i]);
+    world.trolley = keep.map((i) => world.trolley[i]);
+  }
+  if (level.bots) world.pace = level.bots.pace;
+  const solo = rules.solo;
+  const target = targets[0] ?? -1;
+  const state: GameState = {
+    t: 0,
+    clock: 0,
+    maxTime: opts.maxTime ?? level.limit,
+    flavour: opts.flavour ?? 'studio',
+    phase: 'countdown',
+    cars,
+    target,
+    gate: { open: level.spawn === 'gate' ? 0 : 1 },
+    extra: -1,
+    winBay: -1,
+    winner: null,
+    peds: createPeds(world, world.trolley, opts.seed),
+    leaver,
+    chat: [],
+    chatLast: {},
+    chatAny: -99,
+    chatN: 0,
+    alarms: {},
+    events: [],
+    seed: opts.seed,
+    rules,
+    targets,
+    leg: 0,
+    legPrecision: [],
+    exit: level.exit,
+    waiting: solo,
   };
   return { state, world };
 };
@@ -390,8 +480,20 @@ const resolve = (state: GameState, a: Car, b: Car | null, k: { nx: number; nz: n
   }
   if (vn >= 0) return;
 
-  // Contact is out: a real touch puts the driver at fault out of the race (see `CONTACT`).
-  if (-vn >= CONTACT.minSpeed && state.phase === 'race' && (b || what)) {
+  const failSpeed = state.rules?.failSpeed ?? CONTACT.minSpeed;
+  // A light touch of a car or a hard thing: a campaign level counts it (it costs the clean star) and goes on.
+  if (-vn < failSpeed && state.phase === 'race' && (b || what)) {
+    for (const c of b ? [a, b] : [a]) {
+      if (c.id >= state.cars.length || c.dq !== null || c.parkedAt !== null) continue;
+      if (state.clock - c.grazeAt > 0.5) {
+        c.grazes++;
+        state.events.push({ type: 'graze', car: c.id, speed: -vn, x: px, z: pz });
+      }
+      c.grazeAt = state.clock;
+    }
+  }
+  // Contact is out: a real touch puts the driver at fault out of the race (see `CONTACT`); a campaign level fails.
+  if (-vn >= failSpeed && state.phase === 'race' && (b || what)) {
     // How hard each body's own motion drives into the other at the contact point (a body standing still drives into nothing).
     const drivesA = vax * nx + vaz * nz;
     const drivesB = b ? -(vbx * nx + vbz * nz) : 0;
@@ -527,17 +629,29 @@ export const bayBox = (world: World, id: number): Box => {
 
 const wrap = (a: number) => Math.atan2(Math.sin(a), Math.cos(a));
 
-/** Nose in or reversed in, both count. */
-export const aligned = (h: number, bayH: number) => {
-  const d = Math.abs(wrap(h - bayH));
-  return d < PARK.maxAngle || Math.PI - d < PARK.maxAngle;
-};
+/** Nose in or reversed in, both count (a campaign level may ask for one of them, and straighter). */
+export const aligned = (h: number, bayH: number, rules = RACE_RULES) => angleOff(h, bayH, rules.facing) < rules.maxAngle;
 
 /** The bays that are free right now: the target, and the one a car has pulled out of. */
-export const freeBays = (state: GameState): number[] => (state.extra >= 0 ? [state.target, state.extra] : [state.target]);
+export const freeBays = (state: GameState): number[] => (state.target < 0 ? [] : state.extra >= 0 && state.extra !== state.target ? [state.target, state.extra] : [state.target]);
 
 const parking = (state: GameState, world: World) => {
   const free = freeBays(state);
+  const rules = state.rules ?? RACE_RULES;
+  // An unpark level: you are done once inside the exit circle, on its level.
+  if (state.exit && state.phase === 'race') {
+    const e = state.exit;
+    const car = state.cars[0];
+    if (car.dq === null && Math.hypot(car.x - e.x, car.z - e.z) < e.r && Math.abs(car.y - levelY(e.lvl)) < 1) {
+      car.parkedAt = state.clock;
+      car.park = 1;
+      state.winner = 0;
+      state.events.push({ type: 'parked', car: 0, time: state.clock, bay: -1 });
+      state.events.push({ type: 'end', winner: 0 });
+      state.phase = 'done';
+    }
+    return;
+  }
   for (const car of state.cars) {
     const pts = corners(carBox(car));
     let best = -1;
@@ -545,7 +659,7 @@ const parking = (state: GameState, world: World) => {
     for (const id of free) {
       // A bay one floor up is not this car's bay, even though it is straight overhead.
       if (Math.abs(world.lot.bays[id].y - car.y) > 1) continue;
-      const n = pts.filter((p) => insideBox(p, bayBox(world, id), PARK.slack)).length / 4;
+      const n = pts.filter((p) => insideBox(p, bayBox(world, id), rules.slack)).length / 4;
       if (n > share) {
         share = n;
         best = id;
@@ -556,11 +670,22 @@ const parking = (state: GameState, world: World) => {
     if (car.parkedAt !== null || car.dq !== null) continue;
     const bay = best >= 0 ? bayBox(world, best) : null;
     const still = Math.hypot(car.vx, car.vz) < PARK.maxSpeed && Math.abs(car.w) < 0.2;
-    const ok = !!bay && state.phase === 'race' && car.inBay === 1 && aligned(car.h, bay.h);
+    const ok = !!bay && state.phase === 'race' && car.inBay === 1 && aligned(car.h, bay.h, rules);
     if (ok && still) car.park = Math.min(1, car.park + DT / PARK.hold);
     else if (ok) car.park = Math.max(0, car.park - DT * 0.5);
     else car.park = 0;
+    if (car.park >= 1 && state.winner === null && state.targets && state.leg !== undefined && state.leg < state.targets.length - 1) {
+      // A chain: this bay is done; the next one is the target now (the car has to leave this one to get there).
+      const precision = precisionOf(car, world.lot.bays[best], rules.facing);
+      state.legPrecision = [...(state.legPrecision ?? []), precision];
+      state.events.push({ type: 'leg', car: car.id, leg: state.leg, bay: best, precision, time: state.clock });
+      state.leg++;
+      state.target = state.targets[state.leg];
+      car.park = 0;
+      continue;
+    }
     if (car.park >= 1 && state.winner === null) {
+      if (state.targets && car.id === 0) state.legPrecision = [...(state.legPrecision ?? []), precisionOf(car, world.lot.bays[best], rules.facing)];
       car.parkedAt = state.clock;
       state.winner = car.id;
       state.winBay = best;
@@ -652,8 +777,17 @@ const stepLeaver = (state: GameState, world: World): Input => {
 /** Advances the round by one fixed step. `inputs[i]` drives car i. Events of this step land in `state.events`. */
 export const step = (state: GameState, world: World, inputs: Input[]) => {
   state.events = [];
+  // A solo level holds on the line until you press gas or brake: then the clock starts at once.
+  if (state.waiting && state.phase === 'countdown') {
+    const i = inputs[0];
+    if (i && (i.throttle > 0 || i.brake > 0)) {
+      state.waiting = false;
+      state.phase = 'race';
+      state.t = RACE.countdown;
+    }
+  }
   const before = Math.ceil(RACE.countdown - state.t);
-  state.t += DT;
+  if (!state.waiting) state.t += DT;
   if (state.phase === 'countdown') {
     const now = Math.ceil(RACE.countdown - state.t);
     if (now !== before && now > 0) state.events.push({ type: 'count', n: now });

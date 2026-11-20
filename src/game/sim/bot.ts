@@ -169,7 +169,7 @@ const sweepRoute = (world: World, car: Car, brain: Pick<BotBrain, 'sweeps' | 'sw
 
 export const createBrain = (world: World, car: Car, seed: number): BotBrain => {
   const r = ((seed * 9301 + car.id * 49297) % 233280) / 233280;
-  const pace = botPace(world.lot.stage);
+  const pace = world.pace ?? botPace(world.lot.stage);
   const sweeps = planSweeps(world.lot, car, seed);
   const brain: BotBrain = {
     route: [],
@@ -318,7 +318,7 @@ export const lateJoin = (world: World, car: Car, ap: { edge: number; s: number; 
 };
 
 /** From where the car is, plan the way to the bay it has just seen: the quickest of the bay's approaches. */
-const spotRoute = (world: World, car: Car, bayId: number): Vec[] | null => {
+export const spotRoute = (world: World, car: Car, bayId: number): Vec[] | null => {
   const bay = world.lot.bays[bayId];
   let best: Vec[] | null = null;
   let bestLen = Infinity;
