@@ -37,6 +37,11 @@ export interface Sfx {
   /** The last seconds of the round: a tick (high on the final three). */
   tick: (high: boolean) => void;
   click: () => void;
+  /** Manual gearbox: a short mechanical clack into the next gear (up: a touch brighter), and the grind of a refused shift. */
+  shift: (up: boolean) => void;
+  grind: () => void;
+  /** Menu sounds: -1 back, 0 focus moved, 1 picked. */
+  ui: (kind: -1 | 0 | 1) => void;
   volumes: Record<VolumeKind, number>;
   setVolume: (k: VolumeKind, v: number) => void;
   /** Silence everything for a reason ('ad' while a video ad plays, 'portal' when the portal's mute is on), on top of the volumes. */
@@ -575,7 +580,49 @@ export const createSfx = (): Sfx => {
     n.stop(t + 0.5);
   };
 
+  /** A short filtered-noise burst: the body of a gear clack or a grind. */
+  const burst = (at: number, len: number, freq: number, q: number, vol: number, type: BiquadFilterType = 'bandpass') => {
+    if (!ctx || ctx.state !== 'running') return;
+    const c = ctx;
+    const t = c.currentTime + at;
+    const n = noiseSource();
+    const f = c.createBiquadFilter();
+    f.type = type;
+    f.frequency.value = freq;
+    f.Q.value = q;
+    const g = c.createGain();
+    g.gain.setValueAtTime(0, t);
+    g.gain.linearRampToValueAtTime(vol, t + 0.004);
+    g.gain.exponentialRampToValueAtTime(0.0008, t + len);
+    n.connect(f).connect(g).connect(fxBus);
+    n.start(t);
+    n.stop(t + len + 0.02);
+  };
+
+  const shift = (up: boolean) => {
+    // Lever out of the gate, then into the next: two clacks and a low thunk through the body.
+    burst(0, 0.05, up ? 2600 : 2100, 6, 0.28);
+    burst(0.055, 0.07, up ? 1700 : 1400, 5, 0.34);
+    tone(up ? 92 : 78, 0.05, 0.09, 0.2, 'sine');
+  };
+
+  const grind = () => {
+    // Gears that will not mesh: a harsh rasp.
+    burst(0, 0.32, 3200, 1.2, 0.2, 'highpass');
+    tone(140, 0, 0.3, 0.07, 'sawtooth');
+    tone(147, 0.01, 0.28, 0.06, 'sawtooth');
+  };
+
+  const ui = (kind: -1 | 0 | 1) => {
+    if (kind === 0) tone(1560, 0, 0.035, 0.035, 'sine');
+    else if (kind === 1) [880, 1320].forEach((f, i) => tone(f, i * 0.05, 0.08, 0.07, 'triangle'));
+    else tone(520, 0, 0.07, 0.05, 'triangle');
+  };
+
   return {
+    shift,
+    grind,
+    ui,
     unlock: () => {
       const c = init();
       if (c.state === 'suspended') void c.resume();

@@ -20,6 +20,9 @@ import { radio } from '../sim/radio';
 import { hasNext, isShut, newProgress, next, pick, stageDef, STAGE_COUNT, won } from '../sim/stages';
 import { createRound, distanceToTarget, forwardSpeed, standings, step } from '../sim/step';
 import { NO_INPUT } from '../sim/types';
+import { MANUAL, band, gearName } from '../sim/gearbox';
+import { DEFAULT_BINDINGS, keyMap } from '../settings';
+import { readPad } from './pad';
 
 import { buildParked, buildRacer } from './car';
 import { buildAmbience } from './ambience';
@@ -39,6 +42,8 @@ import type { RacerRig } from './car';
 import type { Flavour } from '../sim/flavour';
 import type { Tier } from './quality';
 import type { CameraMode } from './view';
+import type { Action, Transmission } from '../settings';
+import type { PadState } from './pad';
 
 // ---------------------------------------------------------------------------
 // HUD snapshot for React
@@ -73,7 +78,11 @@ export interface HudState {
   countdown: number;
   clock: number;
   speed: number;
-  gear: 'D' | 'R' | 'P';
+  gear: string;
+  /** The manual gearbox's dials (null with the automatic): gear, revs, the shift light and the limiter. */
+  manual: null | { gear: string; rpm: number; idle: number; redline: number; band: number; light: boolean; limiter: boolean; shiftId: number; denied: number };
+  /** The menu is showing (the world idles behind it: bots only, a slow camera). */
+  menu: boolean;
   standings: Standing[];
   chat: ChatBubble[];
   /** Seconds since you were disqualified, or null; and what you hit ('pedestrian', 'car' or 'obstacle') and its name ("Staging", "a parked car", "a post"). */
@@ -117,7 +126,7 @@ export interface HudState {
   /** The free-spaces board: the two lines of text, and the deck colour of the second line when it names a deck. */
   board: { free: number; line: string; deckColor: number | null };
   /** The stage being played (n is 0 on the home page, where the whole site is open), what is new in it, and how far you have got this visit. */
-  stage: { n: number; name: string; news: string; total: number; unlocked: number; hasNext: boolean };
+  stage: { n: number; name: string; news: string; total: number; unlocked: number; hasNext: boolean; /** The stage PLAY starts (the last one picked). */ current: number };
   /** This round has the bonus hint (a circle on the minimap around the free bay). */
   hinted: boolean;
   /** The quality tier being drawn, and whether the game is frozen for an ad. */
@@ -157,20 +166,12 @@ export interface GameOptions {
   camera?: CameraMode;
   /** Called when the player switches camera (CAM button or C), so the page can remember it. */
   onCamera?: (mode: CameraMode) => void;
+  /** Race mode only: start in the menu (bots idle the lot behind it) until `startRace`. */
+  menu?: boolean;
 }
 
-const KEYS: Record<string, keyof Pressed> = {
-  KeyW: 'up',
-  ArrowUp: 'up',
-  KeyS: 'down',
-  ArrowDown: 'down',
-  KeyA: 'left',
-  ArrowLeft: 'left',
-  KeyD: 'right',
-  ArrowRight: 'right',
-  Space: 'handbrake',
-  KeyH: 'horn',
-};
+/** The actions a held key drives (the rest are presses: camera, pause, shifts). */
+const HELD: Partial<Record<Action, keyof Pressed>> = { up: 'up', down: 'down', left: 'left', right: 'right', handbrake: 'handbrake', horn: 'horn' };
 
 interface Pressed {
   up: boolean;
@@ -442,6 +443,32 @@ export class Game {
   private hinted = false;
   private frozen = false;
   private shot: Shot | null = null;
+  /** Settings the page applies live (see `settings.ts`). */
+  private keymap: Record<string, Action> = keyMap(DEFAULT_BINDINGS);
+  private manual = false;
+  /** A shift pressed since the last step (one press is one shift). */
+  private shiftQ: 1 | -1 | 0 = 0;
+  private shiftId = 0;
+  private deniedId = 0;
+  private shakeOn = true;
+  private calm = false;
+  private shadowsOn = true;
+  private resScale = 1;
+  /** The menu is up: the world idles (bots only) under a slow orbiting camera. */
+  private menu = false;
+  private pad: PadState | null = null;
+  private padPrev: boolean[] = [];
+  private halfRate = false;
+
+  /** You are driving car 0 (not the home page's showcase, not the menu). */
+  private get racing() {
+    return this.opts.mode === 'race' && !this.menu;
+  }
+
+  /** Bots only, under the slow cinematic camera (the home page, or the menu). */
+  private get idle() {
+    return !this.racing;
+  }
 
   constructor(
     private canvas: HTMLCanvasElement,
@@ -528,6 +555,8 @@ export class Game {
       window.addEventListener('keyup', this.onKey);
       window.addEventListener('blur', this.onBlur);
     }
+    // A game made for the menu starts in it (the portal build); `startRace` turns it into a race.
+    if (opts.menu) this.menu = true;
     this.last = performance.now();
     this.raf = requestAnimationFrame(this.frame);
   }
@@ -539,9 +568,12 @@ export class Game {
     this.hinted = opts.hint === true;
     this.roundNo++;
     const seed = this.seed + this.roundNo * 101;
-    const bots = this.opts.mode === 'race' ? [false, true, true, true] : [true, true, true, true];
-    const stage = this.opts.mode === 'race' ? this.progress.current : undefined;
-    const { state, world } = createRound(this.lot, { seed, bots, stage, flavour: this.opts.flavour });
+    const racing = this.racing;
+    const bots = racing ? [false, true, true, true] : [true, true, true, true];
+    // The menu idles on the open lot (stage 1), where the glowing bay is in the open air; the home page uses the whole site.
+    const stage = racing ? this.progress.current : this.menu ? 1 : undefined;
+    const { state, world } = createRound(this.lot, { seed, bots, stage, flavour: this.opts.flavour, manual: racing && this.manual });
+    this.shiftQ = 0;
     this.state = state;
     this.world = world;
     this.brains = state.cars.map((c) => (c.bot ? createBrain(world, c, seed) : null));
@@ -606,7 +638,7 @@ export class Game {
     // Camera starts where the chosen view puts it (the home page's showcase eases in from behind the car).
     const me = state.cars[0];
     this.cam.yaw = me.h;
-    if (this.cameraMode === 'park' && this.opts.mode === 'race') {
+    if (this.cameraMode === 'park' && this.racing) {
       const { eye, look } = parkPose(me.x, 0, me.z, me.h, 0, this.portrait);
       [this.cam.x, this.cam.y, this.cam.z] = eye;
       this.cam.look.set(...look);
@@ -679,14 +711,21 @@ export class Game {
 
   private onKey = (e: KeyboardEvent) => {
     const down = e.type === 'keydown';
-    const k = KEYS[e.code];
-    if (k) {
-      this.keys[k] = down;
+    // The menus own the keyboard while they are up (and a key being rebound is never driving).
+    if (this.menu || (e.target as HTMLElement | null)?.closest?.('[data-keys-capture]')) return;
+    const action = this.keymap[e.code];
+    const held = action ? HELD[action] : undefined;
+    if (held) {
+      this.keys[held] = down;
       e.preventDefault();
       this.sfx.unlock();
     }
-    if (down && e.code === 'KeyC') this.cycleCamera();
-    if (down && (e.code === 'KeyP' || (e.code === 'Escape' && this.opts.escPause !== false))) this.setPaused(!this.paused);
+    if (down && !e.repeat) {
+      if (action === 'camera') this.cycleCamera();
+      if (action === 'shiftUp') this.shift(1);
+      if (action === 'shiftDown') this.shift(-1);
+    }
+    if (down && !e.repeat && (action === 'pause' || (e.code === 'Escape' && this.opts.escPause !== false))) this.setPaused(!this.paused);
     if (down && e.code === 'Enter' && (this.state.phase === 'done' || this.state.cars[0].dq !== null)) {
       // (the result card's focused button would also click on Enter: one press, one action)
       e.preventDefault();
@@ -730,8 +769,94 @@ export class Game {
     this.emitHud(true);
   };
 
+  /** Shift the manual gearbox one gear (keys, the pad's bumpers, the phone's + / − buttons). Applied on the next step. */
+  shift = (dir: 1 | -1) => {
+    if (!this.manual || !this.racing || this.paused) return;
+    this.shiftQ = dir;
+    this.sfx.unlock();
+  };
+
+  // ----- settings (applied live by the page; see settings.ts) -----
+
+  setBindings = (map: Record<string, Action>) => {
+    this.keymap = map;
+    this.onBlur();
+  };
+
+  /** Automatic or manual for the player's car; a change applies at once (a manual car starts in 1st). */
+  setTransmission = (t: Transmission) => {
+    const on = t === 'manual';
+    if (on === this.manual) return;
+    this.manual = on;
+    const me = this.state?.cars[0];
+    if (me && this.racing) {
+      me.box = on ? 'manual' : 'auto';
+      me.mgear = 1;
+      me.rpm = 0;
+    }
+    this.emitHud(true);
+  };
+
+  setCameraMode = (m: CameraMode) => {
+    if (m === this.cameraMode) return;
+    this.cameraMode = m;
+    this.emitHud(true);
+  };
+
+  /** Crash shake on or off (also off with reduced motion). */
+  setShake = (on: boolean) => {
+    this.shakeOn = on;
+  };
+
+  /** Reduced motion: no shake, no speed zoom, the menu camera holds still. */
+  setCalm = (on: boolean) => {
+    this.calm = on;
+  };
+
+  /** Shadows (only where the tier draws them) and the resolution scale (0.5..1 of the tier's pixel ratio). */
+  setRenderPrefs = (p: { shadows: boolean; resolution: number }) => {
+    if (p.shadows === this.shadowsOn && p.resolution === this.resScale) return;
+    this.shadowsOn = p.shadows;
+    this.resScale = p.resolution;
+    this.setTier(this.tier);
+  };
+
+  /** 'Auto' quality: the frame-rate guard may step the tier down. */
+  setAutoTier = (on: boolean) => {
+    this.opts.autoTier = on;
+  };
+
+  /** The player's own mute (the Audio tab), on top of the portal's and the ad's. */
+  setUserMuted = (on: boolean) => this.sfx.setMuted('user', on);
+
+  /** A soft tick for menu focus and a click for menu choices (sound needs a first click or key press to start). */
+  uiSound = (kind: 'move' | 'pick' | 'back') => {
+    if (kind === 'move') this.sfx.ui(0);
+    else if (kind === 'pick') this.sfx.ui(1);
+    else this.sfx.ui(-1);
+  };
+
+  // ----- menu -----
+
+  /** Back to the menu: the race is dropped and the bots idle the lot. Progress (unlocked stages) is kept. */
+  enterMenu = () => {
+    this.menu = true;
+    this.paused = false;
+    this.onBlur();
+    this.newRound();
+    this.emitHud(true);
+  };
+
+  /** Leave the menu and start a round: of `stage` if given (and unlocked), else of the current stage. */
+  startRace = (stage?: number) => {
+    this.menu = false;
+    if (stage !== undefined) this.progress = pick(this.progress, stage);
+    this.newRound();
+    this.emitHud(true);
+  };
+
   setPaused = (p: boolean) => {
-    if (this.opts.mode !== 'race' || this.state.phase === 'done') return;
+    if (!this.racing || this.state.phase === 'done') return;
     this.paused = p;
     this.emitHud(true);
   };
@@ -754,9 +879,13 @@ export class Game {
     const spec = TIERS[tier];
     const hadShadows = this.renderer.shadowMap.enabled;
     this.tier = tier;
-    this.renderer.setPixelRatio(Math.min(window.devicePixelRatio, spec.dprCap));
+    this.renderer.setPixelRatio(Math.min(window.devicePixelRatio, spec.dprCap) * this.resScale);
     this.renderer.shadowMap.enabled = spec.shadows;
     this.sun.castShadow = spec.shadows;
+    if (!this.shadowsOn) {
+      this.renderer.shadowMap.enabled = false;
+      this.sun.castShadow = false;
+    }
     if (this.sun.shadow.mapSize.x !== spec.shadowMap) {
       this.sun.shadow.mapSize.set(spec.shadowMap, spec.shadowMap);
       this.sun.shadow.map?.dispose();
@@ -764,7 +893,7 @@ export class Game {
     }
     if (this.scene.fog instanceof THREE.Fog) this.scene.fog.far = spec.fogFar;
     // Turning shadows on or off changes the shaders: every material must recompile once.
-    if (hadShadows !== spec.shadows) this.scene.traverse((o) => {
+    if (hadShadows !== this.renderer.shadowMap.enabled) this.scene.traverse((o) => {
       const m = (o as THREE.Mesh).material;
       if (m) for (const mm of Array.isArray(m) ? m : [m]) mm.needsUpdate = true;
     });
@@ -786,13 +915,34 @@ export class Game {
   private playerInput(): Input {
     const k = this.keys;
     const t = this.touch;
+    const p = this.pad;
+    const shift = this.shiftQ || undefined;
+    this.shiftQ = 0;
     return {
-      throttle: Math.max(k.up ? 1 : 0, t?.throttle ?? 0),
-      brake: Math.max(k.down ? 1 : 0, t?.brake ?? 0),
-      steer: Math.max(-1, Math.min(1, (k.right ? 1 : 0) - (k.left ? 1 : 0) + (t?.steer ?? 0))),
-      handbrake: k.handbrake || !!t?.handbrake,
-      horn: k.horn || !!t?.horn,
+      throttle: Math.max(k.up ? 1 : 0, t?.throttle ?? 0, p?.throttle ?? 0),
+      brake: Math.max(k.down ? 1 : 0, t?.brake ?? 0, p?.brake ?? 0),
+      steer: Math.max(-1, Math.min(1, (k.right ? 1 : 0) - (k.left ? 1 : 0) + (t?.steer ?? 0) + (p?.steer ?? 0))),
+      handbrake: k.handbrake || !!t?.handbrake || !!p?.handbrake,
+      horn: k.horn || !!t?.horn || !!p?.horn,
+      shift,
     };
+  }
+
+  /** The gamepad, once per frame: held controls feed `playerInput`, presses (camera, shifts, pause) act at once. */
+  private pollPad() {
+    const p = this.racing ? readPad() : null;
+    this.pad = p;
+    if (!p) return;
+    const was = this.padPrev;
+    const hit = (i: number) => !!p.buttons[i] && !was[i];
+    if (hit(9)) this.setPaused(!this.paused);
+    if (!this.paused) {
+      if (hit(3)) this.cycleCamera();
+      if (hit(5)) this.shift(1);
+      if (hit(4)) this.shift(-1);
+    }
+    this.padPrev = p.buttons;
+    if (p.throttle > 0 || p.brake > 0) this.sfx.unlock();
   }
 
   // ----- loop -----
@@ -819,6 +969,7 @@ export class Game {
       this.frames = 0;
       this.fpsAt = now;
     }
+    this.pollPad();
     if (this.opts.autoTier && !this.paused && !this.frozen && this.state.phase === 'race' && this.tier !== 'low' && this.fpsGuard.frame(dt)) {
       this.setTier(lowerTier(this.tier));
       this.opts.onTier?.(this.tier);
@@ -832,7 +983,9 @@ export class Game {
         this.tick();
       }
     }
-    this.draw(dt, this.paused || this.frozen ? 1 : this.acc / DT);
+    // Behind the menu on the low tier, draw every other frame (the backdrop is slow; the battery and the fan thank us).
+    this.halfRate = this.menu && this.tier === 'low' && !this.halfRate;
+    if (!this.halfRate) this.draw(dt, this.paused || this.frozen ? 1 : this.acc / DT);
     if (now - this.hudAt > 100) {
       this.hudAt = now;
       this.emitHud(false);
@@ -845,20 +998,33 @@ export class Game {
     const inputs = s.cars.map((c, i) => {
       const brain = this.brains[i];
       if (brain) return botInput(s, this.world, c, brain);
-      return this.opts.mode === 'race' && i === 0 ? this.playerInput() : NO_INPUT;
+      return this.racing && i === 0 ? this.playerInput() : NO_INPUT;
     });
     step(s, this.world, inputs);
+    const me = s.cars[0];
+    if (this.racing && me.shifted) {
+      if (me.shifted === 'denied') {
+        this.deniedId++;
+        this.sfx.grind();
+      } else {
+        this.shiftId++;
+        this.sfx.shift(me.shifted === 'up');
+        // A little jolt through the body on a shift under load.
+        if (me.throttle > 0.3 && me.shifted === 'up') me.jolt = Math.max(me.jolt, 0.25);
+      }
+      this.emitHud(true);
+    }
     // What the bots did on their own (spotted the bay, honked, backed out) goes to the radio with the sim's events.
     const botEvents = this.brains.flatMap((b) => (b ? b.outbox.splice(0) : []));
     radio(s, [...s.events, ...botEvents]);
-    if (this.opts.mode === 'race') this.tension(botEvents);
+    if (this.racing) this.tension(botEvents);
     for (const e of s.events) {
       if (e.type === 'count') this.sfx.beep(false);
       else if (e.type === 'go') this.sfx.beep(true);
       else if (e.type === 'bump') {
         const near = this.focusCar();
         const d = Math.hypot(e.x - near.x, e.z - near.z);
-        if (e.car === 0 || e.other === 0 || this.opts.mode === 'showcase') this.trauma = Math.min(1, this.trauma + Math.min(0.6, e.speed * 0.07) * (d < 8 ? 1 : 0.3));
+        if (e.car === 0 || e.other === 0 || this.idle) this.trauma = Math.min(1, this.trauma + Math.min(0.6, e.speed * 0.07) * (d < 8 ? 1 : 0.3));
         this.sfx.bump(e.speed, e.x, e.z, e.bay >= 0 || e.other >= 0);
         if (e.speed > 3) this.effects.burst(e.x, this.allCars()[e.car]?.y ?? 0, e.z, e.speed);
       } else if (e.type === 'alarm') {
@@ -867,7 +1033,7 @@ export class Game {
       } else if (e.type === 'incident') {
         this.sfx.shout(e.x, e.z);
         this.effects.burst(e.x, this.allCars()[e.car]?.y ?? 0, e.z, 3);
-        if (e.car === 0 && this.opts.mode === 'race') {
+        if (e.car === 0 && this.racing) {
           this.trauma = 1;
           this.dqAt = this.time;
           if (this.endedAt < 0) this.endedAt = this.time;
@@ -875,7 +1041,7 @@ export class Game {
         }
       } else if (e.type === 'crash') {
         if (e.speed <= 1.2) this.sfx.bump(e.speed, e.x, e.z, true);
-        if (e.car === 0 && this.opts.mode === 'race') {
+        if (e.car === 0 && this.racing) {
           this.trauma = 1;
           this.dqAt = this.time;
           if (this.endedAt < 0) this.endedAt = this.time;
@@ -886,7 +1052,7 @@ export class Game {
         this.sfx.toot(b.x, b.z);
       } else if (e.type === 'end') {
         if (this.endedAt < 0) this.endedAt = this.time;
-        if (this.opts.mode === 'race') {
+        if (this.racing) {
           if (e.winner !== null) this.slowUntil = this.time + 1.2;
           if (e.winner === 0) {
             this.sfx.win();
@@ -904,7 +1070,7 @@ export class Game {
       }
     }
     // Home page: start the next round a few seconds after someone parks.
-    if (this.opts.mode === 'showcase' && s.phase === 'done' && this.time - this.endedAt > 4) this.newRound();
+    if (this.idle && s.phase === 'done' && this.time - this.endedAt > 4) this.newRound();
   }
 
   /** Show a flash and a word (both optional), and push the HUD at once. */
@@ -953,10 +1119,19 @@ export class Game {
   /** The free bays' paint: hidden until you are close, then a "found it" moment; the bots' "!" when they have seen it. */
   private updatePaint(t: number) {
     const s = this.state;
-    const race = this.opts.mode === 'race' && s.phase !== 'countdown';
+    const race = this.racing && s.phase !== 'countdown';
     const me = this.rigs[0]?.root.position;
     [s.target, s.extra].forEach((id, k) => {
       const paint = this.paints[k];
+      if (this.menu && k === 0 && id >= 0) {
+        // The menu shows the prize: the free bay glowing yellow.
+        const bay = this.lot.bays[id];
+        paint.group.position.set(bay.x, bay.y, bay.z);
+        paint.group.rotation.y = bay.h;
+        paint.group.scale.set(bay.w / BAY.width, 1, bay.d / BAY.depth);
+        paint.set(1, t);
+        return;
+      }
       if (!race || s.phase === 'done' || id < 0 || !me || this.shot) {
         paint.set(0, t);
         return;
@@ -987,14 +1162,14 @@ export class Game {
     });
     // In the parking view the carport roof goes see-through when you are near it, so the bays under it read like any others.
     for (const c of this.worldView.canopies) {
-      const near = !!me && this.cameraMode === 'park' && this.opts.mode === 'race' && me.x > c.x0 - REVEAL.far && me.x < c.x1 + REVEAL.far && me.z > c.z0 - REVEAL.far && me.z < c.z1 + REVEAL.far;
+      const near = !!me && this.cameraMode === 'park' && this.racing && me.x > c.x0 - REVEAL.far && me.x < c.x1 + REVEAL.far && me.z > c.z0 - REVEAL.far && me.z < c.z1 + REVEAL.far;
       this.canopyFade += ((near ? 0.22 : 1) - this.canopyFade) * 0.08;
       c.fade(this.canopyFade);
     }
   }
 
   private focusCar() {
-    if (this.opts.mode === 'race') return this.state.cars[0];
+    if (this.racing) return this.state.cars[0];
     // Showcase: follow whoever is closest to the free bay.
     return [...this.state.cars].sort((a, b) => distanceToTarget(this.state, this.world, a) - distanceToTarget(this.state, this.world, b))[0];
   }
@@ -1067,7 +1242,9 @@ export class Game {
       // Engine note: revs from the road speed through a five-speed automatic, plus the throttle.
       const v = Math.abs(vF);
       let rpm: number;
-      if (s.phase === 'countdown') rpm = 850 + c.throttle * 5200;
+      if (c.box === 'manual' && s.phase !== 'countdown') rpm = c.rpm + (c.limiter ? Math.sin(this.time * 55) * 380 - 200 : 0);
+      else if (c.box === 'manual' && c.mgear !== 0 && c.throttle > 0) rpm = 850 + c.throttle * 5400;
+      else if (s.phase === 'countdown') rpm = 850 + c.throttle * 5200;
       else if (c.gear === -1) rpm = 900 + (v / 4) * 3600 + c.throttle * 400;
       else {
         const shifts = [0, 2.2, 4.4, 6.6, 8.6, 30];
@@ -1080,7 +1257,7 @@ export class Game {
     });
 
     // Sound: engines follow their cars, the listener rides with the camera.
-    if (this.engines.length === 0 && this.opts.mode === 'race') {
+    if (this.engines.length === 0 && this.racing) {
       try {
         this.engines = s.cars.map(() => this.sfx.engine());
       } catch {
@@ -1095,16 +1272,18 @@ export class Game {
     // The free bay is not marked while the round is on. Only when it is over, a short reveal of
     // where it was (the bay the winner took).
     const shotBay = this.shot?.bay;
-    const reveal = shotBay !== undefined || (s.phase === 'done' && this.time - this.endedAt < 6 && this.endedAt >= 0);
+    // The menu shows the prize: the free bay's beam and outline stand over the lot while the bots hunt for it.
+    const menuBay = this.menu && s.phase !== 'done';
+    const reveal = shotBay !== undefined || menuBay || (s.phase === 'done' && this.time - this.endedAt < 6 && this.endedAt >= 0);
     this.marker.group.visible = reveal;
     if (reveal) {
       const bay = this.lot.bays[shotBay ?? (s.winBay >= 0 ? s.winBay : s.target)];
       this.marker.group.position.set(bay.x, bay.y, bay.z);
       this.marker.group.rotation.y = bay.h;
       this.marker.group.scale.set(bay.w / BAY.width, 1, bay.d / BAY.depth);
-      const fade = shotBay !== undefined ? 1 : Math.min(1, (this.time - this.endedAt) * 2) * Math.min(1, (6 - (this.time - this.endedAt)) * 2);
+      const fade = shotBay !== undefined || menuBay ? 1 : Math.min(1, (this.time - this.endedAt) * 2) * Math.min(1, (6 - (this.time - this.endedAt)) * 2);
       this.marker.lineMat.opacity = 0.95 * fade;
-      this.marker.fillMat.opacity = shotBay !== undefined ? 0.32 : (0.12 + Math.sin(t * 4) * 0.05) * fade;
+      this.marker.fillMat.opacity = shotBay !== undefined ? 0.32 : menuBay ? 0.22 + Math.sin(t * 2.4) * 0.08 : (0.12 + Math.sin(t * 4) * 0.05) * fade;
       this.marker.beamMat.uniforms.uTime.value = t;
       this.marker.sign.position.y = 3.4 + Math.sin(t * 2) * 0.15;
       (this.marker.sign.material as THREE.SpriteMaterial).opacity = fade;
@@ -1157,7 +1336,7 @@ export class Game {
     const car = this.focusCar();
     const rig = this.rigs[car.id];
     const { inside, level } = this.garageOf(rig.root.position.x, rig.root.position.z, rig.root.position.y);
-    const high = this.cameraMode !== 'chase' || this.opts.mode === 'showcase';
+    const high = this.cameraMode !== 'chase' || this.idle;
     this.worldView.garage.showAround(inside ? level : null, inside && high);
     // How enclosed the player is: nothing on the open roof or outside, most on P-1.
     const enclosed = !inside ? 0 : level === 2 ? 0 : level === 1 ? 0.55 : level === 0 ? 0.75 : 1;
@@ -1188,13 +1367,29 @@ export class Game {
     const y = rig.root.position.y;
     const z = rig.root.position.z;
     const h = rig.root.rotation.y;
-    const showcase = this.opts.mode === 'showcase';
+    const showcase = this.idle;
     const { inside, level } = this.garageOf(x, z, y);
     // Under a deck the ceiling is 3.1 m up: the camera stays under it.
     const ceil = inside && level < 2 && this.cameraMode === 'chase' ? levelY(level) + LEVEL_H - 0.5 - 0.7 : Infinity;
     let want: THREE.Vector3;
     let look: THREE.Vector3;
-    if (showcase) {
+    if (this.menu) {
+      // The menu: a slow orbit round the glowing free bay, high enough to read the lot, with the look point pushed to the
+      // left of the bay so the bay sits in the open right side of the screen (the menu column covers the left).
+      const bay = this.lot.bays[Math.max(0, s.target)];
+      const a = (this.calm ? 0 : this.time * 0.045) + 2.4;
+      const r = this.portrait ? 30 : 34;
+      want = new THREE.Vector3(bay.x + Math.sin(a) * r, bay.y + (this.portrait ? 19 : 14), bay.z + Math.cos(a) * r);
+      const side = this.portrait ? 0 : 9;
+      look = new THREE.Vector3(bay.x - Math.cos(a) * side, bay.y + 0.5, bay.z + Math.sin(a) * side);
+      // Start in place (no swoop from the old camera), then follow the orbit.
+      if (this.cam.y < 8) {
+        this.cam.x = want.x;
+        this.cam.y = want.y;
+        this.cam.z = want.z;
+        this.cam.look.copy(look);
+      }
+    } else if (showcase) {
       // A slow sway behind and above the leader, always looking north up the lot so the frame is
       // cars, bays and the store sign (never the road or the empty grass behind the camera).
       const a = Math.sin(this.time * 0.1) * 0.55 + 0.25;
@@ -1241,13 +1436,13 @@ export class Game {
     this.cam.z += (want.z - this.cam.z) * k;
     this.cam.look.lerp(look, Math.min(1, dt * 10));
     // Shake from crashes: trauma squared, smooth noise, fades in about a second.
-    const shake = this.trauma * this.trauma;
+    const shake = this.shakeOn && !this.calm ? this.trauma * this.trauma : 0;
     const n = (f: number, p: number) => Math.sin(this.time * f + p) * 0.6 + Math.sin(this.time * f * 2.3 + p) * 0.4;
     this.camera.position.set(this.cam.x + n(23, 1.3) * 0.25 * shake, Math.min(this.cam.y + n(19, 4.1) * 0.18 * shake, ceil), this.cam.z + n(17, 2.2) * 0.25 * shake);
     this.camera.lookAt(this.cam.look);
     // Speed feel: the view widens a little as you go faster (up to 6 degrees), and snaps back when you brake.
     if (!this.shot && !showcase) {
-      const kick = Math.min(6, Math.max(0, forwardSpeed(s.cars[car.id]) - 3) * 0.55);
+      const kick = this.calm ? 0 : Math.min(6, Math.max(0, forwardSpeed(s.cars[car.id]) - 3) * 0.55);
       const next = this.fovKick + (kick - this.fovKick) * Math.min(1, dt * 3);
       if (Math.abs(next - this.fovKick) > 0.01) {
         this.camera.fov += next - this.fovKick;
@@ -1473,7 +1668,7 @@ export class Game {
       // Cars on other levels are not drawn: that would show who is where upstairs. (On a ramp, a car shows on both ends' maps.)
       const onRamp = Math.abs(car.y / LEVEL_H - Math.round(car.y / LEVEL_H)) > 0.15;
       if (!here(car.y) && !(onRamp && Math.abs(car.y - levelY(level)) < LEVEL_H)) continue;
-      const mine = car.id === 0 && this.opts.mode === 'race';
+      const mine = car.id === 0 && this.racing;
       g.save();
       g.translate(px(car.x), pz(car.z));
       g.rotate(-car.h);
@@ -1522,7 +1717,22 @@ export class Game {
       countdown: Math.max(0, Math.ceil(RACE.countdown - s.t)),
       clock: s.clock,
       speed: Math.abs(vF) * 3.6,
-      gear: me.parkedAt !== null ? 'P' : me.gear === -1 ? 'R' : 'D',
+      gear: me.parkedAt !== null ? 'P' : me.box === 'manual' ? gearName(me.mgear) : me.gear === -1 ? 'R' : 'D',
+      manual:
+        me.box === 'manual' && this.racing
+          ? {
+              gear: gearName(me.mgear),
+              rpm: this.rpm[0] ?? MANUAL.idle,
+              idle: MANUAL.idle,
+              redline: MANUAL.redline,
+              band: band(me.mgear, forwardSpeed(me)),
+              light: me.mgear >= 1 && me.mgear < MANUAL.top && band(me.mgear, forwardSpeed(me)) >= MANUAL.shiftLight,
+              limiter: me.limiter,
+              shiftId: this.shiftId,
+              denied: this.deniedId,
+            }
+          : null,
+      menu: this.menu,
       standings: order.map((c) => ({ id: c.id, name: c.name, color: c.color, bumps: c.bumps, parked: c.parkedAt !== null, out: c.dq !== null, me: c.id === 0 })),
       chat: s.chat.filter((l) => s.t - l.t < 6.5).slice(-3).map((l) => ({ id: l.id, name: l.name, color: l.color, text: l.text, age: s.t - l.t })),
       disqualified: me.dq !== null && this.dqAt >= 0 ? this.time - this.dqAt : null,
@@ -1554,7 +1764,7 @@ export class Game {
       stage: (() => {
         const n = this.world.lot.stage ?? 0;
         const def = n ? stageDef(n) : null;
-        return { n, name: def?.name ?? 'The whole site', news: def?.news ?? '', total: STAGE_COUNT, unlocked: this.opts.mode === 'race' ? this.progress.unlocked : STAGE_COUNT, hasNext: s.winner === 0 && hasNext(this.progress) };
+        return { n, name: def?.name ?? 'The whole site', news: def?.news ?? '', total: STAGE_COUNT, unlocked: this.opts.mode === 'race' ? this.progress.unlocked : STAGE_COUNT, current: this.progress.current, hasNext: s.winner === 0 && hasNext(this.progress) };
       })(),
       // Only the floors that are open get a tab (the open lot alone has none to choose from).
       mapLevels: LEVELS.filter((l) => !this.world.lot.open || this.world.lot.open.levels.includes(l)).map((l) => ({ level: l, name: levelName(l), color: LEVEL_COLOR[l] })),
