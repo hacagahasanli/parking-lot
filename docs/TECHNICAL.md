@@ -204,12 +204,18 @@ the first is chosen by seat (EA, WA, AVE or EB), then greedily the nearest unvis
 plus a bias of up to 40 m taken from a hash of seed and seat, in two passes (every aisle once; then
 the two-way ones back the other way). When a bot reaches the end of its route and has not spotted the bay it
 asks for the next sweep (`sweepRoute`). The route ends are therefore always on a legal lane.
+Only aisles that hold a bay the free bay could be (`lot.eligible`) are swept; connector roads, ramps and the avenue are
+just driven through. In stages 2-5 the bots take in the stage card (`toldDeck`) and search the new deck first. Between
+sweeps they drive at `PACE.transit` (1.2x their cruise) and look along an aisle at `PACE.search` (0.82x).
 
 ### Going to a bay
 
 Every bay carries `approach[]` (see `Approach` in `lot.ts`): where on a lane (`edge`, `s` metres along it) its own
 path starts (`dock`) and the points from there (`tail`), which always end with *square to the bay, mouth, stop*.
-`spotRoute` costs each approach with `routeToDock` and takes the quickest. The tail comes from the type:
+`spotRoute` costs each approach with `routeToDock` and takes the quickest. A bot notices a bay up to `SIGHT.notice`
+(18 m) away, and when it is already in the dock's lane heading along it with the tail's first point at least
+`JOIN_AHEAD` (4 m) ahead, it joins the tail from where it is (`lateJoin`); before that, a bay seen across a one-way
+deck was always behind its dock, and the bot drove a whole lap (about 114 m) to come back to it. The tail comes from the type:
 
 - Angled: a1 = 3.6 m out from the mouth along the bay axis, dock 8 m upstream of that. Only in the direction the bay is angled for.
 - 90 degree: the car drives the far side of the aisle (0.72 of the aisle width from the mouth, at most 6.2 m) then
@@ -468,8 +474,10 @@ the hint becomes free instead of leaving a dead button. `src/components/useSessi
   (`botPace`). The board names the side ("LOOK LEFT/RIGHT") 2 s after GO in stage 1; stages 3-5 show the decks at 26 s, stage 6
   the zone at 8 s and the decks at 24 s (`hintTimes`).
 - The first two stage-1 countdowns show the rule as three pictures (`Onboarding.tsx`).
-- With a 120 s cap, the bots do not always finish stages 4-6 (their searches there take 60-150 s), so some rounds end
-  "Out of time". That is the intended pressure; loosen `hintTimes` if it feels harsh.
+- With the 120 s cap the bots finish stages 4-6: in headless rounds (four bots, seeds 1-20) the first car parks at a median
+  of about 99 s in stage 4 (the roof is ~500 m of one-way decks from the gate), 66 s in stage 5 and 57 s in stage 6, and
+  `finish.test.ts` checks seeds 1-8 of each. Stages 1-3 got quicker too (medians about 41, 40 and 72 s, from 76, 66 and
+  109 s) because the bots no longer lap a deck after spotting the bay; `botPace` is the knob if stage 1-2 feel too hard.
 
 ### Quality tiers (`src/game/render/quality.ts`)
 
