@@ -8,7 +8,9 @@
     "start": "next start -p 3200",
     "type-check": "tsc --pretty --noEmit",
     "test": "vitest",
-    "test:run": "vitest run"
+    "test:run": "vitest run",
+    "dev:portal": "vite --config vite.portal.config.ts",
+    "build:portal": "vite build --config vite.portal.config.ts && node scripts/portal-report.mjs"
   },
   "dependencies": {
     "next": "^16.4.5",
@@ -25,6 +27,7 @@
     "postcss": "^8.5.33",
     "tailwindcss": "^4.3.5",
     "typescript": "~5.7.2",
+    "vite": "^7.3.8",
     "vitest": "^3.2.7"
   }
 }

@@ -15,13 +15,21 @@
  *  - after `freeHintAfter` losses in a row on the same stage, the hint is free (the "other way to earn it" the rules ask for),
  *    and it is always free where there are no ads at all.
  */
-export const BREAK_RULES = {
+export interface BreakRules {
+  firstAfterRounds: number;
+  firstAfterPlay: number;
+  interval: number;
+  hintEvery: number;
+  freeHintAfter: number;
+}
+
+export const BREAK_RULES: BreakRules = {
   firstAfterRounds: 2,
   firstAfterPlay: 120,
   interval: 180,
   hintEvery: 90,
   freeHintAfter: 3,
-} as const;
+};
 
 export type HintOffer = 'ad' | 'free' | null;
 
@@ -34,7 +42,7 @@ export class BreakScheduler {
   private streak = 0;
   private streakStage = 0;
 
-  constructor(private rules: typeof BREAK_RULES = BREAK_RULES) {}
+  constructor(private rules: BreakRules = BREAK_RULES) {}
 
   /** Seconds of real driving (countdown and race, not paused, not on a result card). */
   addPlay(seconds: number) {
