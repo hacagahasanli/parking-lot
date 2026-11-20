@@ -56,16 +56,6 @@ const concreteTex = (seed: number, base: [number, number, number], grain = 14, r
       g.strokeRect(0, 0, 256, 256);
       g.fillStyle = 'rgba(40,40,44,0.35)';
       for (const x of [64, 192]) for (const y of [64, 192]) g.fillRect(x - 2, y - 2, 4, 4);
-      // Oil stains on the floor texture only (the darker one).
-      if (base[0] < 100) {
-        g.globalAlpha = 0.16;
-        g.fillStyle = '#141416';
-        for (let i = 0; i < 4; i++) {
-          g.beginPath();
-          g.ellipse(r() * 256, r() * 256, 10 + r() * 24, 7 + r() * 14, r() * 3, 0, Math.PI * 2);
-          g.fill();
-        }
-      }
     },
     repeat,
   );

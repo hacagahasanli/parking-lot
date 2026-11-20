@@ -23,7 +23,7 @@ import type { Lot, Shop } from '../sim/lot';
 // Textures drawn on canvases
 // ---------------------------------------------------------------------------
 
-/** Asphalt: fine grain, darker tar patches and sealed cracks. */
+/** Asphalt: an even, fine grain and nothing else (no tar patches or cracks: the painted lines carry the look). */
 const asphaltTexture = (seed: number, base = [50, 51, 56]) =>
   canvasTexture(
     512,
@@ -32,35 +32,13 @@ const asphaltTexture = (seed: number, base = [50, 51, 56]) =>
       const r = rng(seed);
       const img = g.createImageData(512, 512);
       for (let i = 0; i < 512 * 512; i++) {
-        const n = (r() - 0.5) * 26 + (r() < 0.02 ? 30 : 0);
+        const n = (r() - 0.5) * 14;
         img.data[i * 4] = base[0] + n;
         img.data[i * 4 + 1] = base[1] + n;
         img.data[i * 4 + 2] = base[2] + n;
         img.data[i * 4 + 3] = 255;
       }
       g.putImageData(img, 0, 0);
-      g.globalAlpha = 0.18;
-      for (let i = 0; i < 9; i++) {
-        g.fillStyle = r() < 0.5 ? '#202124' : '#5c5e62';
-        g.beginPath();
-        g.ellipse(r() * 512, r() * 512, 20 + r() * 70, 14 + r() * 40, r() * 3, 0, Math.PI * 2);
-        g.fill();
-      }
-      g.globalAlpha = 0.5;
-      g.strokeStyle = '#1a1b1d';
-      g.lineWidth = 2;
-      for (let i = 0; i < 6; i++) {
-        let x = r() * 512;
-        let y = r() * 512;
-        g.beginPath();
-        g.moveTo(x, y);
-        for (let k = 0; k < 8; k++) {
-          x += (r() - 0.5) * 50;
-          y += (r() - 0.5) * 50;
-          g.lineTo(x, y);
-        }
-        g.stroke();
-      }
     },
     1,
   );
