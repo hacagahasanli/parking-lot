@@ -223,6 +223,11 @@ interface Pressed {
 
 /** How long (s) the cars hold still where they touched when the touch puts you out, before the sim and the fail flow go on. */
 const CONTACT_HOLD = 0.4;
+/**
+ * Guidance to the free bay: in a solo level the beacon (the light column and the P over the bay) and the edge arrow are on from
+ * the start; in a race they come on after this many seconds (finding it first is still the race), or as soon as you have seen it.
+ */
+export const RACE_GUIDE_AFTER = 12;
 
 const lerpAngle = (a: number, b: number, t: number) => a + Math.atan2(Math.sin(b - a), Math.cos(b - a)) * t;
 
@@ -677,38 +682,7 @@ export class Game {
     this.lastTick = -1;
     this.slowUntil = -1;
 
-    // Parked cars: everything except the free bay.
-    if (this.parked) {
-      this.scene.remove(this.parked);
-      this.parked.traverse((o) => (o as THREE.Mesh).geometry?.dispose());
-    }
-    // Drawn where the sim's collider is (`parkedSpot`), as the body style its collider is shaped from.
-    const spotOf = (b: Lot['bays'][number]) => ({ ...parkedSpot(b), style: b.variant, color: b.color });
-    // The bays as this round has them (a campaign level may fill or empty some), less every free one.
-    const bays = world.lot.bays;
-    const free = new Set([state.target, ...(state.targets ?? []), state.leaver?.bay ?? -1]);
-    const open = bays.filter((b) => !b.garage && b.use === 'car' && !free.has(b.id)).map(spotOf);
-    // The delivery van in the yard is a tall van like the ones in the bays.
-    for (const p of this.lot.props) if (p.kind === 'van') open.push({ x: p.x, z: p.z, h: p.h, style: 4, color: p.color ?? 0x2a4d8f });
-    this.parked = buildParked(open);
-    this.parked.add(this.bayProps(bays.filter((b) => !b.garage), 0, (world.lot.extras ?? []).filter((c) => c.y0 === undefined)));
-    this.scene.add(this.parked);
-    // Each deck of the car park has its own group of parked cars (hidden with the deck, so the ones out of sight cost nothing).
-    for (const g of this.deckParked) {
-      g.parent?.remove(g);
-      g.traverse((o) => (o as THREE.Mesh).geometry?.dispose());
-    }
-    this.deckParked = [];
-    for (const L of LEVELS) {
-      const spots = bays.filter((b) => b.garage && b.lvl === L && b.use === 'car' && !free.has(b.id)).map(spotOf);
-      const g = buildParked(spots);
-      // The trolley corrals and cones on this deck stand in it too, hidden with it.
-      const cones = L === 0 ? [] : (world.lot.extras ?? []).filter((c) => c.y0 !== undefined && Math.abs(c.y0 + 0.1 - levelY(L)) < 1);
-      g.add(this.bayProps(bays.filter((b) => b.garage && b.lvl === L), levelY(L), cones));
-      g.position.y = levelY(L);
-      this.worldView.garage.decks.get(L)?.add(g);
-      this.deckParked.push(g);
-    }
+    this.buildParkedCars();
     // The barriers of the ways this stage keeps shut.
     const stageOpen = world.lot.open;
     this.worldView.setClosures(stageOpen ? this.lot.closures.filter((c) => isShut(c, stageOpen)).map((c) => c.id) : []);
@@ -743,6 +717,44 @@ export class Game {
       this.cam.look.set(me.x, 1, me.z);
     }
   };
+
+  /** The parked cars (and corrals and cones) of the round as its bays stand now; rebuilt when a chain's next bay empties. */
+  private buildParkedCars() {
+    const { state, world } = this;
+    // Parked cars: everything except the free bay.
+    if (this.parked) {
+      this.scene.remove(this.parked);
+      this.parked.traverse((o) => (o as THREE.Mesh).geometry?.dispose());
+    }
+    // Drawn where the sim's collider is (`parkedSpot`), as the body style its collider is shaped from.
+    const spotOf = (b: Lot['bays'][number]) => ({ ...parkedSpot(b), style: b.variant, color: b.color });
+    // The bays as this round has them (a campaign level may fill or empty some), less every free one.
+    const bays = world.lot.bays;
+    // Every bay the round has emptied (only ever one at the start), the bay to park in, and the one a car pulls out of.
+    const free = new Set([state.target, state.leaver?.bay ?? -1, ...bays.filter((b) => b.use === 'free').map((b) => b.id)]);
+    const open = bays.filter((b) => !b.garage && b.use === 'car' && !free.has(b.id)).map(spotOf);
+    // The delivery van in the yard is a tall van like the ones in the bays.
+    for (const p of this.lot.props) if (p.kind === 'van') open.push({ x: p.x, z: p.z, h: p.h, style: 4, color: p.color ?? 0x2a4d8f });
+    this.parked = buildParked(open);
+    this.parked.add(this.bayProps(bays.filter((b) => !b.garage), 0, (world.lot.extras ?? []).filter((c) => c.y0 === undefined)));
+    this.scene.add(this.parked);
+    // Each deck of the car park has its own group of parked cars (hidden with the deck, so the ones out of sight cost nothing).
+    for (const g of this.deckParked) {
+      g.parent?.remove(g);
+      g.traverse((o) => (o as THREE.Mesh).geometry?.dispose());
+    }
+    this.deckParked = [];
+    for (const L of LEVELS) {
+      const spots = bays.filter((b) => b.garage && b.lvl === L && b.use === 'car' && !free.has(b.id)).map(spotOf);
+      const g = buildParked(spots);
+      // The trolley corrals and cones on this deck stand in it too, hidden with it.
+      const cones = L === 0 ? [] : (world.lot.extras ?? []).filter((c) => c.y0 !== undefined && Math.abs(c.y0 + 0.1 - levelY(L)) < 1);
+      g.add(this.bayProps(bays.filter((b) => b.garage && b.lvl === L), levelY(L), cones));
+      g.position.y = levelY(L);
+      this.worldView.garage.decks.get(L)?.add(g);
+      this.deckParked.push(g);
+    }
+  }
 
   /** The racers and, if there is one, the parked car that pulls out. */
   private allCars(): Car[] {
@@ -930,8 +942,9 @@ export class Game {
   setUserMuted = (on: boolean) => this.sfx.setMuted('user', on);
 
   /** A soft tick for menu focus and a click for menu choices (sound needs a first click or key press to start). */
-  uiSound = (kind: 'move' | 'pick' | 'back') => {
-    if (kind === 'move') this.sfx.ui(0);
+  uiSound = (kind: 'move' | 'pick' | 'back' | 'whoosh') => {
+    if (kind === 'whoosh') this.sfx.whoosh();
+    else if (kind === 'move') this.sfx.ui(0);
     else if (kind === 'pick') this.sfx.ui(1);
     else this.sfx.ui(-1);
   };
@@ -1053,6 +1066,63 @@ export class Game {
   };
 
   unlockAudio = () => this.sfx.unlock();
+
+  /** The edge-of-screen arrow to the free bay (a DOM element the game moves each frame; hidden while the bay is on screen). */
+  private pointer: HTMLElement | null = null;
+  attachPointer = (el: HTMLElement | null) => {
+    this.pointer = el;
+  };
+
+  /** Where guidance points now: the bay to park in (or a level's exit), once guidance is on; null when it is off. */
+  private guideSpot(): { x: number; y: number; z: number } | null {
+    const s = this.state;
+    if (!this.racing || this.menu || this.shot || this.paused || s.phase === 'done' || s.cars[0].dq !== null || s.cars[0].parkedAt !== null) return null;
+    const solo = !!this.level && this.level.type !== 'race';
+    if (!solo && !(s.phase === 'race' && (s.clock >= RACE_GUIDE_AFTER || this.found[0]))) return null;
+    if (s.target >= 0) {
+      const b = this.lot.bays[s.target];
+      return { x: b.x, y: b.y, z: b.z };
+    }
+    return s.exit ? { x: s.exit.x, y: levelY(s.exit.lvl), z: s.exit.z } : null;
+  }
+
+  /** The edge arrow: off while the spot is in view, else pinned to the screen edge in its direction, with the distance. */
+  private updatePointer() {
+    const el = this.pointer;
+    if (!el) return;
+    const spot = this.guideSpot();
+    const me = this.state.cars[0];
+    if (!spot) {
+      el.style.opacity = '0';
+      return;
+    }
+    const v = new THREE.Vector3(spot.x, spot.y + 1, spot.z).project(this.camera);
+    const behind = v.z > 1;
+    let nx = behind ? -v.x : v.x;
+    let ny = behind ? -v.y : v.y;
+    const onScreen = !behind && Math.abs(nx) < 0.92 && Math.abs(ny) < 0.88;
+    if (onScreen) {
+      el.style.opacity = '0';
+      return;
+    }
+    // Push the direction out to the edge (a margin in from it), keeping its angle.
+    const k = 1 / Math.max(Math.abs(nx) / 0.86, Math.abs(ny) / 0.8, 1e-6);
+    nx *= k;
+    ny *= k;
+    const W = el.parentElement?.clientWidth ?? window.innerWidth;
+    const H = el.parentElement?.clientHeight ?? window.innerHeight;
+    const px = ((nx + 1) / 2) * W;
+    const py = ((1 - ny) / 2) * H;
+    const ang = Math.atan2(-ny, nx);
+    el.style.opacity = '1';
+    el.style.transform = `translate(${px}px, ${py}px) translate(-50%, -50%)`;
+    const arrow = el.firstElementChild as HTMLElement | null;
+    if (arrow) arrow.style.transform = `rotate(${ang}rad)`;
+    const label = el.querySelector('[data-dist]');
+    const d = Math.hypot(spot.x - me.x, spot.z - me.z);
+    const deck = Math.round((spot.y - me.y) / LEVEL_H);
+    if (label) label.textContent = deck > 0 ? `${Math.round(d)} m · up ${deck}` : deck < 0 ? `${Math.round(d)} m · down ${-deck}` : `${Math.round(d)} m`;
+  }
 
   attachMinimap = (c: HTMLCanvasElement | null) => {
     this.minimap = c;
@@ -1229,6 +1299,8 @@ export class Game {
           this.pop(null, this.level && this.level.type !== 'race' ? 'GRAZED' : null, 'warn');
         }
       } else if (e.type === 'leg') {
+        // The next bay of the chain has just emptied: its car goes.
+        this.buildParkedCars();
         if (e.car === 0 && this.racing) {
           this.sfx.found();
           const legs = s.targets?.length ?? 1;
@@ -1498,14 +1570,16 @@ export class Game {
     const shotBay = this.shot?.bay;
     // The menu shows the prize: the free bay's beam and outline stand over the lot while the bots hunt for it.
     const menuBay = this.menu && s.phase !== 'done';
-    const reveal = (shotBay !== undefined || menuBay || (s.phase === 'done' && this.time - this.endedAt < 6 && this.endedAt >= 0)) && (shotBay ?? (s.winBay >= 0 ? s.winBay : s.target)) >= 0 && !(this.level && this.level.type !== 'race' && shotBay === undefined);
+    // While you drive, the beacon stands over the bay to park in once guidance is on (see `guideSpot`).
+    const guide = this.guideSpot() !== null && s.target >= 0 && this.worldView.garage.floorShown(this.lot.bays[s.target].x, this.lot.bays[s.target].y + 0.1, this.lot.bays[s.target].z);
+    const reveal = guide || ((shotBay !== undefined || menuBay || (s.phase === 'done' && this.time - this.endedAt < 6 && this.endedAt >= 0)) && (shotBay ?? (s.winBay >= 0 ? s.winBay : s.target)) >= 0 && !(this.level && this.level.type !== 'race' && shotBay === undefined));
     this.marker.group.visible = reveal;
     if (reveal) {
-      const bay = this.lot.bays[shotBay ?? (s.winBay >= 0 ? s.winBay : s.target)];
+      const bay = this.lot.bays[guide ? s.target : (shotBay ?? (s.winBay >= 0 ? s.winBay : s.target))];
       this.marker.group.position.set(bay.x, bay.y, bay.z);
       this.marker.group.rotation.y = bay.h;
       this.marker.group.scale.set(bay.w / BAY.width, 1, bay.d / BAY.depth);
-      const fade = shotBay !== undefined || menuBay ? 1 : Math.min(1, (this.time - this.endedAt) * 2) * Math.min(1, (6 - (this.time - this.endedAt)) * 2);
+      const fade = guide || shotBay !== undefined || menuBay ? 1 : Math.min(1, (this.time - this.endedAt) * 2) * Math.min(1, (6 - (this.time - this.endedAt)) * 2);
       this.marker.lineMat.opacity = 0.95 * fade;
       this.marker.fillMat.opacity = shotBay !== undefined ? 0.32 : menuBay ? 0.22 + Math.sin(t * 2.4) * 0.08 : (0.12 + Math.sin(t * 4) * 0.05) * fade;
       this.marker.beamMat.uniforms.uTime.value = t;
@@ -1544,6 +1618,7 @@ export class Game {
     this.updateCamera(dt);
     this.drawMinimap();
     this.renderer.render(this.scene, this.camera);
+    this.updatePointer();
   }
 
   /** Is the car inside the car park's footprint (the walls), and on which level? */
@@ -1927,15 +2002,35 @@ export class Game {
         g.fill();
       });
     }
-    // A solo level's bay (and an unpark level's exit) is no secret: always on the map.
-    if (this.level && this.level.type !== 'race' && this.state.phase !== 'done') {
-      const id = this.state.target;
-      const spot = id >= 0 ? this.lot.bays[id] : this.state.exit ? { x: this.state.exit.x, z: this.state.exit.z, y: levelY(this.state.exit.lvl) } : null;
-      if (spot && here(spot.y)) {
-        g.fillStyle = `rgba(255,255,255,${0.75 + Math.sin(this.time * 5) * 0.25})`;
+    // The bay guidance points at (a solo level's bay or exit from the start, a race's once guidance is on): a pulsing gold ring
+    // with a dot, and a label when it is on another level than the one shown.
+    const spot = this.guideSpot();
+    if (spot) {
+      const pulse = (this.time * 1.2) % 1;
+      if (here(spot.y)) {
+        g.save();
+        g.strokeStyle = `rgba(255,210,63,${1 - pulse})`;
+        g.lineWidth = 3;
         g.beginPath();
-        g.arc(px(spot.x), pz(spot.z), 5, 0, Math.PI * 2);
+        g.arc(px(spot.x), pz(spot.z), 6 + pulse * 14, 0, Math.PI * 2);
+        g.stroke();
+        g.fillStyle = '#ffd23f';
+        g.strokeStyle = '#0a0d18';
+        g.lineWidth = 2;
+        g.beginPath();
+        g.arc(px(spot.x), pz(spot.z), 6, 0, Math.PI * 2);
         g.fill();
+        g.stroke();
+        g.restore();
+      } else {
+        g.save();
+        g.font = 'bold 22px sans-serif';
+        g.textAlign = 'center';
+        g.fillStyle = 'rgba(10,13,24,0.8)';
+        g.fillRect(W / 2 - 90, 6, 180, 30);
+        g.fillStyle = '#ffd23f';
+        g.fillText(`Free bay on ${levelName(levelOf(spot.y + 0.1))}`, W / 2, 29);
+        g.restore();
       }
     }
     if (this.state.phase === 'done') {
