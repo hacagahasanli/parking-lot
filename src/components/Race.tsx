@@ -278,7 +278,7 @@ const Result = ({ hud, game, session, exit, support, onMenu }: { hud: HudState; 
   return (
     <div className="absolute inset-0 z-30 flex items-center justify-center bg-ink-deep/70 p-4 backdrop-blur-sm" style={{ animation: 'fadeIn 0.4s ease-out both' }} role="dialog" aria-label="Result">
       <div className="panel-cut bg-ink border-blue/20 max-h-[calc(100dvh-16px)] w-full max-w-md overflow-y-auto border p-4 text-center sm:p-6" style={{ animation: 'riseIn 0.5s ease-out both' }}>
-        {st.n > 0 && <div className="text-lilac text-[11px] font-semibold tracking-[0.25em] uppercase">Stage {st.n} · {st.name}</div>}
+        {st.n > 0 && <div className="text-lilac text-sm font-semibold">Stage {st.n} · {st.name}</div>}
         <div className={`font-display text-3xl sm:text-4xl ${r.won ? 'text-green' : 'text-orange'}`}>
           {r.reason === 'pedestrian' || r.reason === 'crash' ? 'DISQUALIFIED' : r.won ? 'PARKED FIRST' : r.winner ? `${r.winner} took your spot` : 'Out of time'}
         </div>
@@ -378,7 +378,7 @@ const PauseMenu = ({
       >
         <div className="kerb mb-5 h-1.5 w-24" aria-hidden="true" />
         <div className="font-display text-gold -skew-x-6 text-5xl leading-none sm:text-6xl">Paused</div>
-        {hud.stage.n > 0 && <div className="text-lilac mt-2 text-[11px] font-semibold tracking-[0.25em] uppercase">Stage {hud.stage.n} · {hud.stage.name} · {CAMERAS[hud.camera]}</div>}
+        {hud.stage.n > 0 && <div className="text-lilac mt-2 text-sm font-semibold">Stage {hud.stage.n} · {hud.stage.name} · {CAMERAS[hud.camera]}</div>}
         <div className="mt-6 flex flex-col gap-1.5">
           <button type="button" data-nav autoFocus onClick={onResume} className={`${PAUSE_BTN} bg-gold text-ink-deep hover:!text-ink-deep focus-visible:!text-ink-deep`}>
             <span className="inline-block skew-x-6">Resume</span>

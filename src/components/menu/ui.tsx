@@ -143,8 +143,8 @@ export const Panel = ({
     <div className="kerb h-1.5 shrink-0" aria-hidden="true" />
     <header className="flex shrink-0 items-end justify-between gap-4 px-5 pt-5 pb-3 sm:px-8 sm:pt-7">
       <div>
-        {kicker && <div className="text-lilac text-[11px] font-semibold tracking-[0.3em] uppercase">{kicker}</div>}
         <h2 className="font-display text-cream -skew-x-6 text-3xl leading-none sm:text-4xl">{title}</h2>
+        {kicker && <div className="text-lilac mt-2 text-sm">{kicker}</div>}
       </div>
       <button type="button" data-nav onClick={onBack} className="text-lilac hover:text-cream flex min-h-11 items-center gap-2 px-2 text-sm font-bold tracking-widest uppercase">
         <kbd className="border-cream/30 rounded-sm border px-1.5 text-[10px]">Esc</kbd> Back

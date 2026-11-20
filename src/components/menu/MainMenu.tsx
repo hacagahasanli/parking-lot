@@ -78,7 +78,7 @@ const StageSelect = ({ hud, onPlay, onBack }: { hud: HudState; onPlay: (n: numbe
               >
                 <span className="font-display w-10 skew-x-6 text-3xl leading-none">{locked ? <Lock /> : n}</span>
                 <span className="min-w-0 flex-1 skew-x-6">
-                  <span className="text-lilac block text-[10px] font-bold tracking-[0.25em] uppercase">{floor}</span>
+                  <span className="text-lilac block text-xs font-semibold">{floor}</span>
                   <span className="font-display block truncate text-lg leading-tight">{name}</span>
                   {!locked && <span className="text-cream/65 mt-0.5 line-clamp-2 block text-xs">{st.news}</span>}
                 </span>
@@ -151,7 +151,7 @@ const Credits = ({ onBack }: { onBack: () => void }) => {
     <Panel title="Credits" onBack={onBack} panelRef={ref}>
       <div className="flex flex-col gap-5">
         <div>
-          <div className="text-lilac text-[11px] font-semibold tracking-[0.3em] uppercase">A game by</div>
+          <div className="text-lilac text-sm font-semibold">A game by</div>
           <div className="font-display text-gold mt-1 text-3xl">{STUDIO_NAME}</div>
         </div>
         <div className="text-cream/85 text-sm leading-relaxed">
@@ -214,12 +214,6 @@ export const MainMenu = ({ hud, settings, store, touch, tier, portalMuted, logoS
       <div className="pointer-events-none absolute inset-0 bg-[linear-gradient(90deg,rgba(10,13,24,0.94)_0%,rgba(10,13,24,0.82)_26%,rgba(10,13,24,0.25)_48%,transparent_62%)] portrait:max-sm:bg-[linear-gradient(180deg,rgba(10,13,24,0.7)_0%,transparent_30%,transparent_42%,rgba(10,13,24,0.92)_62%)]" />
       <div className="pointer-events-none absolute inset-0 shadow-[inset_0_0_180px_rgba(0,0,0,0.65)]" />
 
-      {/* Live caption, bottom right: this is the real game running. */}
-      <div className="pointer-events-none absolute right-5 bottom-5 hidden items-center gap-2 text-[10px] font-bold tracking-[0.3em] text-cream/70 uppercase sm:flex" style={{ animation: 'fadeIn 1s ease-out 0.6s both' }}>
-        <span className="h-2 w-2 rounded-full bg-[#ff3b2e]" style={{ animation: 'ledBlink 1.4s steps(1) infinite' }} />
-        Live · three rivals, one space
-      </div>
-
       <div
         ref={root}
         className={`absolute inset-y-0 left-0 flex w-full flex-col sm:w-[min(36vw,540px)] sm:min-w-[380px] ${view === 'root' ? '' : 'pointer-events-none'}`}
@@ -254,7 +248,7 @@ export const MainMenu = ({ hud, settings, store, touch, tier, portalMuted, logoS
             </ul>
           </nav>
         </div>
-        <footer className="flex items-center justify-between gap-3 px-6 pb-4 text-[10px] font-bold tracking-[0.25em] text-lilac uppercase sm:px-10 portrait:max-sm:bg-ink-deep/80" style={{ paddingBottom: 'calc(14px + env(safe-area-inset-bottom))', animation: 'fadeIn 0.8s ease-out 0.4s both' }}>
+        <footer className="flex items-center justify-between gap-3 px-6 pb-4 text-xs font-semibold text-lilac sm:px-10 portrait:max-sm:bg-ink-deep/80" style={{ paddingBottom: 'calc(14px + env(safe-area-inset-bottom))', animation: 'fadeIn 0.8s ease-out 0.4s both' }}>
           <span>
             {STUDIO_NAME} · v{GAME_VERSION}
           </span>
