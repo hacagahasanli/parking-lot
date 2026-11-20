@@ -16,7 +16,7 @@ export const SETTINGS_KEY = 'parking-lot.settings';
 /** Older single-value keys (before the settings menu): read once, as the starting values. */
 export const LEGACY_KEYS = { quality: 'parking-lot.quality', camera: 'parking-lot.camera', volume: 'parking-lot:volume' } as const;
 
-export type Action = 'up' | 'down' | 'left' | 'right' | 'handbrake' | 'horn' | 'camera' | 'pause' | 'shiftUp' | 'shiftDown';
+export type Action = 'up' | 'down' | 'left' | 'right' | 'handbrake' | 'horn' | 'camera' | 'pause' | 'shiftUp' | 'shiftDown' | 'retry';
 
 /** Every action in the order the controls tab lists them, with its label. */
 export const ACTIONS: { id: Action; label: string; manualOnly?: boolean }[] = [
@@ -30,6 +30,7 @@ export const ACTIONS: { id: Action; label: string; manualOnly?: boolean }[] = [
   { id: 'horn', label: 'Horn' },
   { id: 'camera', label: 'Switch camera' },
   { id: 'pause', label: 'Pause' },
+  { id: 'retry', label: 'Restart level' },
 ];
 
 export type Slot = 0 | 1;
@@ -46,6 +47,7 @@ export const DEFAULT_BINDINGS: Bindings = {
   horn: ['KeyH', null],
   camera: ['KeyC', null],
   pause: ['KeyP', null],
+  retry: ['KeyR', null],
 };
 
 /** Keys that can never be bound: Esc belongs to the menus and the portal's fullscreen, Tab and Enter to the focus. */

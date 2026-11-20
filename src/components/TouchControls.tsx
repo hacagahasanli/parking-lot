@@ -90,6 +90,7 @@ export const TouchControls = ({
   onInput,
   onCamera,
   onPause,
+  onRetry,
   fullscreen = true,
   onShift,
   size = 1,
@@ -99,6 +100,8 @@ export const TouchControls = ({
   onInput: (input: Partial<Input>) => void;
   onCamera: () => void;
   onPause: () => void;
+  /** A campaign level: restart it at once. */
+  onRetry?: () => void;
   /** Ask for fullscreen on the first touch (our own site only: portals provide fullscreen and forbid games asking for it). */
   fullscreen?: boolean;
   /** The manual gearbox's + / − buttons (shown only when given). */
@@ -172,6 +175,16 @@ export const TouchControls = ({
         >
           Cam
         </button>
+        {onRetry && (
+          <button
+            type="button"
+            aria-label="Restart level"
+            onClick={onRetry}
+            className="font-display border-gold/60 bg-ink-deep/55 text-gold h-11 w-11 rounded-full border-2 text-xl leading-none"
+          >
+            ↻
+          </button>
+        )}
         <button
           type="button"
           aria-label="Pause"

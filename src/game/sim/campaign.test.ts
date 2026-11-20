@@ -24,6 +24,7 @@ import { buildLot } from './lot';
 import { locate, shortestPath } from './nav';
 import { carShape, createRound, step } from './step';
 import { memoryStore } from '~/platform/web';
+import { SCRIPTS, driveScript } from './drive';
 
 import type { LevelDef } from './campaign';
 import type { Car, GameState, Input, World } from './types';
@@ -363,4 +364,17 @@ describe('progress', () => {
     expect(nextOpenLevel(p, CAMPAIGN[7])?.id).toBe(nine.id);
     expect(continueLevel(p).id).toBe(nine.id);
   });
+});
+
+describe('the levels a bot cannot drive', () => {
+  // Backing in and parallel bays: a scripted careful driver (sim/drive.ts) finishes each inside its limit, cleanly.
+  for (const [id, script] of Object.entries(SCRIPTS)) {
+    it(`${id}: a careful driver parks it, clean`, () => {
+      const l = levelById(id)!;
+      const { state } = driveScript(lot, l, script);
+      expect(state.winner, id).toBe(0);
+      expect(state.cars[0].grazes).toBe(0);
+      expect(state.clock).toBeLessThan(l.limit);
+    });
+  }
 });

@@ -32,6 +32,11 @@ import { FpsGuard, lowerTier, TIERS } from './quality';
 import { CAMERA_MODES, parkFollow, parkPose } from './view';
 import { NEAR_MISS, REVEAL, revealOf } from './reveal';
 import { buildFreeBayPaint, buildTargetMarker, buildWorld } from './world';
+import { buildBayGuide, buildExitGuide, buildNextGuides, buildPathGuide } from './guide';
+import { goalLines, goalsOf, levelById, precisionOf, scoresPrecision, starsFor } from '../sim/campaign';
+import { aligned } from '../sim/step';
+
+import type { LevelDef, RunResult, StarGoals } from '../sim/campaign';
 
 import type { BotBrain } from '../sim/bot';
 import type { Progress } from '../sim/stages';
@@ -135,6 +140,40 @@ export interface HudState {
   /** The minimap's tabs and the one being shown. */
   mapLevel: number;
   mapLevels: { level: number; name: string; color: number }[];
+  /** A campaign level being played (null: the endless race, or the menu). */
+  campaign: null | LevelHud;
+}
+
+/** What the HUD shows of a campaign level. */
+export interface LevelHud {
+  id: string;
+  /** Which attempt this is (a new number every start and retry). */
+  round: number;
+  n: number;
+  name: string;
+  teaches: string;
+  chapter: number;
+  type: LevelDef['type'];
+  facing: LevelDef['facing'];
+  par: number;
+  limit: number;
+  goals: [string, string, string];
+  /** Solo: no rivals, the bay outlined, the clock starts on your first press. */
+  solo: boolean;
+  /** On the line, waiting for your first press. */
+  waiting: boolean;
+  /** Which bay of a chain you are on (0-based), and how many. */
+  leg: number;
+  legs: number;
+  /** Live precision (0..100) while you are inside the bay, else null. */
+  precision: number | null;
+  /** Inside, straight and the right way round (the hold is filling). */
+  aligned: boolean;
+  grazes: number;
+  /** Precision counts for the third star here. */
+  scoresPrecision: boolean;
+  /** Set once the level is over. */
+  run: null | (RunResult & { stars: number; goals: StarGoals; failed: 'time' | 'crash' | 'pedestrian' | 'lost' | null });
 }
 
 /** A fixed camera for key art (covers, thumbnails): where the eye is, what it looks at, and which bay to light up. */
@@ -488,6 +527,14 @@ export class Game {
   private resScale = 1;
   /** The menu is up: the world idles (bots only) under a slow orbiting camera. */
   private menu = false;
+  /** The campaign level being played (null: the endless race). */
+  private level: LevelDef | null = null;
+  /** The map screen is over the game: nothing is drawn or simulated behind it. */
+  private hidden = false;
+  private bayGuide = buildBayGuide();
+  private nextGuides = buildNextGuides();
+  private exitGuide = buildExitGuide();
+  private pathGuide = buildPathGuide();
   private pad: PadState | null = null;
   private padPrev: boolean[] = [];
   private halfRate = false;
@@ -573,6 +620,7 @@ export class Game {
       return m;
     });
     this.scene.add(this.pedView.group);
+    this.scene.add(this.bayGuide.group, this.nextGuides.group, this.exitGuide.group, this.pathGuide.mesh);
     // The free bay is not marked: the outline is only shown for a moment when the round is over.
     this.marker.group.visible = false;
     this.effects = createEffects(this.scene);
@@ -601,14 +649,15 @@ export class Game {
     this.roundNo++;
     const seed = this.seed + this.roundNo * 101;
     const racing = this.racing;
-    const bots = racing ? [false, true, true, true] : [true, true, true, true];
+    const level = racing ? this.level : null;
+    const bots = level ? [false] : racing ? [false, true, true, true] : [true, true, true, true];
     // The menu idles on the open lot (stage 1), where the glowing bay is in the open air; the home page uses the whole site.
     const stage = racing ? this.progress.current : this.menu ? 1 : undefined;
-    const { state, world } = createRound(this.lot, { seed, bots, stage, flavour: this.opts.flavour, manual: racing && this.manual });
+    const { state, world } = createRound(this.lot, { seed, bots, stage, flavour: this.opts.flavour, manual: racing && this.manual, level: level ?? undefined });
     this.shiftQ = 0;
     this.state = state;
     this.world = world;
-    this.brains = state.cars.map((c) => (c.bot ? createBrain(world, c, seed) : null));
+    this.brains = state.cars.map((c) => (c.bot || (c.id === 0 && this.autopilot) ? createBrain(world, c, seed) : null));
     this.prev = this.allCars().map((c) => ({ x: c.x, y: c.y, z: c.z, h: c.h }));
     this.slope = this.allCars().map(() => 0);
     this.wheelPrev = this.allCars().map(() => []);
@@ -630,11 +679,14 @@ export class Game {
     }
     // Drawn where the sim's collider is (`parkedSpot`), as the body style its collider is shaped from.
     const spotOf = (b: Lot['bays'][number]) => ({ ...parkedSpot(b), style: b.variant, color: b.color });
-    const open = this.lot.bays.filter((b) => !b.garage && b.use === 'car' && b.id !== state.target && b.id !== state.leaver?.bay).map(spotOf);
+    // The bays as this round has them (a campaign level may fill or empty some), less every free one.
+    const bays = world.lot.bays;
+    const free = new Set([state.target, ...(state.targets ?? []), state.leaver?.bay ?? -1]);
+    const open = bays.filter((b) => !b.garage && b.use === 'car' && !free.has(b.id)).map(spotOf);
     // The delivery van in the yard is a tall van like the ones in the bays.
     for (const p of this.lot.props) if (p.kind === 'van') open.push({ x: p.x, z: p.z, h: p.h, style: 4, color: p.color ?? 0x2a4d8f });
     this.parked = buildParked(open);
-    this.parked.add(this.bayProps(this.lot.bays.filter((b) => !b.garage), 0));
+    this.parked.add(this.bayProps(bays.filter((b) => !b.garage), 0, (world.lot.extras ?? []).filter((c) => c.y0 === undefined)));
     this.scene.add(this.parked);
     // Each deck of the car park has its own group of parked cars (hidden with the deck, so the ones out of sight cost nothing).
     for (const g of this.deckParked) {
@@ -643,10 +695,11 @@ export class Game {
     }
     this.deckParked = [];
     for (const L of LEVELS) {
-      const spots = this.lot.bays.filter((b) => b.garage && b.lvl === L && b.use === 'car' && b.id !== state.target && b.id !== state.leaver?.bay).map(spotOf);
+      const spots = bays.filter((b) => b.garage && b.lvl === L && b.use === 'car' && !free.has(b.id)).map(spotOf);
       const g = buildParked(spots);
       // The trolley corrals and cones on this deck stand in it too, hidden with it.
-      g.add(this.bayProps(this.lot.bays.filter((b) => b.garage && b.lvl === L), levelY(L)));
+      const cones = L === 0 ? [] : (world.lot.extras ?? []).filter((c) => c.y0 !== undefined && Math.abs(c.y0 + 0.1 - levelY(L)) < 1);
+      g.add(this.bayProps(bays.filter((b) => b.garage && b.lvl === L), levelY(L), cones));
       g.position.y = levelY(L);
       this.worldView.garage.decks.get(L)?.add(g);
       this.deckParked.push(g);
@@ -691,11 +744,24 @@ export class Game {
 
   /** Trolley corrals and traffic cones in the bays that hold them. */
   /** Trolley corrals and cones in `bays`, in a group that sits at height `y0` (a deck's group, or the ground). */
-  private bayProps(bays: Lot['bays'], y0: number) {
+  private bayProps(bays: Lot['bays'], y0: number, extras: { x: number; z: number }[] = []) {
     const g = new THREE.Group();
     const metal = new THREE.MeshStandardMaterial({ color: 0xb4b9c0, roughness: 0.35, metalness: 0.85 });
     const cone = new THREE.MeshStandardMaterial({ color: 0xf06a1d, roughness: 0.6 });
     const white = new THREE.MeshStandardMaterial({ color: 0xf2f2f2, roughness: 0.6 });
+    const addCone = (x: number, y: number, z: number) => {
+      const k = new THREE.Group();
+      const body = new THREE.Mesh(new THREE.ConeGeometry(CONE_R, 0.7, 14), cone);
+      body.position.y = 0.37;
+      const band = new THREE.Mesh(new THREE.CylinderGeometry(0.13, 0.16, 0.1, 14), white);
+      band.position.y = 0.42;
+      const foot = new THREE.Mesh(new THREE.BoxGeometry(0.5, 0.04, 0.5), cone);
+      foot.position.y = 0.02;
+      k.add(body, band, foot);
+      k.position.set(x, y, z);
+      k.traverse((o) => (o.castShadow = true));
+      g.add(k);
+    };
     for (const b of bays) {
       if (b.use === 'corral') {
         const c = new THREE.Group();
@@ -725,21 +791,11 @@ export class Game {
         g.add(c);
       } else if (b.use === 'cones') {
         // One cone on each of the sim's solid cones.
-        for (const p of bayCones(b)) {
-          const k = new THREE.Group();
-          const body = new THREE.Mesh(new THREE.ConeGeometry(CONE_R, 0.7, 14), cone);
-          body.position.y = 0.37;
-          const band = new THREE.Mesh(new THREE.CylinderGeometry(0.13, 0.16, 0.1, 14), white);
-          band.position.y = 0.42;
-          const foot = new THREE.Mesh(new THREE.BoxGeometry(0.5, 0.04, 0.5), cone);
-          foot.position.y = 0.02;
-          k.add(body, band, foot);
-          k.position.set(p.x, b.y - y0, p.z);
-          k.traverse((o) => (o.castShadow = true));
-          g.add(k);
-        }
+        for (const p of bayCones(b)) addCone(p.x, b.y - y0, p.z);
       }
     }
+    // A campaign level's extra cones.
+    for (const p of extras) addCone(p.x, 0, p.z);
     return g;
   }
 
@@ -760,6 +816,7 @@ export class Game {
       if (action === 'camera') this.cycleCamera();
       if (action === 'shiftUp') this.shift(1);
       if (action === 'shiftDown') this.shift(-1);
+      if (action === 'retry' && this.level && !this.paused) this.retry();
     }
     if (down && !e.repeat && (action === 'pause' || (e.code === 'Escape' && this.opts.escPause !== false))) this.setPaused(!this.paused);
     if (down && e.code === 'Enter' && (this.state.phase === 'done' || this.state.cars[0].dq !== null)) {
@@ -874,8 +931,52 @@ export class Game {
 
   // ----- menu -----
 
+  /** Play a campaign level (by id): straight onto its start line, no menu. */
+  playLevel = (id: string) => {
+    const def = levelById(id);
+    if (!def) return;
+    this.level = def;
+    this.menu = false;
+    this.hidden = false;
+    this.onBlur();
+    this.newRound();
+    this.emitHud(true);
+  };
+
+  /** Restart the level at once (R, or the retry button): the same start, no countdown in a solo level. */
+  retry = () => {
+    if (!this.racing) return;
+    this.paused = false;
+    this.newRound();
+    this.emitHud(true);
+  };
+
+  /** Test hook: the player's inputs for the next steps, one per fixed step (replays a recorded drive exactly). */
+  private script: Input[] | null = null;
+  setScript = (inputs: Input[] | null) => {
+    this.script = inputs && inputs.length ? [...inputs] : null;
+  };
+
+  /** Test hook: a bot's brain drives your car from the next round on (it searches like any rival). */
+  private autopilot = false;
+  setAutopilot = (on: boolean) => {
+    this.autopilot = on;
+  };
+
+  /** The level being played, if any. */
+  get levelId() {
+    return this.level?.id ?? null;
+  }
+
+  /** The map screen covers the game: stop drawing and simulating behind it (and come back where it was). */
+  setHidden = (on: boolean) => {
+    this.hidden = on;
+    this.last = performance.now();
+  };
+
   /** Back to the menu: the race is dropped and the bots idle the lot. Progress (unlocked stages) is kept. */
   enterMenu = () => {
+    this.level = null;
     this.menu = true;
     this.paused = false;
     this.onBlur();
@@ -886,6 +987,8 @@ export class Game {
   /** Leave the menu and start a round: of `stage` if given (and unlocked), else of the current stage. */
   startRace = (stage?: number) => {
     this.menu = false;
+    this.level = null;
+    this.hidden = false;
     if (stage !== undefined) this.progress = pick(this.progress, stage);
     this.newRound();
     this.emitHud(true);
@@ -1005,6 +1108,7 @@ export class Game {
       this.frames = 0;
       this.fpsAt = now;
     }
+    if (this.hidden) return;
     this.pollPad();
     if (this.opts.autoTier && !this.paused && !this.frozen && this.state.phase === 'race' && this.tier !== 'low' && this.fpsGuard.frame(dt)) {
       this.setTier(lowerTier(this.tier));
@@ -1036,6 +1140,11 @@ export class Game {
     const inputs = s.cars.map((c, i) => {
       const brain = this.brains[i];
       if (brain) return botInput(s, this.world, c, brain);
+      if (this.racing && i === 0 && this.script) {
+        const next = this.script.shift();
+        if (!this.script.length) this.script = null;
+        if (next) return next;
+      }
       return this.racing && i === 0 ? this.playerInput() : NO_INPUT;
     });
     step(s, this.world, inputs);
@@ -1095,21 +1204,34 @@ export class Game {
       } else if (e.type === 'leave') {
         const b = this.lot.bays[e.bay];
         this.sfx.toot(b.x, b.z);
+      } else if (e.type === 'graze') {
+        if (e.car === 0 && this.racing) {
+          this.sfx.bump(Math.max(0.6, e.speed), e.x, e.z, true);
+          this.effects.contact(e.x, s.cars[0].y, e.z);
+          this.pop(null, this.level && this.level.type !== 'race' ? 'GRAZED' : null, 'warn');
+        }
+      } else if (e.type === 'leg') {
+        if (e.car === 0 && this.racing) {
+          this.sfx.found();
+          const legs = s.targets?.length ?? 1;
+          this.pop('found', `BAY ${e.leg + 1} OF ${legs}`, 'good');
+        }
       } else if (e.type === 'end') {
         if (this.endedAt < 0) this.endedAt = this.time;
         if (this.racing) {
           if (e.winner !== null) this.slowUntil = this.time + 1.2;
           if (e.winner === 0) {
             this.sfx.win();
-            this.progress = won(this.progress);
+            if (!this.level) this.progress = won(this.progress);
             // A steal: a rival was right there, going for it too.
             const bay = this.lot.bays[s.winBay];
-            const close = s.cars.some((c) => c.id !== 0 && (this.brains[c.id]?.spotted ?? false) && Math.hypot(c.x - bay.x, c.z - bay.z) < 12);
-            this.pop('win', close ? 'STOLEN IT!' : 'PARKED!', 'good');
+            const close = !!bay && s.cars.some((c) => c.id !== 0 && (this.brains[c.id]?.spotted ?? false) && Math.hypot(c.x - bay.x, c.z - bay.z) < 12);
+            this.pop('win', this.level?.type === 'unpark' ? 'YOU\'RE OUT!' : close ? 'STOLEN IT!' : 'PARKED!', 'good');
           } else {
             this.sfx.lose();
             const me = s.cars[0];
             if (me.dq === null) this.pop('lose', e.winner === null ? 'TIME UP' : me.park > 0.25 ? 'SO CLOSE!' : `${s.cars[e.winner].name.toUpperCase()} GOT IT`, 'bad');
+            else if (this.level && this.level.type !== 'race') this.pop(null, me.dqWhy ? 'TOO HARD' : 'WATCH THE SHOPPERS', 'bad');
           }
         }
       }
@@ -1184,7 +1306,7 @@ export class Game {
         paint.set(1, t);
         return;
       }
-      if (!race || s.phase === 'done' || id < 0 || !me || this.shot) {
+      if (!race || s.phase === 'done' || id < 0 || !me || this.shot || (this.level && this.level.type !== 'race')) {
         paint.set(0, t);
         return;
       }
@@ -1219,6 +1341,38 @@ export class Game {
       c.fade(this.canopyFade);
     }
   }
+
+  /** The campaign's ground guides: the bay to park in (and the ones after it), the exit circle, the projected path. */
+  private updateGuides(t: number) {
+    const s = this.state;
+    const lv = this.level;
+    const solo = !!lv && lv.type !== 'race' && this.racing && !this.shot;
+    const me = s.cars[0];
+    const bay = solo && s.target >= 0 && s.phase !== 'done' ? this.world.lot.bays[s.target] : null;
+    const shown = (b: { x: number; y: number; z: number }) => this.worldView.garage.floorShown(b.x, b.y + 0.1, b.z);
+    if (bay && shown(bay)) {
+      const rules = s.rules;
+      const inside = me.inBay >= 0.999 && me.bay === bay.id;
+      const straight = inside && !!rules && aligned(me.h, bay.h, rules);
+      this.bayGuide.set({ x: bay.x, y: bay.y, z: bay.z, h: bay.h, w: bay.w, d: bay.d, arrow: lv!.facing === 'any' ? null : lv!.facing, status: straight ? 2 : inside ? 1 : 0, hold: me.park }, t);
+    } else this.bayGuide.set(null, t);
+    const rest = solo && s.targets && s.phase !== 'done' ? s.targets.slice((s.leg ?? 0) + 1).map((id) => this.world.lot.bays[id]).filter(shown) : [];
+    this.nextGuides.set(rest);
+    const e = solo && s.exit && s.phase !== 'done' ? { ...s.exit, y: levelY(s.exit.lvl) } : null;
+    this.exitGuide.set(e && shown(e) ? e : null, t);
+    // The projected path, in precision levels, when slow enough for it to help (it fades out by 4 m/s).
+    const rig = this.rigs[0];
+    const v = forwardSpeed(me);
+    const strength = solo && this.pathOn && rig && me.dq === null && me.parkedAt === null ? Math.max(0, Math.min(1, (4 - Math.abs(v)) / 2)) : 0;
+    const dir: 1 | -1 = me.gear === -1 || v < -0.2 ? -1 : 1;
+    this.pathGuide.set(rig ? { x: rig.root.position.x, y: rig.root.position.y, z: rig.root.position.z, h: rig.root.rotation.y } : null, me.steer, dir, strength);
+  }
+
+  /** The projected path on the ground (precision levels; a setting may turn it off). */
+  private pathOn = true;
+  setPathGuide = (on: boolean) => {
+    this.pathOn = on;
+  };
 
   private focusCar() {
     if (this.racing) return this.state.cars[0];
@@ -1326,7 +1480,7 @@ export class Game {
     const shotBay = this.shot?.bay;
     // The menu shows the prize: the free bay's beam and outline stand over the lot while the bots hunt for it.
     const menuBay = this.menu && s.phase !== 'done';
-    const reveal = shotBay !== undefined || menuBay || (s.phase === 'done' && this.time - this.endedAt < 6 && this.endedAt >= 0);
+    const reveal = (shotBay !== undefined || menuBay || (s.phase === 'done' && this.time - this.endedAt < 6 && this.endedAt >= 0)) && (shotBay ?? (s.winBay >= 0 ? s.winBay : s.target)) >= 0 && !(this.level && this.level.type !== 'race' && shotBay === undefined);
     this.marker.group.visible = reveal;
     if (reveal) {
       const bay = this.lot.bays[shotBay ?? (s.winBay >= 0 ? s.winBay : s.target)];
@@ -1341,6 +1495,7 @@ export class Game {
       (this.marker.sign.material as THREE.SpriteMaterial).opacity = fade;
     }
     this.updatePaint(t);
+    this.updateGuides(t);
     // Which decks are drawn first, then whatever stands on a hidden one goes with it (or it hangs in the sky).
     this.updateGarage(dt);
     const floorShown = this.worldView.garage.floorShown;
@@ -1662,7 +1817,7 @@ export class Game {
     }
     // Once the round is over the map goes to the level where the bay was (and shows it); until then it follows you, or the tab you picked.
     const done = this.state.phase === 'done';
-    const revealed = this.lot.bays[this.state.winBay >= 0 ? this.state.winBay : this.state.target].lvl;
+    const revealed = this.lot.bays[this.state.winBay >= 0 ? this.state.winBay : this.state.target]?.lvl ?? myLevel;
     const level = this.mapPick ?? (done ? revealed : myLevel);
     this.mapShown = level;
     let layer = this.mapLayers.get(level);
@@ -1707,9 +1862,20 @@ export class Game {
         g.fill();
       });
     }
+    // A solo level's bay (and an unpark level's exit) is no secret: always on the map.
+    if (this.level && this.level.type !== 'race' && this.state.phase !== 'done') {
+      const id = this.state.target;
+      const spot = id >= 0 ? this.lot.bays[id] : this.state.exit ? { x: this.state.exit.x, z: this.state.exit.z, y: levelY(this.state.exit.lvl) } : null;
+      if (spot && here(spot.y)) {
+        g.fillStyle = `rgba(255,255,255,${0.75 + Math.sin(this.time * 5) * 0.25})`;
+        g.beginPath();
+        g.arc(px(spot.x), pz(spot.z), 5, 0, Math.PI * 2);
+        g.fill();
+      }
+    }
     if (this.state.phase === 'done') {
       const bay = this.lot.bays[this.state.winBay >= 0 ? this.state.winBay : this.state.target];
-      if (here(bay.y)) {
+      if (bay && here(bay.y)) {
         g.fillStyle = `rgba(61,220,132,${0.6 + Math.sin(this.time * 6) * 0.4})`;
         g.beginPath();
         g.arc(px(bay.x), pz(bay.z), 5, 0, Math.PI * 2);
@@ -1766,7 +1932,7 @@ export class Game {
       : null;
     cb({
       phase: s.phase,
-      countdown: Math.max(0, Math.ceil(RACE.countdown - s.t)),
+      countdown: s.waiting ? 0 : Math.max(0, Math.ceil(RACE.countdown - s.t)),
       clock: s.clock,
       speed: Math.abs(vF) * 3.6,
       gear: me.parkedAt !== null ? 'P' : me.box === 'manual' ? gearName(me.mgear) : me.gear === -1 ? 'R' : 'D',
@@ -1820,8 +1986,56 @@ export class Game {
       })(),
       // Only the floors that are open get a tab (the open lot alone has none to choose from).
       mapLevels: LEVELS.filter((l) => !this.world.lot.open || this.world.lot.open.levels.includes(l)).map((l) => ({ level: l, name: levelName(l), color: LEVEL_COLOR[l] })),
+      campaign: this.levelHud(over),
     });
     void force;
+  }
+
+  /** The campaign level's part of the HUD, with the run's result and stars once it is over. */
+  private levelHud(over: boolean): LevelHud | null {
+    const l = this.level;
+    if (!l || !this.racing) return null;
+    const s = this.state;
+    const me = s.cars[0];
+    const bay = s.target >= 0 ? this.world.lot.bays[s.target] : null;
+    const inside = !!bay && me.bay === bay.id && me.inBay > 0.5;
+    const rules = s.rules!;
+    const legs = s.targets?.length || 1;
+    let run: LevelHud['run'] = null;
+    if (over) {
+      const finished = s.winner === 0;
+      const precs = s.legPrecision ?? [];
+      const precision = scoresPrecision(l) ? (precs.length ? Math.round(precs.reduce((a, b) => a + b, 0) / precs.length) : 0) : 100;
+      const r: RunResult = { finished, time: me.parkedAt ?? s.clock, grazes: me.grazes, precision };
+      run = {
+        ...r,
+        stars: starsFor(l, r),
+        goals: goalsOf(l, r),
+        failed: finished ? null : me.dq !== null ? (me.dqWhy ? 'crash' : 'pedestrian') : s.winner !== null ? 'lost' : 'time',
+      };
+    }
+    return {
+      id: l.id,
+      round: this.roundNo,
+      n: l.n,
+      name: l.name,
+      teaches: l.teaches,
+      chapter: l.chapter,
+      type: l.type,
+      facing: l.facing,
+      par: l.par,
+      limit: l.limit,
+      goals: goalLines(l),
+      solo: l.type !== 'race',
+      waiting: !!s.waiting,
+      leg: Math.min(s.leg ?? 0, legs - 1),
+      legs,
+      precision: inside && bay ? precisionOf(me, bay, rules.facing) : null,
+      aligned: inside && me.inBay >= 0.999 && !!bay && aligned(me.h, bay.h, rules),
+      grazes: me.grazes,
+      scoresPrecision: scoresPrecision(l),
+      run,
+    };
   }
 
   /** Bay size, for the HUD's parking guide. */

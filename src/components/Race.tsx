@@ -9,6 +9,10 @@ import { useMenuNav, usePadNav } from '~/components/menu/ui';
 import { Onboarding } from '~/components/Onboarding';
 import { TouchControls, useTouch } from '~/components/TouchControls';
 import { useSession } from '~/components/useSession';
+import { useCampaign } from '~/components/useCampaign';
+import { CampaignMap } from '~/components/campaign/CampaignMap';
+import { LevelBar, LevelIntro, LevelResult, PrecisionMeter } from '~/components/campaign/LevelUI';
+import { CAMPAIGN, levelById, nextOpenLevel } from '~/game/sim/campaign';
 import { deviceFacts } from '~/game/render/deviceFacts';
 import { resolveTier } from '~/game/render/quality';
 import { keyLabel } from '~/game/settings';
@@ -356,12 +360,16 @@ const PauseMenu = ({
   exit,
   support,
   credit,
+  onRetry,
+  onMap,
 }: {
   hud: HudState;
   game: Game | null;
   onResume: () => void;
   onSettings: () => void;
   onQuit?: () => void;
+  onRetry?: () => void;
+  onMap?: () => void;
   exit?: RaceProps['exit'];
   support?: ReactNode;
   credit?: string;
@@ -378,11 +386,25 @@ const PauseMenu = ({
       >
         <div className="kerb mb-5 h-1.5 w-24" aria-hidden="true" />
         <div className="font-display text-gold -skew-x-6 text-5xl leading-none sm:text-6xl">Paused</div>
-        {hud.stage.n > 0 && <div className="text-lilac mt-2 text-sm font-semibold">Stage {hud.stage.n} · {hud.stage.name} · {CAMERAS[hud.camera]}</div>}
+        {hud.campaign ? (
+          <div className="text-lilac mt-2 text-sm font-semibold">Level {hud.campaign.n} · {hud.campaign.name} · {CAMERAS[hud.camera]}</div>
+        ) : (
+          hud.stage.n > 0 && <div className="text-lilac mt-2 text-sm font-semibold">Stage {hud.stage.n} · {hud.stage.name} · {CAMERAS[hud.camera]}</div>
+        )}
         <div className="mt-6 flex flex-col gap-1.5">
           <button type="button" data-nav autoFocus onClick={onResume} className={`${PAUSE_BTN} bg-gold text-ink-deep hover:!text-ink-deep focus-visible:!text-ink-deep`}>
             <span className="inline-block skew-x-6">Resume</span>
           </button>
+          {onRetry && (
+            <button type="button" data-nav onClick={onRetry} className={`${PAUSE_BTN} text-cream`}>
+              <span className="inline-block skew-x-6">Restart level</span>
+            </button>
+          )}
+          {onMap && (
+            <button type="button" data-nav onClick={onMap} className={`${PAUSE_BTN} text-cream`}>
+              <span className="inline-block skew-x-6">Level map</span>
+            </button>
+          )}
           <button type="button" data-nav onClick={onSettings} className={`${PAUSE_BTN} text-cream`}>
             <span className="inline-block skew-x-6">Settings</span>
           </button>
@@ -393,7 +415,7 @@ const PauseMenu = ({
           )}
           {exit?.({ className: `${PAUSE_BTN} text-cream`, label: 'Leave' })}
         </div>
-        {hud.stage.n > 0 && (
+        {hud.stage.n > 0 && !hud.campaign && (
           <div className="mt-6">
             <div className="text-lilac mb-1.5 text-[11px] font-semibold tracking-[0.25em] uppercase">Jump to stage</div>
             <StageChips hud={hud} game={game} />
@@ -480,6 +502,11 @@ export const Race = ({ platform: given, flavour = 'studio', exit, support, credi
   const confirmRef = useRef<() => void>(() => gameRef.current?.confirm());
   /** Rounds started this visit: the rule card shows on the first stage-1 rounds. */
   const [roundsSeen, setRoundsSeen] = useState(0);
+  const campaign = useCampaign(platform);
+  /** The level map is open (over everything; the game is not drawn behind it). Our own site opens on it. */
+  const [map, setMap] = useState<{ focus?: string } | null>(menu ? null : {});
+  /** The level being played and the round of its first attempt (the intro card is shorter on a retry). */
+  const attempts = useRef<{ id: string; n: number }>({ id: '', n: 0 });
 
   useEffect(() => {
     let cancelled = false;
@@ -503,7 +530,7 @@ export const Race = ({ platform: given, flavour = 'studio', exit, support, credi
       g.attachMinimap(minimap.current);
       gameRef.current = g;
       setGame(g);
-      if (process.env.NODE_ENV !== 'production') (window as unknown as { __game?: Game }).__game = g;
+      if (process.env.NODE_ENV !== 'production') Object.assign(window, { __game: g, __levels: CAMPAIGN });
     });
     return () => {
       cancelled = true;
@@ -513,6 +540,10 @@ export const Race = ({ platform: given, flavour = 'studio', exit, support, credi
   }, [platform, flavour, escPause, menu, store]);
 
   useApplySettings(game, settings, platform);
+  // Nothing is drawn behind the map.
+  useEffect(() => {
+    game?.setHidden(!!map);
+  }, [game, map]);
   const paused = !!hud?.paused;
   useEffect(() => {
     if (!paused) setPauseSettings(false);
@@ -526,7 +557,25 @@ export const Race = ({ platform: given, flavour = 'studio', exit, support, credi
   const showHint = !inMenu && !touch && !!hud && hud.phase !== 'done' && hud.clock < 9 && !hud.paused && !showMeter;
   const session = useSession(game, hud, platform, showResult, testBreaks ? { firstAfterRounds: 1, firstAfterPlay: 5, interval: 30, hintEvery: 10, freeHintAfter: 3 } : undefined);
 
-  confirmRef.current = () => void session.next(() => gameRef.current?.confirm());
+  const lvHud = !inMenu ? (hud?.campaign ?? null) : null;
+  const nextLevel = lvHud?.run?.failed === null ? nextOpenLevel(campaign.progress, levelById(lvHud.id)!) : null;
+  const playLevel = useCallback((id: string) => {
+    setMap(null);
+    campaign.clearNews();
+    gameRef.current?.playLevel(id);
+  }, [campaign]);
+  const openMap = useCallback((focus?: string) => setMap({ focus }), []);
+  confirmRef.current = () => {
+    if (lvHud?.run) void session.next(() => (nextLevel ? playLevel(nextLevel.id) : (campaign.clearNews(), gameRef.current?.retry())));
+    else void session.next(() => gameRef.current?.confirm());
+  };
+  // A level's result: record it (once per attempt) as soon as the card shows.
+  useEffect(() => {
+    if (showResult && lvHud?.run) campaign.record(`${lvHud.id}:${lvHud.round}`, lvHud);
+  }, [showResult, lvHud, campaign]);
+  // The first attempt at a level gets the full intro card; a retry the short one.
+  if (lvHud && attempts.current.id !== lvHud.id) attempts.current = { id: lvHud.id, n: lvHud.round };
+  const firstTry = !!lvHud && attempts.current.n === lvHud.round;
 
   // Count the rounds (each new countdown is a new round), for the rule card.
   const phase = hud?.phase;
@@ -570,7 +619,22 @@ export const Race = ({ platform: given, flavour = 'studio', exit, support, credi
           tier={hud.tier}
           portalMuted={portalMuted}
           logoSrc={logoSrc}
-          onPlay={(n) => gameRef.current?.startRace(n)}
+          onPlay={(n) => (n === undefined ? openMap() : gameRef.current?.startRace(n))}
+          onSound={(k) => gameRef.current?.uiSound(k)}
+          campaign={campaign.progress}
+        />
+      )}
+
+      {hud && map && (
+        <CampaignMap
+          progress={campaign.progress}
+          focus={map.focus}
+          onPlay={playLevel}
+          onBack={() => {
+            setMap(null);
+            if (menu) gameRef.current?.enterMenu();
+            else gameRef.current?.startRace();
+          }}
           onSound={(k) => gameRef.current?.uiSound(k)}
         />
       )}
@@ -579,11 +643,11 @@ export const Race = ({ platform: given, flavour = 'studio', exit, support, credi
         <>
           <div className="pointer-events-none absolute z-10" style={{ top: 'calc(10px + env(safe-area-inset-top))', left: 'calc(10px + env(safe-area-inset-left))' }}>
             <div className="flex flex-col gap-2">
-              <Standings hud={hud} compact={touch} />
-              {!touch && <Radio hud={hud} compact={false} />}
+              {!lvHud?.solo && <Standings hud={hud} compact={touch} />}
+              {!touch && !lvHud?.solo && <Radio hud={hud} compact={false} />}
             </div>
           </div>
-          {touch && (
+          {touch && !lvHud?.solo && (
             <div className="pointer-events-none absolute z-10 flex flex-col items-start gap-1" style={{ top: 'calc(232px + env(safe-area-inset-top))', left: 'calc(10px + env(safe-area-inset-left))' }}>
               <Radio hud={hud} compact />
             </div>
@@ -592,23 +656,24 @@ export const Race = ({ platform: given, flavour = 'studio', exit, support, credi
             className={`pointer-events-none absolute z-10 flex items-stretch gap-1.5 ${touch ? '' : 'left-1/2 -translate-x-1/2'}`}
             style={touch ? { top: 'calc(60px + env(safe-area-inset-top))', right: 'calc(12px + env(safe-area-inset-right))' } : { top: 'calc(10px + env(safe-area-inset-top))' }}
           >
-            {hud.stage.n > 0 && (
+            {lvHud && <LevelBar hud={hud} touch={touch} />}
+            {!lvHud && hud.stage.n > 0 && (
               <div className="panel-cut bg-ink-deep/75 font-display text-gold flex items-center px-2 text-xs tracking-wide whitespace-nowrap sm:px-3 sm:text-sm" aria-label={`Stage ${hud.stage.n} of ${hud.stage.total}: ${hud.stage.name}`}>
                 STAGE {hud.stage.n}<span className="text-cream/60 hidden pl-1.5 sm:inline">{hud.stage.name.split(' — ')[0]}</span>
               </div>
             )}
             {/* The clock counts up; in the last ten seconds it turns red, pulses and shows what is left. */}
-            <div
+            {!lvHud && <div
               className={`panel-cut bg-ink-deep/75 font-display px-3 py-1 text-base tabular-nums sm:px-5 sm:py-1.5 sm:text-xl ${hud.phase === 'race' && hud.left <= 10 ? 'text-orange' : 'text-cream'}`}
               style={hud.phase === 'race' && hud.left <= 10 ? { animation: 'hurry 1s ease-in-out infinite' } : undefined}
               aria-label={hud.phase === 'race' && hud.left <= 10 ? `${Math.ceil(hud.left)} seconds left` : undefined}
             >
               {hud.phase === 'race' && hud.left <= 10 ? `0:${String(Math.ceil(hud.left)).padStart(2, '0')}` : fmtClock(hud.clock)}
-            </div>
+            </div>}
           </div>
 
-          {hud.phase === 'countdown' && <Intro hud={hud} touch={touch} onboard={onboard} />}
-          {hud.phase === 'race' && !hud.result && (
+          {hud.phase === 'countdown' && (lvHud ? <LevelIntro hud={hud} touch={touch} compact={!firstTry} /> : <Intro hud={hud} touch={touch} onboard={onboard} />)}
+          {hud.phase === 'race' && !hud.result && !lvHud?.solo && (
             // On a phone held upright the top edge has no room between the standings and the buttons: the board goes under the
             // stage and clock on the right (and the speed moves down to make way).
             <div
@@ -675,8 +740,11 @@ export const Race = ({ platform: given, flavour = 'studio', exit, support, credi
           </div>
 
           {showMeter && (
-            <div className="pointer-events-none absolute left-1/2 z-10 -translate-x-1/2" style={{ bottom: 'calc(16px + env(safe-area-inset-bottom))' }}>
-              <Meter hud={hud} />
+            <div
+              className={`pointer-events-none absolute left-1/2 z-10 -translate-x-1/2 ${touch ? 'portrait:bottom-auto portrait:top-[calc(196px+env(safe-area-inset-top))]' : ''}`}
+              style={{ bottom: 'calc(16px + env(safe-area-inset-bottom))' }}
+            >
+              {lvHud?.solo ? <PrecisionMeter hud={hud} /> : <Meter hud={hud} />}
             </div>
           )}
 
@@ -697,6 +765,12 @@ export const Race = ({ platform: given, flavour = 'studio', exit, support, credi
           {!touch && (
             <div className="text-lilac pointer-events-none absolute z-10 text-[11px]" style={{ top: 'calc(14px + env(safe-area-inset-top))', right: 'calc(14px + env(safe-area-inset-right))' }}>
               {escPause ? <Key k="Esc" /> : <BoundKeys b={settings.controls.bindings} a="pause" />} pause
+              {lvHud && (
+                <>
+                  {' · '}
+                  <BoundKeys b={settings.controls.bindings} a="retry" /> restart
+                </>
+              )}
             </div>
           )}
 
@@ -706,6 +780,7 @@ export const Race = ({ platform: given, flavour = 'studio', exit, support, credi
               onCamera={() => gameRef.current?.cycleCamera()}
               onPause={() => gameRef.current?.setPaused(true)}
               onShift={hud.manual ? (d) => gameRef.current?.shift(d) : undefined}
+              onRetry={lvHud ? () => gameRef.current?.retry() : undefined}
               fullscreen={platform.id === 'web' && !!exit}
               size={settings.controls.touchSize}
               opacity={settings.controls.touchOpacity}
@@ -723,12 +798,24 @@ export const Race = ({ platform: given, flavour = 'studio', exit, support, credi
               exit={exit}
               support={support}
               credit={credit}
+              onRetry={lvHud ? () => gameRef.current?.retry() : undefined}
+              onMap={lvHud ? () => (gameRef.current?.setPaused(false), openMap(lvHud.id)) : undefined}
             />
           )}
           {hud.paused && pauseSettings && (
             <SettingsPanel settings={settings} store={store} onBack={() => (gameRef.current?.uiSound('back'), setPauseSettings(false))} tier={hud.tier} touch={touch} portalMuted={portalMuted} kicker="Paused" />
           )}
-          {showResult && <Result hud={hud} game={gameRef.current} session={session} exit={exit} support={support} onMenu={menu ? () => gameRef.current?.enterMenu() : undefined} />}
+          {showResult && lvHud?.run && (
+            <LevelResult
+              hud={hud}
+              news={campaign.news}
+              next={nextLevel ? { n: nextLevel.n, name: nextLevel.name } : null}
+              onNext={() => void session.next(() => nextLevel && playLevel(nextLevel.id))}
+              onRetry={() => void session.next(() => (campaign.clearNews(), gameRef.current?.retry()))}
+              onMap={() => void session.next(() => openMap(lvHud.id), { noBreak: true })}
+            />
+          )}
+          {showResult && !lvHud?.run && <Result hud={hud} game={gameRef.current} session={session} exit={exit} support={support} onMenu={menu ? () => gameRef.current?.enterMenu() : undefined} />}
           {session.inBreak && <BreakCover kind={session.inBreak} />}
         </>
       )}
