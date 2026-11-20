@@ -5,7 +5,7 @@
 import { manualDrive, shift } from './gearbox';
 import { CAR, CONTACT, DRIVE, DRIVERS, DT, IMPACT, PARK, RACE } from './constants';
 import { collide, corners, insideBox, nearShape } from './collide';
-import { bayShape, buildLot, rng } from './lot';
+import { bayShapes, buildLot, carCollider, rng } from './lot';
 import { LEVELS, LEVEL_H, levelOf, rampUnder, sameStorey, surfaceAt } from './levels';
 import { COPY } from './flavour';
 import { followRoute, routeToNode } from './nav';
@@ -56,17 +56,19 @@ export const createWorld = (target: number, lot: Lot = buildLot(), leaving = -1,
   const propNames: Partial<Record<string, string>> = { truck: 'the truck', van: 'a van', pallet: 'a pallet', cage: 'a cage', ticket: 'a ticket machine' };
   const hard: (string | null)[] = lot.solids.map((s) => {
     if (lot.closures.some((c) => c.solid === s)) return 'a barrier';
+    if (lot.closures.some((c) => (c.cones as Shape[]).includes(s))) return 'a cone';
+    if (s.what) return s.what;
     if (s.kind === 'circle') return s.r < 0.5 ? 'a post' : null;
     const prop = lot.props.find((p) => propNames[p.kind] && Math.abs(p.x - s.x) < 0.01 && Math.abs(p.z - s.z) < 0.01);
     return prop ? propNames[prop.kind]! : null;
   });
   for (const bay of lot.bays) {
     if (bay.id === target || bay.id === leaving) continue;
-    const shape = bayShape(bay);
-    if (!shape) continue;
-    solids.push(shape);
-    owner.push(bay.id);
-    hard.push(bay.use === 'car' ? 'a parked car' : bay.use === 'corral' ? 'a trolley corral' : 'a cone');
+    for (const shape of bayShapes(bay)) {
+      solids.push(shape);
+      owner.push(bay.id);
+      hard.push(bay.use === 'car' ? 'a parked car' : bay.use === 'corral' ? 'a trolley corral' : 'a cone');
+    }
   }
   // The barrier arms: solid while they are down (the entry ones until the gate has lifted).
   for (const g of lot.gates) {
@@ -229,6 +231,10 @@ export const createRound = (fullLot: Lot, opts: RoundOptions): { state: GameStat
 // Driving
 // ---------------------------------------------------------------------------
 
+/**
+ * A racer's bounding box: a plain rectangle round the body. The bots plan with it (it is a little bigger than the car at the
+ * corners, which is margin they want) and the parking check uses its corners. Contact uses `carShape`.
+ */
 export const carBox = (c: { x: number; z: number; h: number }): Box => ({
   kind: 'box',
   x: c.x,
@@ -237,6 +243,9 @@ export const carBox = (c: { x: number; z: number; h: number }): Box => ({
   hl: CAR.length / 2,
   h: c.h,
 });
+
+/** What a racer (or the car pulling out, drawn as the same sedan) touches with: the real outline of body style 0. */
+export const carShape = (c: { x: number; z: number; h: number }): Box => carCollider(0, c.x, c.z, c.h);
 
 /** Signed speed along the car's nose (m/s). */
 export const forwardSpeed = (c: Car) => c.vx * Math.sin(c.h) + c.vz * Math.cos(c.h);
@@ -460,7 +469,7 @@ const crashes = (state: GameState, world: World) => {
         const solid = world.solids[i];
         // Decks and ramps are stacked: a solid only matters at the heights it stands at.
         if (solid.y0 !== undefined && (car.y + 1.5 < solid.y0 || car.y > (solid.y1 ?? Infinity))) continue;
-        const box = carBox(car);
+        const box = carShape(car);
         if (!nearShape(box, solid)) continue;
         const k = collide(box, solid);
         if (k) resolve(state, car, null, k, world.owner[i], world.hard[i]);
@@ -469,8 +478,8 @@ const crashes = (state: GameState, world: World) => {
     for (let i = 0; i < cars.length; i++) {
       for (let j = i + 1; j < cars.length; j++) {
         if (!sameStorey(cars[i].y, cars[j].y)) continue;
-        const a = carBox(cars[i]);
-        const b = carBox(cars[j]);
+        const a = carShape(cars[i]);
+        const b = carShape(cars[j]);
         if (!nearShape(a, b)) continue;
         const k = collide(a, b);
         if (k) resolve(state, cars[i], cars[j], k, -1);

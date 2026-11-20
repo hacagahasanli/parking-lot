@@ -8,19 +8,38 @@
  *
  * Axes (see constants.ts): x east, z north. The street is to the south, the stores to the north.
  */
-import { CAR } from './constants';
+import { BODY, CAR } from './constants';
 import { collide } from './collide';
+import { planOutline } from './body';
 import { buildGraph, reachableFrom } from './nav';
 import { LEVELS, LEVEL_COLOR, LEVEL_H, SLAB, levelName, levelY } from './levels';
 
 import type { GNode, Graph } from './nav';
 import type { Floor, Ramp, Surfaces } from './levels';
+import type { PlanPt } from './body';
 
 export interface Vec { x: number; z: number }
 
-/** An oriented box: centre, half sizes along its own axes, and heading (see constants.ts). */
-export interface Box { kind: 'box'; x: number; z: number; hw: number; hl: number; h: number; /** Vertical extent: only bodies at these heights touch it (undefined: every height, the open lot). */ y0?: number; y1?: number }
-export interface Circle { kind: 'circle'; x: number; z: number; r: number; y0?: number; y1?: number }
+/**
+ * An oriented box: centre, half sizes along its own axes, and heading (see constants.ts). A car's box also carries its real
+ * plan `outline` (a convex polygon in its own frame, x right, z forward; see sim/body.ts): contact is then tested against
+ * that, and `hw`/`hl` are only its bounds (for the cheap tests and for the bots' planning).
+ */
+export interface Box {
+  kind: 'box';
+  x: number;
+  z: number;
+  hw: number;
+  hl: number;
+  h: number;
+  outline?: readonly PlanPt[];
+  /** Vertical extent: only bodies at these heights touch it (undefined: every height, the open lot). */
+  y0?: number;
+  y1?: number;
+  /** Hitting it puts you out, and this is what it is called ("a post"). Unset: the sim works it out (see `createWorld`). */
+  what?: string;
+}
+export interface Circle { kind: 'circle'; x: number; z: number; r: number; y0?: number; y1?: number; what?: string }
 export type Shape = Box | Circle;
 
 export type BayUse = 'car' | 'free' | 'corral' | 'cones';
@@ -170,6 +189,8 @@ export interface Closure {
   /** What opens it: the garage as a whole, or the level this way leads to. */
   opensWith: 'garage' | number;
   solid: Box;
+  /** The cones in a row on the approach side, each solid while the way is shut (the renderer stands one on each). */
+  cones: Circle[];
 }
 
 /** What a stage has open: the open lot always, the garage and which of its levels. */
@@ -264,27 +285,58 @@ export const rng = (seed: number) => {
 // Mostly real colours: a car park is not a sea of white and grey (only white, silver and black are neutral).
 const PAINT = [0xd8222b, 0x2c6fd6, 0xe9801c, 0x1f9a73, 0xf2c230, 0x7b3fa0, 0xf2f2ee, 0x1c1e22, 0x9aa7b5, 0xc23a5b, 0x1f4ea0, 0x5bb04a];
 
-/** Footprint of what is parked in a bay, by body style. */
-export const VARIANT_SIZE = [
-  { l: CAR.length, w: CAR.width },
-  { l: CAR.length, w: CAR.width },
-  { l: CAR.length, w: CAR.width },
-  { l: 4.72, w: 1.92 },
-  { l: 4.95, w: 1.98 },
-] as const;
+/** Half the side of a car park column (m): the drawn column's painted foot band, its widest part. */
+export const COLUMN_HALF = 0.3;
+/** Half the side of a solar carport post (m). */
+export const CANOPY_POST_HALF = 0.17;
+
+/** Footprint of what is parked in a bay, by body style (the same sizes the renderer draws them at). */
+export const VARIANT_SIZE = BODY.map((b) => ({ l: b.length, w: b.width }));
 /** Vans stand tall enough to hide a bay behind them. */
 export const isTall = (variant: number) => variant >= 4;
 
-/** Collider for a parked car or other bay contents. */
-export const bayShape = (bay: Bay): Shape | null => {
-  if (bay.use === 'free') return null;
+/**
+ * A car's collider: its real plan outline for body style `style` (see sim/body.ts), at a place and heading. Its `hw` and
+ * `hl` are the outline's bounds.
+ */
+export const carCollider = (style: number, x: number, z: number, h: number): Box => {
+  const outline = planOutline(style);
+  let hw = 0;
+  let hl = 0;
+  for (const [px, pz] of outline) {
+    hw = Math.max(hw, Math.abs(px));
+    hl = Math.max(hl, Math.abs(pz));
+  }
+  return { kind: 'box', x, z, hw, hl, h, outline };
+};
+
+/** How far into its bay a parked car stands (m, along its heading), so its nose or tail is not on the aisle's line. */
+export const PARKED_INSET = 0.12;
+
+/** Where a parked car stands in its bay: the renderer draws it here and its collider is here, so the two cannot disagree. */
+export const parkedSpot = (bay: Bay) => ({ x: bay.x + Math.sin(bay.h) * PARKED_INSET, z: bay.z + Math.cos(bay.h) * PARKED_INSET, h: bay.h });
+
+/** Radius (m) of a traffic cone's base, drawn and solid: the ones in coned-off bays, and the smaller ones before a closed way. */
+export const CONE_R = 0.22;
+export const CLOSURE_CONE_R = 0.2;
+
+/** The three cones a coned-off bay holds, across its mouth (the renderer stands one on each, the sim makes each solid). */
+export const bayCones = (bay: Bay): Vec[] =>
+  [-1.8, 0, 1.8].map((d) => ({ x: bay.x - bay.ax * (1.8 - d * 0.4) + bay.az * d * 0.3, z: bay.z - bay.az * (1.8 - d * 0.4) - bay.ax * d * 0.3 }));
+
+/** A trolley corral's rails and bars (half width and half length, m): drawn and solid. */
+export const CORRAL = { hw: 0.88, hl: 2.33 } as const;
+
+/** Colliders for what stands in a bay: a parked car (its real outline), a corral, or each of its cones. None for a free bay. */
+export const bayShapes = (bay: Bay): Shape[] => {
+  if (bay.use === 'free') return [];
   const ext = bay.garage ? { y0: bay.y - 0.1, y1: bay.y + 2.4 } : {};
   if (bay.use === 'car') {
-    const v = VARIANT_SIZE[bay.variant];
-    return { kind: 'box', x: bay.x, z: bay.z, hw: v.w / 2 - 0.02, hl: v.l / 2 - 0.02, h: bay.h, ...ext };
+    const p = parkedSpot(bay);
+    return [{ ...carCollider(bay.variant, p.x, p.z, p.h), ...ext }];
   }
-  if (bay.use === 'corral') return { kind: 'box', x: bay.x, z: bay.z, hw: 0.9, hl: 2.4, h: bay.h, ...ext };
-  return { kind: 'circle', x: bay.x - bay.ax * 1.8, z: bay.z - bay.az * 1.8, r: 0.35, ...ext };
+  if (bay.use === 'corral') return [{ kind: 'box', x: bay.x, z: bay.z, hw: CORRAL.hw, hl: CORRAL.hl, h: bay.h, ...ext }];
+  return bayCones(bay).map((c) => ({ kind: 'circle' as const, x: c.x, z: c.z, r: CONE_R, ...ext }));
 };
 
 /** An axis-aligned rectangle as a box shape. */
@@ -607,7 +659,8 @@ export const buildLot = (seed = 7): Lot => {
     for (const k of [3, 6]) {
       const c = { x: ROW_X0 + PERP.width * k, z: Z2C - HALF - PERP.depth };
       lv.columns.push(c);
-      solids.push({ kind: 'circle', x: c.x, z: c.z, r: 0.28, y0: levelY(L) - 0.2, y1: levelY(L) + 2.9 });
+      // Square, like the drawn column (its painted foot band is the widest part, 0.6 m).
+      solids.push({ kind: 'box', x: c.x, z: c.z, hw: COLUMN_HALF, hl: COLUMN_HALF, h: 0, y0: levelY(L) - 0.2, y1: levelY(L) + 2.9, what: 'a column' });
     }
     // The outer walls of the main deck (a gap in the west wall on the ground floor: the way in and out).
     pushWall(lv, { x0: GX0 - T, x1: GXB, z0: GZ0 - T, z1: GZ0 }, full);
@@ -665,7 +718,10 @@ export const buildLot = (seed = 7): Lot => {
   const closures: Closure[] = [];
   const shut = (id: Closure['id'], lvl: number, x: number, z: number, width: number, opensWith: Closure['opensWith']) => {
     const y = levelY(lvl);
-    closures.push({ id, lvl, x, z, width, h: Math.PI / 2, opensWith, solid: { kind: 'box', x, z, hw: 0.45, hl: width / 2 + 0.3, h: 0, y0: y - 0.2, y1: y + 2.9 } });
+    // Five cones staggered in a row 1.1-1.5 m before the barrier, on the side the cars come from (x grows going in).
+    const half = width / 2 + 0.25;
+    const cones: Circle[] = [0, 1, 2, 3, 4].map((i) => ({ kind: 'circle', x: x - 0.35 - 1.1 - (i % 2) * 0.35, z: z - half + 0.6 + (i * (half * 2 - 1.2)) / 4, r: CLOSURE_CONE_R, y0: y - 0.2, y1: y + 2.9 }));
+    closures.push({ id, lvl, x, z, width, h: Math.PI / 2, opensWith, solid: { kind: 'box', x, z, hw: 0.45, hl: width / 2 + 0.3, h: 0, y0: y - 0.2, y1: y + 2.9 }, cones });
   };
   shut('door', 0, GX0 - 0.45, Z2C, 2 * HALF, 'garage');
   shut('down', 0, GXB + 0.8, Z1C, 2 * HALF, -1);
@@ -745,7 +801,7 @@ export const buildLot = (seed = 7): Lot => {
   solids.push({ kind: 'box', x: -40.5, z: 37.4, hw: 1.3, hl: 4.2, h: Math.PI / 2 });
   occluders.push({ kind: 'box', x: -40.5, z: 37.4, hw: 1.3, hl: 4.2, h: Math.PI / 2 });
   props.push({ kind: 'van', x: -32.4, z: 41.2, h: 0.12, color: 0x2a4d8f });
-  solids.push({ kind: 'box', x: -32.4, z: 41.2, hw: 1.0, hl: 2.48, h: 0.12 });
+  solids.push(carCollider(4, -32.4, 41.2, 0.12));
   occluders.push({ kind: 'box', x: -32.4, z: 41.2, hw: 1.0, hl: 2.48, h: 0.12 });
   for (const [x, z] of [
     [-49.5, 41.5],
@@ -769,7 +825,8 @@ export const buildLot = (seed = 7): Lot => {
   // --- Lamps, posts, walls -----------------------------------------------------------------------
   for (const x of [EX0 + 8, EX0 + 24, EX0 + 40]) lamps.push({ x, z: (ZB + 4 + dz + ZC - 4 - dz) / 2 }, { x, z: (ZC + 4 + dz + ZF - 4 - dz) / 2 });
   for (const lamp of lamps) solids.push({ kind: 'circle', x: lamp.x, z: lamp.z, r: 0.25 });
-  for (const p of posts) solids.push({ kind: 'circle', x: p.x, z: p.z, r: 0.24 });
+  // The carport's posts are square steel sections, like the ones drawn.
+  for (const p of posts) solids.push({ kind: 'box', x: p.x, z: p.z, hw: CANOPY_POST_HALF, hl: CANOPY_POST_HALF, h: 0, what: 'a post' });
   // Walls round the lot: the street side is closed (the entry and exit lanes end at it), the store kerb on the north.
   solids.push(rect(bounds.x0 - 1, bounds.x0, bounds.z0 - 1, kerb + 1), rect(bounds.x1, bounds.x1 + 1, bounds.z0 - 1, Z2C - 6.5), rect(bounds.x1, bounds.x1 + 1, Z2C + 6.5, kerb + 1));
   solids.push(rect(bounds.x0 - 1, bounds.x1 + 1, bounds.z0 - 1, bounds.z0), rect(bounds.x0 - 1, bounds.x1 + 1, kerb, kerb + 1));
@@ -888,7 +945,7 @@ export const buildLot = (seed = 7): Lot => {
   const reach = new Set([...reachableFrom(graph, nodeId.M_EA), ...reachableFrom(graph, nodeId.M_EB)]);
   const sweepClear = (bay: Bay, ap: Approach) => {
     const pts = [ap.dock, ...ap.tail];
-    const others = bays.filter((b) => b.id !== bay.id && Math.hypot(b.x - bay.x, b.z - bay.z) < 24 && b.y === bay.y).map(bayShape).filter((s): s is Shape => !!s);
+    const others = bays.filter((b) => b.id !== bay.id && Math.hypot(b.x - bay.x, b.z - bay.z) < 24 && b.y === bay.y).flatMap(bayShapes);
     // Only what is on the bay's own level (decks and ramps are stacked in plan).
     const here = (s: Shape) => s.y0 === undefined || (s.y0 < bay.y + 1.5 && (s.y1 ?? Infinity) > bay.y);
     const near = [...solids.filter((s) => here(s) && Math.hypot(s.x - bay.x, s.z - bay.z) < 24 + (s.kind === 'box' ? s.hl : 0)), ...others];

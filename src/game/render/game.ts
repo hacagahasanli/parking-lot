@@ -15,7 +15,7 @@ import { CAR, DT, PED, RACE } from '../sim/constants';
 import { COPY } from '../sim/flavour';
 import { hintArea, hintLines, hintOf } from '../sim/hint';
 import { LEVELS, LEVEL_COLOR, LEVEL_H, levelName, levelOf, levelY } from '../sim/levels';
-import { BAY, buildLot } from '../sim/lot';
+import { BAY, CONE_R, CORRAL, bayCones, buildLot, parkedSpot } from '../sim/lot';
 import { radio } from '../sim/radio';
 import { hasNext, isShut, newProgress, next, pick, stageDef, STAGE_COUNT, won } from '../sim/stages';
 import { createRound, distanceToTarget, forwardSpeed, standings, step } from '../sim/step';
@@ -595,7 +595,8 @@ export class Game {
       this.scene.remove(this.parked);
       this.parked.traverse((o) => (o as THREE.Mesh).geometry?.dispose());
     }
-    const spotOf = (b: Lot['bays'][number]) => ({ x: b.x + Math.sin(b.h) * 0.12, z: b.z + Math.cos(b.h) * 0.12, h: b.h, style: b.variant, color: b.color });
+    // Drawn where the sim's collider is (`parkedSpot`), as the body style its collider is shaped from.
+    const spotOf = (b: Lot['bays'][number]) => ({ ...parkedSpot(b), style: b.variant, color: b.color });
     const open = this.lot.bays.filter((b) => !b.garage && b.use === 'car' && b.id !== state.target && b.id !== state.leaver?.bay).map(spotOf);
     // The delivery van in the yard is a tall van like the ones in the bays.
     for (const p of this.lot.props) if (p.kind === 'van') open.push({ x: p.x, z: p.z, h: p.h, style: 4, color: p.color ?? 0x2a4d8f });
@@ -665,8 +666,9 @@ export class Game {
     for (const b of bays) {
       if (b.use === 'corral') {
         const c = new THREE.Group();
-        for (const sx of [-0.85, 0.85]) {
-          const rail = new THREE.Mesh(new THREE.BoxGeometry(0.06, 0.06, 4.6), metal);
+        // Rails 6 cm thick whose outer faces are the sim's corral box.
+        for (const sx of [-(CORRAL.hw - 0.03), CORRAL.hw - 0.03]) {
+          const rail = new THREE.Mesh(new THREE.BoxGeometry(0.06, 0.06, 2 * CORRAL.hl - 0.06), metal);
           rail.position.set(sx, 1.0, 0);
           c.add(rail);
           for (const z of [-2.2, 0, 2.2]) {
@@ -676,7 +678,7 @@ export class Game {
           }
         }
         const back = new THREE.Mesh(new THREE.BoxGeometry(1.76, 0.06, 0.06), metal);
-        back.position.set(0, 1.0, 2.3);
+        back.position.set(0, 1.0, CORRAL.hl - 0.03);
         c.add(back);
         // A couple of trolleys left in it.
         for (const z of [1.2, 0.6]) {
@@ -689,16 +691,17 @@ export class Game {
         c.traverse((o) => (o.castShadow = true));
         g.add(c);
       } else if (b.use === 'cones') {
-        for (const d of [-1.8, 0, 1.8]) {
+        // One cone on each of the sim's solid cones.
+        for (const p of bayCones(b)) {
           const k = new THREE.Group();
-          const body = new THREE.Mesh(new THREE.ConeGeometry(0.22, 0.7, 14), cone);
+          const body = new THREE.Mesh(new THREE.ConeGeometry(CONE_R, 0.7, 14), cone);
           body.position.y = 0.37;
           const band = new THREE.Mesh(new THREE.CylinderGeometry(0.13, 0.16, 0.1, 14), white);
           band.position.y = 0.42;
           const foot = new THREE.Mesh(new THREE.BoxGeometry(0.5, 0.04, 0.5), cone);
           foot.position.y = 0.02;
           k.add(body, band, foot);
-          k.position.set(b.x - b.ax * (1.8 - d * 0.4) + b.az * d * 0.3, b.y - y0, b.z - b.az * (1.8 - d * 0.4) - b.ax * d * 0.3);
+          k.position.set(p.x, b.y - y0, p.z);
           k.traverse((o) => (o.castShadow = true));
           g.add(k);
         }

@@ -10,6 +10,7 @@ import { block, canvasTexture, flat, merge, scaleUV } from './geo';
 
 import { levelY } from '../sim/levels';
 
+import { CANOPY_POST_HALF } from '../sim/lot';
 import type { Canopy, Gate, Lot, Prop, Sign, SignKind } from '../sim/lot';
 
 const steel = () => new THREE.MeshStandardMaterial({ color: 0x4a4f57, roughness: 0.5, metalness: 0.6 });
@@ -220,7 +221,7 @@ export const buildCanopy = (c: Canopy, posts: { x: number; z: number }[]): THREE
   const beam = new THREE.Mesh(block(w, 0.3, 0.3, cx, c.h - 0.5, cz), frameMat);
   beam.castShadow = true;
   group.add(beam);
-  const postGeos = posts.map((p) => block(0.34, c.h - 0.4, 0.34, p.x, 0, p.z));
+  const postGeos = posts.map((p) => block(2 * CANOPY_POST_HALF, c.h - 0.4, 2 * CANOPY_POST_HALF, p.x, 0, p.z));
   if (postGeos.length) {
     const post = new THREE.Mesh(merge(postGeos), steel());
     post.castShadow = true;
@@ -731,18 +732,19 @@ export const buildClosures = (lot: Lot): ClosureViews => {
       l.position.set(0, 1.18, s * half);
       g.add(l);
     }
-    // Cones in a row on the side the cars come from (x grows going in, so the approach is at -x).
-    for (let i = 0; i < 5; i++) {
-      const z = -half + 0.6 + (i * (half * 2 - 1.2)) / 4;
-      const body = new THREE.Mesh(new THREE.ConeGeometry(0.2, 0.62, 12), cone);
-      body.position.set(-1.1 - (i % 2) * 0.35, 0.31, z);
+    // Cones in a row on the side the cars come from, where the sim has them (each is solid: see `Closure.cones`).
+    for (const k of c.cones) {
+      const cx = k.x - (c.x - 0.35);
+      const z = k.z - c.z;
+      const body = new THREE.Mesh(new THREE.ConeGeometry(k.r, 0.62, 12), cone);
+      body.position.set(cx, 0.31, z);
       body.castShadow = true;
       g.add(body);
       const stripe = new THREE.Mesh(new THREE.CylinderGeometry(0.1, 0.13, 0.1, 12), band);
-      stripe.position.set(-1.1 - (i % 2) * 0.35, 0.36, z);
+      stripe.position.set(cx, 0.36, z);
       g.add(stripe);
       const foot = new THREE.Mesh(new THREE.BoxGeometry(0.46, 0.04, 0.46), cone);
-      foot.position.set(-1.1 - (i % 2) * 0.35, 0.02, z);
+      foot.position.set(cx, 0.02, z);
       g.add(foot);
     }
     // (on the foot of a ramp the road has already climbed or dropped a little)
