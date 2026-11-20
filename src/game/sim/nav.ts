@@ -164,7 +164,10 @@ export const locate = (g: Graph, x: number, z: number, h?: number, allowAvoid = 
     const off = Math.abs(dx * e.uz - dz * e.ux);
     const past = s < 0 ? -s : s > e.len ? s - e.len : 0;
     let score = off + past * 1.5;
-    if (h !== undefined && fx * e.ux + fz * e.uz < 0) score += 7;
+    // Only a lane that really points against the car counts as the wrong way. A car square across the aisle (one pulling
+    // out of a bay nose first) is neither way: with a bare "< 0" a rounding error (sin(pi) is not quite 0) could put it on the
+    // lane of the aisle behind the bay instead of the one in front, and send it through the parked row.
+    if (h !== undefined && fx * e.ux + fz * e.uz < -0.1) score += 7;
     // Decks and ramps are stacked: the lane at the car's own height is the one it is on.
     if (y !== undefined) score += Math.abs(y - (e.yA + ((e.yB - e.yA) * Math.max(0, Math.min(e.len, s))) / e.len)) * 3;
     if (score < bestScore) {
