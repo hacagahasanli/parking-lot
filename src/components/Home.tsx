@@ -49,7 +49,7 @@ export const Home = () => {
       <div className="pointer-events-none fixed inset-x-0 bottom-0 h-1/3 bg-gradient-to-t from-[#0a0d18]/85 to-transparent" />
 
       <section className="relative z-10 flex min-h-screen flex-col justify-center px-6 py-10 sm:px-14" style={{ animation: 'riseIn 0.7s ease-out both' }}>
-        <a href="https://merge-conflict-drab.vercel.app" className="text-lilac mb-5 text-sm font-semibold hover:text-cream">
+        <a href="https://nalbakigames.com" className="text-lilac mb-5 text-sm font-semibold hover:text-cream">
           {STUDIO_NAME} · Game 03
         </a>
         <h1 className="font-display text-cream text-5xl leading-none sm:text-7xl">
