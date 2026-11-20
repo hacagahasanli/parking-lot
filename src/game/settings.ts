@@ -59,6 +59,8 @@ export interface Settings {
   controls: {
     bindings: Bindings;
     transmission: Transmission;
+    /** The player picked the manual gearbox themselves (in the settings). A save that says manual without this is migrated to automatic. */
+    manualChosen: boolean;
     /** Touch buttons: size (0.8..1.3), opacity (0.3..1), and the left-handed swap (pedals left, steering right). */
     touchSize: number;
     touchOpacity: number;
@@ -71,7 +73,7 @@ export interface Settings {
 }
 
 export const DEFAULTS: Settings = {
-  controls: { bindings: DEFAULT_BINDINGS, transmission: 'auto', touchSize: 1, touchOpacity: 0.9, leftHanded: false },
+  controls: { bindings: DEFAULT_BINDINGS, transmission: 'auto', manualChosen: false, touchSize: 1, touchOpacity: 0.9, leftHanded: false },
   camera: { mode: 'park', shake: true },
   graphics: { quality: 'auto', shadows: true, resolution: 1, showFps: false },
   audio: { master: 0.8, engine: 0.7, effects: 0.8, muted: false },
@@ -118,7 +120,9 @@ export const sanitize = (v: unknown): Settings => {
   return {
     controls: {
       bindings: sanitizeBindings(c.bindings ?? D.controls.bindings),
-      transmission: oneOf(c.transmission, ['auto', 'manual'] as const, D.controls.transmission),
+      // Automatic unless the player explicitly chose manual (older saves could hold 'manual' without anyone picking it).
+      transmission: oneOf(c.transmission, ['auto', 'manual'] as const, D.controls.transmission) === 'manual' && c.manualChosen === true ? 'manual' : 'auto',
+      manualChosen: c.manualChosen === true && c.transmission === 'manual',
       touchSize: num(c.touchSize, D.controls.touchSize, 0.8, 1.3),
       touchOpacity: num(c.touchOpacity, D.controls.touchOpacity, 0.3, 1),
       leftHanded: bool(c.leftHanded, D.controls.leftHanded),
@@ -287,7 +291,11 @@ export const createSettingsStore = (kv: KeyValue, local: KeyValue | null = null)
   };
   return {
     get: () => s,
-    set: (section, patch) => commit(sanitize({ ...s, [section]: { ...s[section], ...patch } })),
+    set: (section, patch) => {
+      // Picking a gearbox is an explicit choice: remember it, so the migration above never undoes it.
+      const p = section === 'controls' && 'transmission' in patch ? { ...patch, manualChosen: (patch as Partial<Settings['controls']>).transmission === 'manual' } : patch;
+      return commit(sanitize({ ...s, [section]: { ...s[section], ...p } }));
+    },
     reset: (section) => commit({ ...s, [section]: DEFAULTS[section] }),
     resetAll: () => commit(sanitize({})),
     subscribe: (cb) => {

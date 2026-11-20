@@ -88,8 +88,8 @@ const Controls = ({ s, store, touch }: { s: Settings; store: SettingsStore; touc
   const manual = s.controls.transmission === 'manual';
   return (
     <div>
-      <Row label="Transmission" hint={manual ? 'You shift: R · N · 1–4. Watch the shift light; too high a gear pulls weakly, R only when stopped.' : 'The car shifts for you; hold brake when stopped to reverse.'}>
-        <Segmented label="Transmission" value={s.controls.transmission} options={[{ v: 'auto', label: 'Automatic' }, { v: 'manual', label: 'Manual' }]} onChange={(v) => store.set('controls', { transmission: v })} />
+      <Row label="Transmission" hint={manual ? 'For enthusiasts: you shift R · N · 1–4 yourself. Watch the shift light; R only when stopped.' : 'Recommended. The car shifts for you: gas to go, hold brake when stopped to reverse.'}>
+        <Segmented label="Transmission" value={s.controls.transmission} options={[{ v: 'auto', label: 'Automatic' }, { v: 'manual', label: 'Manual (expert)' }]} onChange={(v) => store.set('controls', { transmission: v })} />
       </Row>
 
       <h3 className="text-lilac mt-6 mb-1 text-[11px] font-semibold tracking-[0.3em] uppercase">Keyboard</h3>

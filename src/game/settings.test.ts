@@ -71,6 +71,16 @@ describe('settings: persistence', () => {
     expect(b.get().access.largeHud).toBe(true);
   });
 
+  it('migrates an old save that says manual to the automatic gearbox, unless the player chose manual themselves', () => {
+    const old = memory();
+    old.setItem(SETTINGS_KEY, JSON.stringify({ controls: { transmission: 'manual' } }));
+    expect(createSettingsStore(old).get().controls.transmission).toBe('auto');
+    const chosen = memory();
+    createSettingsStore(chosen).set('controls', { transmission: 'manual' });
+    expect(createSettingsStore(chosen).get().controls.transmission).toBe('manual');
+    expect(DEFAULTS.controls.transmission).toBe('auto');
+  });
+
   it('sanitises bad values: out-of-range numbers clamp, unknown words fall back, junk JSON gives the defaults', () => {
     const s = sanitize({ audio: { master: 7, engine: -1, effects: 'loud' }, graphics: { quality: 'ultra', resolution: 0.1 }, camera: { mode: 'drone' } });
     expect(s.audio.master).toBe(1);
