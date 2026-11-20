@@ -10,7 +10,7 @@
 import * as THREE from 'three';
 
 import { LEVELS, LEVEL_COLOR, LEVEL_H, SLAB, deckShown, deckUnder, levelName, levelY, rampY } from '../sim/levels';
-import { rng } from '../sim/lot';
+import { COLUMN_HALF, rng } from '../sim/lot';
 
 import { makeBoard } from './board';
 import { block, canvasTexture, flat, merge, scaleUV } from './geo';
@@ -264,7 +264,9 @@ export const buildGarage = (lot: Lot): GarageView => {
     const H = LEVEL_H - SLAB;
     for (const c of lv.columns) {
       cols.push(block(0.56, H, 0.56, c.x, Y, c.z));
-      colBand.push(block(0.6, 1.1, 0.6, c.x, Y + 0.25, c.z), block(0.6, 0.3, 0.6, c.x, Y + 2.25, c.z));
+      // The painted bands are the widest part: the sim's column collider is their square.
+      const b = 2 * COLUMN_HALF;
+      colBand.push(block(b, 1.1, b, c.x, Y + 0.25, c.z), block(b, 0.3, b, c.x, Y + 2.25, c.z));
     }
     if (lv.lvl >= 1 && lv.roofed) {
       // Open deck under a roof: a column every 8 m along the long edges holds the slab above.

@@ -8,10 +8,23 @@
 /** Fixed simulation step: 60 Hz, independent of the screen's refresh rate. */
 export const DT = 1 / 60;
 
-/** A compact sedan, about the size of a current C-segment four-door. */
+/**
+ * Length and width of each body style, nose to tail and mirror-less flank to flank. The renderer scales its meshes to these and
+ * the colliders are built from the same shapes (sim/body.ts), so the two cannot drift apart.
+ * 0: the racers' fastback sedan, 1: crossover, 2: hatchback, 3: SUV, 4: van.
+ */
+export const BODY = [
+  { length: 4.45, width: 1.78 },
+  { length: 4.393, width: 1.8135 },
+  { length: 4.1065, width: 1.755 },
+  { length: 4.72, width: 1.92 },
+  { length: 4.95, width: 1.98 },
+] as const;
+
+/** A compact sedan, about the size of a current C-segment four-door (body style 0). */
 export const CAR = {
-  length: 4.45,
-  width: 1.78,
+  length: BODY[0].length,
+  width: BODY[0].width,
   wheelbase: 2.62,
   /** Front and rear axle distance from the centre (the body overhangs both). */
   frontAxle: 1.33,

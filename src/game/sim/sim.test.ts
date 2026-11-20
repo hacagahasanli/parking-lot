@@ -119,8 +119,10 @@ describe('posts, signs and poles', () => {
 
   it('keeps every circular or boxed pole collider out of the aisle corridors too', () => {
     for (const s of lot.solids) {
-      if (s.kind !== 'circle' || s.r > 0.5) continue;
-      expect(inAisle(s.x, s.z, s.r), `collider at ${s.x}, ${s.z}`).toEqual([]);
+      // Posts and columns are square now (like the drawn ones): their corners must stay out too.
+      const r = s.kind === 'circle' ? s.r : s.what && !s.outline ? Math.hypot(s.hw, s.hl) : Infinity;
+      if (r > 0.5) continue;
+      expect(inAisle(s.x, s.z, r), `collider at ${s.x}, ${s.z}`).toEqual([]);
     }
   });
 });

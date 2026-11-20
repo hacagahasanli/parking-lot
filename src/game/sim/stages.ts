@@ -105,7 +105,7 @@ export const stageLot = (lot: Lot, stage: number): Lot => {
     open,
     aisles,
     graph: { ...lot.graph, edges },
-    solids: [...lot.solids, ...shut.map((c) => c.solid)],
+    solids: [...lot.solids, ...shut.flatMap((c) => [c.solid, ...c.cones])],
     candidates,
     eligible,
   };

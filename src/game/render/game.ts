@@ -15,7 +15,7 @@ import { CAR, DT, PED, RACE } from '../sim/constants';
 import { COPY } from '../sim/flavour';
 import { hintArea, hintLines, hintOf } from '../sim/hint';
 import { LEVELS, LEVEL_COLOR, LEVEL_H, levelName, levelOf, levelY } from '../sim/levels';
-import { BAY, buildLot } from '../sim/lot';
+import { BAY, CONE_R, CORRAL, bayCones, buildLot, parkedSpot } from '../sim/lot';
 import { radio } from '../sim/radio';
 import { hasNext, isShut, newProgress, next, pick, stageDef, STAGE_COUNT, won } from '../sim/stages';
 import { createRound, distanceToTarget, forwardSpeed, standings, step } from '../sim/step';
@@ -182,6 +182,9 @@ interface Pressed {
   horn: boolean;
 }
 
+/** How long (s) the cars hold still where they touched when the touch puts you out, before the sim and the fail flow go on. */
+const CONTACT_HOLD = 0.4;
+
 const lerpAngle = (a: number, b: number, t: number) => a + Math.atan2(Math.sin(b - a), Math.cos(b - a)) * t;
 
 /** The "!" over a rival that has spotted the free bay: a round orange badge that faces the camera. */
@@ -304,6 +307,21 @@ const createEffects = (scene: THREE.Scene) => {
     }
   };
 
+  // The flash where two bodies touched: a bright soft blob that swells and fades while the cars hold still.
+  const flare = new THREE.Sprite(new THREE.SpriteMaterial({ map: dot, color: 0xfff0c8, transparent: true, blending: THREE.AdditiveBlending, depthWrite: false, depthTest: false }));
+  flare.visible = false;
+  flare.renderOrder = 10;
+  scene.add(flare);
+  let flareLife = 0;
+  const FLARE = 0.45;
+  /** A touch that puts you out: the flash at the contact point and a shower of sparks from it. */
+  const contact = (x: number, y: number, z: number) => {
+    flare.position.set(x, y + 0.55, z);
+    flare.visible = true;
+    flareLife = FLARE;
+    burst(x, y - 0.05, z, 7);
+  };
+
   // Hazard lights blinking on a parked car whose alarm is going.
   const hazards: THREE.Sprite[] = [];
   for (let i = 0; i < 16; i++) {
@@ -315,6 +333,13 @@ const createEffects = (scene: THREE.Scene) => {
   }
 
   const update = (dt: number, t: number, alarms: { x: number; y: number; z: number; h: number }[]) => {
+    if (flareLife > 0) {
+      flareLife = Math.max(0, flareLife - dt);
+      const k = 1 - flareLife / FLARE;
+      flare.scale.setScalar(0.35 + 1.25 * Math.sqrt(k));
+      (flare.material as THREE.SpriteMaterial).opacity = (1 - k) ** 1.5;
+      flare.visible = flareLife > 0;
+    }
     for (const p of smoke) {
       if (p.life <= 0) continue;
       p.life -= dt * 0.7;
@@ -359,7 +384,7 @@ const createEffects = (scene: THREE.Scene) => {
     for (; k < hazards.length; k++) hazards[k].visible = false;
   };
 
-  return { puff, skid, burst, update };
+  return { puff, skid, burst, contact, update };
 };
 
 // ---------------------------------------------------------------------------
@@ -429,6 +454,13 @@ export class Game {
   private endedAt = -1;
   /** Game time you were disqualified at, or -1. */
   private dqAt = -1;
+  /**
+   * Until this game time the sim waits after you touched something: the cars stay drawn exactly where they met (no gap, no
+   * overlap), with a flash and sparks at the contact point, so you see the touch that put you out. -1 when not holding.
+   */
+  private holdUntil = -1;
+  /** The crunch of your touch already played this step (the bump event of the same hit stays quiet). */
+  private crunched = false;
   private seed: number;
   private disposed = false;
   private minimap: HTMLCanvasElement | null = null;
@@ -582,6 +614,7 @@ export class Game {
     this.wheelPrev = this.allCars().map(() => []);
     this.endedAt = -1;
     this.dqAt = -1;
+    this.holdUntil = -1;
     this.paused = false;
     this.found = [false, false];
     this.fx = null;
@@ -595,7 +628,8 @@ export class Game {
       this.scene.remove(this.parked);
       this.parked.traverse((o) => (o as THREE.Mesh).geometry?.dispose());
     }
-    const spotOf = (b: Lot['bays'][number]) => ({ x: b.x + Math.sin(b.h) * 0.12, z: b.z + Math.cos(b.h) * 0.12, h: b.h, style: b.variant, color: b.color });
+    // Drawn where the sim's collider is (`parkedSpot`), as the body style its collider is shaped from.
+    const spotOf = (b: Lot['bays'][number]) => ({ ...parkedSpot(b), style: b.variant, color: b.color });
     const open = this.lot.bays.filter((b) => !b.garage && b.use === 'car' && b.id !== state.target && b.id !== state.leaver?.bay).map(spotOf);
     // The delivery van in the yard is a tall van like the ones in the bays.
     for (const p of this.lot.props) if (p.kind === 'van') open.push({ x: p.x, z: p.z, h: p.h, style: 4, color: p.color ?? 0x2a4d8f });
@@ -665,8 +699,9 @@ export class Game {
     for (const b of bays) {
       if (b.use === 'corral') {
         const c = new THREE.Group();
-        for (const sx of [-0.85, 0.85]) {
-          const rail = new THREE.Mesh(new THREE.BoxGeometry(0.06, 0.06, 4.6), metal);
+        // Rails 6 cm thick whose outer faces are the sim's corral box.
+        for (const sx of [-(CORRAL.hw - 0.03), CORRAL.hw - 0.03]) {
+          const rail = new THREE.Mesh(new THREE.BoxGeometry(0.06, 0.06, 2 * CORRAL.hl - 0.06), metal);
           rail.position.set(sx, 1.0, 0);
           c.add(rail);
           for (const z of [-2.2, 0, 2.2]) {
@@ -676,7 +711,7 @@ export class Game {
           }
         }
         const back = new THREE.Mesh(new THREE.BoxGeometry(1.76, 0.06, 0.06), metal);
-        back.position.set(0, 1.0, 2.3);
+        back.position.set(0, 1.0, CORRAL.hl - 0.03);
         c.add(back);
         // A couple of trolleys left in it.
         for (const z of [1.2, 0.6]) {
@@ -689,16 +724,17 @@ export class Game {
         c.traverse((o) => (o.castShadow = true));
         g.add(c);
       } else if (b.use === 'cones') {
-        for (const d of [-1.8, 0, 1.8]) {
+        // One cone on each of the sim's solid cones.
+        for (const p of bayCones(b)) {
           const k = new THREE.Group();
-          const body = new THREE.Mesh(new THREE.ConeGeometry(0.22, 0.7, 14), cone);
+          const body = new THREE.Mesh(new THREE.ConeGeometry(CONE_R, 0.7, 14), cone);
           body.position.y = 0.37;
           const band = new THREE.Mesh(new THREE.CylinderGeometry(0.13, 0.16, 0.1, 14), white);
           band.position.y = 0.42;
           const foot = new THREE.Mesh(new THREE.BoxGeometry(0.5, 0.04, 0.5), cone);
           foot.position.y = 0.02;
           k.add(body, band, foot);
-          k.position.set(b.x - b.ax * (1.8 - d * 0.4) + b.az * d * 0.3, b.y - y0, b.z - b.az * (1.8 - d * 0.4) - b.ax * d * 0.3);
+          k.position.set(p.x, b.y - y0, p.z);
           k.traverse((o) => (o.castShadow = true));
           g.add(k);
         }
@@ -976,16 +1012,18 @@ export class Game {
     }
     if (!this.paused && !this.frozen) {
       this.time += dt;
-      // The winning park plays in slow motion for a moment.
-      this.acc += this.time < this.slowUntil ? dt * 0.3 : dt;
-      while (this.acc >= DT) {
+      if (this.holdUntil >= 0 && this.time >= this.holdUntil) this.endHold();
+      // The winning park plays in slow motion for a moment; the touch that put you out holds still (see `holdUntil`).
+      if (this.holdUntil < 0) this.acc += this.time < this.slowUntil ? dt * 0.3 : dt;
+      while (this.acc >= DT && this.holdUntil < 0) {
         this.acc -= DT;
         this.tick();
       }
     }
     // Behind the menu on the low tier, draw every other frame (the backdrop is slow; the battery and the fan thank us).
     this.halfRate = this.menu && this.tier === 'low' && !this.halfRate;
-    if (!this.halfRate) this.draw(dt, this.paused || this.frozen ? 1 : this.acc / DT);
+    // While holding, draw the step the touch happened in as it is: the sim has just set the bodies exactly against each other.
+    if (!this.halfRate) this.draw(dt, this.paused || this.frozen || this.holdUntil >= 0 ? 1 : this.acc / DT);
     if (now - this.hudAt > 100) {
       this.hudAt = now;
       this.emitHud(false);
@@ -1018,12 +1056,15 @@ export class Game {
     const botEvents = this.brains.flatMap((b) => (b ? b.outbox.splice(0) : []));
     radio(s, [...s.events, ...botEvents]);
     if (this.racing) this.tension(botEvents);
+    this.crunched = false;
     for (const e of s.events) {
       if (e.type === 'count') this.sfx.beep(false);
       else if (e.type === 'go') this.sfx.beep(true);
       else if (e.type === 'bump') {
         const near = this.focusCar();
         const d = Math.hypot(e.x - near.x, e.z - near.z);
+        // The hit that put you out already crunched, and shakes once the hold is over.
+        if (this.crunched && (e.car === 0 || e.other === 0)) continue;
         if (e.car === 0 || e.other === 0 || this.idle) this.trauma = Math.min(1, this.trauma + Math.min(0.6, e.speed * 0.07) * (d < 8 ? 1 : 0.3));
         this.sfx.bump(e.speed, e.x, e.z, e.bay >= 0 || e.other >= 0);
         if (e.speed > 3) this.effects.burst(e.x, this.allCars()[e.car]?.y ?? 0, e.z, e.speed);
@@ -1040,13 +1081,17 @@ export class Game {
           this.sfx.lose();
         }
       } else if (e.type === 'crash') {
-        if (e.speed <= 1.2) this.sfx.bump(e.speed, e.x, e.z, true);
         if (e.car === 0 && this.racing) {
-          this.trauma = 1;
+          // Show the touch: hold the cars where they met, flash and spark at the contact point, crunch. Then the usual
+          // way out (the shake, the sting and, a moment later, the result).
+          this.holdUntil = this.time + CONTACT_HOLD;
+          this.acc = 0;
+          this.effects.contact(e.x, this.allCars()[e.car]?.y ?? 0, e.z);
+          this.sfx.bump(Math.max(5, e.speed), e.x, e.z, true);
+          this.crunched = true;
           this.dqAt = this.time;
           if (this.endedAt < 0) this.endedAt = this.time;
-          this.sfx.lose();
-        }
+        } else if (e.speed <= 1.2) this.sfx.bump(e.speed, e.x, e.z, true);
       } else if (e.type === 'leave') {
         const b = this.lot.bays[e.bay];
         this.sfx.toot(b.x, b.z);
@@ -1071,6 +1116,13 @@ export class Game {
     }
     // Home page: start the next round a few seconds after someone parks.
     if (this.idle && s.phase === 'done' && this.time - this.endedAt > 4) this.newRound();
+  }
+
+  /** The contact hold is over: the sim runs on, and you are told you are out. */
+  private endHold() {
+    this.holdUntil = -1;
+    this.trauma = 1;
+    this.sfx.lose();
   }
 
   /** Show a flash and a word (both optional), and push the HUD at once. */

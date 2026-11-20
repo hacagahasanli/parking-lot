@@ -10,9 +10,9 @@
 import { DT, PED } from './constants';
 import { collide } from './collide';
 import { levelY, sameStorey } from './levels';
-import { bayShape, rng } from './lot';
+import { bayShapes, carCollider, rng } from './lot';
 
-import type { Box, Lot } from './lot';
+import type { Lot } from './lot';
 import type { Car, GameEvent, GameState, Ped, Walk, World } from './types';
 
 /** The lane a person walks in, in front of the bays: just inside the aisle's edge. */
@@ -61,9 +61,9 @@ export const buildWalks = (lot: Lot, seed: number): { walks: Walk[]; trolley: bo
     trolley.push(i % 2 === 0);
   });
   // Zebra crossings: back and forth over each one. A landing that would be inside a parked car (bays reach the kerb) is pulled back towards the road.
-  const parkedNear = lot.bays.map((b) => ({ b, shape: bayShape(b) }));
+  const parkedNear = lot.bays.map((b) => ({ b, shapes: bayShapes(b) }));
   const blocked = (x: number, z: number) =>
-    parkedNear.some(({ b, shape }) => shape && Math.abs(b.x - x) < 6 && Math.abs(b.z - z) < 6 && collide({ kind: 'box', x, z, hw: 0.35, hl: 0.35, h: 0 }, shape));
+    parkedNear.some(({ b, shapes }) => Math.abs(b.x - x) < 6 && Math.abs(b.z - z) < 6 && shapes.some((shape) => collide({ kind: 'box', x, z, hw: 0.35, hl: 0.35, h: 0 }, shape)));
   lot.crossings.forEach((c, i) => {
     const dx = Math.sin(c.h);
     const dz = Math.cos(c.h);
@@ -189,8 +189,7 @@ export const stepPeds = (state: GameState, world: World) => {
       for (const c of cars) {
         // The car pulling out is scenery that moves: it never takes anyone down (and waits for shoppers).
         if (c.id >= 10 || Math.hypot(c.x - p.x, c.z - p.z) > 4 || !sameStorey(c.y, p.y)) continue;
-        const box: Box = { kind: 'box', x: c.x, z: c.z, hw: 0.89, hl: 2.22, h: c.h };
-        const k = collide(box, circle(p));
+        const k = collide(carCollider(0, c.x, c.z, c.h), circle(p));
         if (!k) continue;
         const speed = Math.hypot(c.vx, c.vz);
         if (speed >= PED.hitSpeed && c.dq === null) {
