@@ -322,7 +322,7 @@ describe('a round', () => {
   const BOT_LIMIT = 200;
   const where = (id: number) => (lot.bays[id].garage ? `deck P${lot.bays[id].lvl}` : 'open lot');
   it.each(Array.from({ length: 24 }, (_, i) => i + 1))('bots search, find and park in the free bay (seed %i)', (seed) => {
-    const { state, world } = createRound(lot, { seed, bots: [true, true, true, true] });
+    const { state, world } = createRound(lot, { seed, bots: [true, true, true, true], maxTime: BOT_LIMIT });
     const brains = state.cars.map((c) => createBrain(world, c, seed));
     for (let i = 0; i < 60 * BOT_LIMIT && state.phase !== 'done'; i++) {
       const inputs = state.cars.map((c) => botInput(state, world, c, brains[c.id]));
@@ -334,7 +334,7 @@ describe('a round', () => {
   }, 60000);
 
   it.each(Array.from({ length: 24 }, (_, i) => i + 1))('a bot never heads for the bay before it has spotted it (seed %i)', (seed) => {
-    const { state, world } = createRound(lot, { seed, bots: [true, true, true, true] });
+    const { state, world } = createRound(lot, { seed, bots: [true, true, true, true], maxTime: BOT_LIMIT });
     const brains = state.cars.map((c) => createBrain(world, c, seed));
     // The points that only the bay's own approach uses: where the car turns in, the mouth, the stop.
     const approaches = (id: number) => lot.bays[id].approach.flatMap((ap) => ap.tail);
@@ -986,20 +986,24 @@ describe('contact is out', () => {
 });
 
 describe('bots drive carefully', () => {
-  it('almost never get disqualified: contact in a round of four bots is rare, across seeds and stages', () => {
-    let out = 0;
-    let cars = 0;
-    for (const stage of [1, 2, 3, 4, 5, 6]) {
-      for (const seed of [1, 2, 3, 4, 5, 6]) {
-        const { state, world } = createRound(lot, { seed, stage, bots: [true, true, true, true] });
-        const brains = state.cars.map((c) => createBrain(world, c, seed));
-        for (let i = 0; i < 60 * 200 && state.phase !== 'done'; i++) step(state, world, state.cars.map((c) => botInput(state, world, c, brains[c.id])));
-        out += state.cars.filter((c) => c.dq !== null).length;
-        cars += state.cars.length;
-      }
+  // One test per stage gathers the counts and the last one judges them all together (one long synchronous test starved the
+  // test runner's own messages: "Timeout calling onTaskUpdate").
+  let out = 0;
+  let cars = 0;
+  it.each([1, 2, 3, 4, 5, 6])('play six bot rounds in stage %i', (stage) => {
+    for (const seed of [1, 2, 3, 4, 5, 6]) {
+      const { state, world } = createRound(lot, { seed, stage, bots: [true, true, true, true], maxTime: 200 });
+      const brains = state.cars.map((c) => createBrain(world, c, seed));
+      for (let i = 0; i < 60 * 200 && state.phase !== 'done'; i++) step(state, world, state.cars.map((c) => botInput(state, world, c, brains[c.id])));
+      out += state.cars.filter((c) => c.dq !== null).length;
+      cars += state.cars.length;
     }
+  }, 60000);
+
+  it('almost never get disqualified: contact in a round of four bots is rare, across seeds and stages', () => {
+    expect(cars).toBe(6 * 6 * 4);
     expect(out / cars).toBeLessThan(0.03);
-  }, 240000);
+  });
 
   it('keep a gap to a car that is stopped in front of them', () => {
     const { state, world } = createRound(lot, { seed: 4, bots: [true, false] });

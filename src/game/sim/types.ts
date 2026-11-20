@@ -1,3 +1,4 @@
+import type { Flavour } from './flavour';
 import type { Lot, Shape } from './lot';
 
 /** One frame of a driver's controls. Keyboard, touch and bots all produce this. */
@@ -159,6 +160,10 @@ export interface GameState {
   t: number;
   /** Race clock, from GO. */
   clock: number;
+  /** Which words the round uses (radio lines, driver names): see `flavour.ts`. Left out: 'studio'. */
+  flavour?: Flavour;
+  /** The round ends when the race clock reaches this (RACE.maxTime unless a test asks for longer). */
+  maxTime: number;
   phase: 'countdown' | 'race' | 'done';
   cars: Car[];
   /** The entry barriers: 0 down, 1 fully up. They start to lift at GO. */

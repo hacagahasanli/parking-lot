@@ -158,7 +158,7 @@ describe('bots in every stage', () => {
   const where = (stage: number, id: number) => `stage ${stage}, bay ${id} on ${lot.bays[id].garage ? 'P' + lot.bays[id].lvl : 'the open lot'}`;
   describe.each(stages)('stage %i', (stage) => {
     it.each(Array.from({ length: 12 }, (_, i) => i + 1))('park within the limit, and never leave the open part (seed %i)', (seed) => {
-      const { state, world } = createRound(lot, { seed, stage, bots: [true, true, true, true] });
+      const { state, world } = createRound(lot, { seed, stage, bots: [true, true, true, true], maxTime: LIMIT });
       const open = stageDef(stage).open;
       const brains = state.cars.map((c) => createBrain(world, c, seed));
       for (let i = 0; i < 60 * LIMIT && state.phase !== 'done'; i++) {
@@ -179,7 +179,7 @@ describe('bots in every stage', () => {
 
   it.each([1, 2, 3, 4, 5, 6])('a bot never heads for the bay before it has spotted it (stage %i)', (stage) => {
     for (const seed of [3, 8]) {
-      const { state, world } = createRound(lot, { seed, stage, bots: [true, true, true, true] });
+      const { state, world } = createRound(lot, { seed, stage, bots: [true, true, true, true], maxTime: LIMIT });
       const brains = state.cars.map((c) => createBrain(world, c, seed));
       const approaches = (id: number) => lot.bays[id].approach.flatMap((ap) => ap.tail);
       for (let i = 0; i < 60 * LIMIT && state.phase !== 'done'; i++) {

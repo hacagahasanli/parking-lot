@@ -37,6 +37,20 @@ export const STAGES: StageDef[] = [
 ];
 
 export const STAGE_COUNT = STAGES.length;
+
+/**
+ * Stage 1 is the first thing a new player sees, so its free bay is always close to the entry road: at most `STAGE1_NEAR`
+ * metres from the junction just past the barrier, which is the first two aisles each side. A player who turns the right way
+ * sees it within about ten seconds of GO.
+ */
+export const STAGE1_NEAR = 36;
+
+/**
+ * How brisk the bots are, by stage: in stage 1 they cruise slower and leave the line later, so a new player can win the first
+ * round; from stage 3 on they drive as they always did. Shown honestly: the bots are the same drivers, only less hurried.
+ */
+export const botPace = (stage: number | undefined): { cruise: number; launch: number } =>
+  stage === 1 ? { cruise: 0.88, launch: 1.2 } : stage === 2 ? { cruise: 0.94, launch: 0.5 } : { cruise: 1, launch: 0 };
 export const stageDef = (n: number): StageDef => STAGES[Math.max(1, Math.min(STAGE_COUNT, n)) - 1];
 
 /** Is a closure shut in this stage? */
@@ -70,7 +84,9 @@ export const stageLot = (lot: Lot, stage: number): Lot => {
   };
   // A bay the bots could never make out (a van beside it on a one-way aisle) is for people only, so it is not the free bay.
   const eligible = lot.candidates.filter((id) => inOpen(id) && spottable(lot, id));
-  const candidates = stage === 1 ? eligible.filter((id) => !lot.bays[id].garage) : def.newest === null ? eligible : eligible.filter((id) => lot.bays[id].garage && lot.bays[id].lvl === def.newest);
+  const entry = lot.graph.nodes[lot.entryNode];
+  const nearEntry = (id: number) => Math.hypot(lot.bays[id].x - entry.x, lot.bays[id].z - entry.z) <= STAGE1_NEAR;
+  const candidates = stage === 1 ? eligible.filter((id) => !lot.bays[id].garage && nearEntry(id)) : def.newest === null ? eligible : eligible.filter((id) => lot.bays[id].garage && lot.bays[id].lvl === def.newest);
   const out: Lot = {
     ...lot,
     stage: def.n,

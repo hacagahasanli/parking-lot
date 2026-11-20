@@ -116,8 +116,8 @@ export const RACE = {
   countdown: 5,
   /** After the winner parks, how long the others get before the round ends (they can still finish 2nd, 3rd). */
   afterWin: 6,
-  /** Hard limit on a round. */
-  maxTime: 240,
+  /** Hard limit on a round (seconds from GO): two minutes, so a lost round never drags. */
+  maxTime: 120,
 } as const;
 
 /** Car colours and the names on the scoreboard. Player 0 is you offline. */

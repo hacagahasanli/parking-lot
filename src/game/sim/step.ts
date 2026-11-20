@@ -6,7 +6,9 @@ import { CAR, CONTACT, DRIVE, DRIVERS, DT, IMPACT, PARK, RACE } from './constant
 import { collide, corners, insideBox, nearShape } from './collide';
 import { bayShape, buildLot, rng } from './lot';
 import { LEVELS, LEVEL_H, levelOf, rampUnder, sameStorey, surfaceAt } from './levels';
+import { COPY } from './flavour';
 import { followRoute, routeToNode } from './nav';
+import type { Flavour } from './flavour';
 import { buildWalks, createPeds, pedLimit, stepPeds } from './ped';
 import { stageLot } from './stages';
 
@@ -130,6 +132,10 @@ export interface RoundOptions {
   leaver?: number;
   /** Which stage to play (1 to 6, see `stages.ts`); left out, the whole site is open with the free bay anywhere. */
   stage?: number;
+  /** The round's time cap in seconds from GO (default `RACE.maxTime`). Bot-only tests raise it to measure how long a search takes. */
+  maxTime?: number;
+  /** The words of the round (driver names and radio lines); default 'studio'. */
+  flavour?: Flavour;
 }
 
 /**
@@ -159,7 +165,7 @@ export const createRound = (fullLot: Lot, opts: RoundOptions): { state: GameStat
   const target = opts.target ?? pickTarget(lot, rand);
   const cars: Car[] = opts.bots.map((bot, i) => {
     const s = lot.starts[i];
-    return makeCar(i, opts.names?.[i] ?? DRIVERS[i].name, DRIVERS[i].color, bot, s.x, s.z, s.h);
+    return makeCar(i, opts.names?.[i] ?? (i > 0 ? COPY[opts.flavour ?? 'studio'].rivals[i - 1] : undefined) ?? DRIVERS[i].name, DRIVERS[i].color, bot, s.x, s.z, s.h);
   });
   // One parked car will pull out part-way through the round, and the bay it leaves is free too.
   // In the open lot it is an ordinary car in an angled bay and backs straight out; in the car park it
@@ -187,6 +193,8 @@ export const createRound = (fullLot: Lot, opts: RoundOptions): { state: GameStat
   const state: GameState = {
     t: 0,
     clock: 0,
+    maxTime: opts.maxTime ?? RACE.maxTime,
+    flavour: opts.flavour ?? 'studio',
     phase: 'countdown',
     cars,
     target,
@@ -622,7 +630,7 @@ export const step = (state: GameState, world: World, inputs: Input[]) => {
     }
   } else if (state.phase === 'race') {
     state.clock += DT;
-    if (state.clock >= RACE.maxTime) {
+    if (state.clock >= state.maxTime) {
       state.phase = 'done';
       state.events.push({ type: 'end', winner: null });
     }

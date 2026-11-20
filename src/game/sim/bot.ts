@@ -13,6 +13,7 @@ import { hintOf } from './hint';
 import { levelY, sameStorey } from './levels';
 import { locate, roundCorners, routeLength, routeToDock, routeToSweep, shortestPath } from './nav';
 import { pedLimit } from './ped';
+import { botPace } from './stages';
 import { crosses, SIGHT } from './visibility';
 import { bodies, carBox, forwardSpeed, freeBays, nearSolids, racerInWay, steerLimit } from './step';
 import { DRIVE } from './constants';
@@ -162,11 +163,12 @@ const sweepRoute = (world: World, car: Car, brain: Pick<BotBrain, 'sweeps' | 'sw
 
 export const createBrain = (world: World, car: Car, seed: number): BotBrain => {
   const r = ((seed * 9301 + car.id * 49297) % 233280) / 233280;
+  const pace = botPace(world.lot.stage);
   const sweeps = planSweeps(world.lot, car, seed);
   const brain: BotBrain = {
     route: [],
     seg: 0,
-    cruise: 5.4 + r * 2,
+    cruise: (5.4 + r * 2) * pace.cruise,
     stuck: 0,
     reverse: 0,
     reverseSteer: 1,
@@ -175,7 +177,7 @@ export const createBrain = (world: World, car: Car, seed: number): BotBrain => {
     seeing: 0,
     sweeps,
     sweep: 0,
-    launch: [0.15, 0.7, 1.9, 2.6][car.id % 4],
+    launch: [0.15, 0.7, 1.9, 2.6][car.id % 4] + pace.launch,
     wobble: (car.id * 1.7) % 3,
     recover: 0,
     held: 0,
