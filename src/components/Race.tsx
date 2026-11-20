@@ -8,10 +8,11 @@ import { useApplySettings, useSettings } from '~/components/menu/useSettings';
 import { useMenuNav, usePadNav } from '~/components/menu/ui';
 import { Onboarding } from '~/components/Onboarding';
 import { TouchControls, useTouch } from '~/components/TouchControls';
+import { LoadingScreen, Wipe } from '~/components/Transitions';
 import { useSession } from '~/components/useSession';
 import { useCampaign } from '~/components/useCampaign';
 import { CampaignMap } from '~/components/campaign/CampaignMap';
-import { LevelBar, LevelIntro, LevelResult, PrecisionMeter } from '~/components/campaign/LevelUI';
+import { LevelBar, LevelIntro, LevelResult, PrecisionMeter, objectiveOf } from '~/components/campaign/LevelUI';
 import { CAMPAIGN, levelById, nextOpenLevel } from '~/game/sim/campaign';
 import { deviceFacts } from '~/game/render/deviceFacts';
 import { resolveTier } from '~/game/render/quality';
@@ -20,6 +21,7 @@ import { createWebPlatform } from '~/platform/web';
 
 import type { ReactNode } from 'react';
 import type { Session } from '~/components/useSession';
+import type { LoadStep, WipeKind } from '~/components/Transitions';
 import type { CameraMode, Game, HudState } from '~/game/render/game';
 import type { Tier } from '~/game/render/quality';
 import type { Bindings } from '~/game/settings';
@@ -421,7 +423,12 @@ const PauseMenu = ({
             <StageChips hud={hud} game={game} />
           </div>
         )}
-        {support && <div className="mt-4">{support}</div>}
+        {support && (
+          <div className="mt-5 flex flex-col items-start gap-1.5">
+            <span className="text-lilac text-sm">Having fun? A coffee helps us build the next level.</span>
+            {support}
+          </div>
+        )}
         {credit && <div className="text-lilac mt-6 text-[11px] tracking-wide">A game by {credit}</div>}
       </div>
     </div>
@@ -486,6 +493,7 @@ const BoundKeys = ({ b, a }: { b: Bindings; a: keyof Bindings }) => (
 export const Race = ({ platform: given, flavour = 'studio', exit, support, credit, escPause = true, testBreaks = false, menu = false, logoSrc }: RaceProps) => {
   const canvas = useRef<HTMLCanvasElement>(null);
   const minimap = useRef<HTMLCanvasElement>(null);
+  const pointer = useRef<HTMLDivElement>(null);
   const gameRef = useRef<Game | null>(null);
   const [game, setGame] = useState<Game | null>(null);
   const [hud, setHud] = useState<HudState | null>(null);
@@ -508,10 +516,24 @@ export const Race = ({ platform: given, flavour = 'studio', exit, support, credi
   /** The level being played and the round of its first attempt (the intro card is shorter on a retry). */
   const attempts = useRef<{ id: string; n: number }>({ id: '', n: 0 });
 
+  /** How far the load has really got (the bar moves only on these steps), and the loading screen fading out. */
+  const [loadStep, setLoadStep] = useState<LoadStep>('page');
+  const [loadGone, setLoadGone] = useState(false);
+  /** The light-streak wipe over a screen change (menu, map, level, result), with a whoosh. */
+  const [wipe, setWipe] = useState<{ id: number; kind: WipeKind }>({ id: 0, kind: 'map' });
+  const playWipe = useCallback((kind: WipeKind) => {
+    setWipe((w) => ({ id: w.id + 1, kind }));
+    gameRef.current?.uiSound('whoosh');
+  }, []);
+
   useEffect(() => {
     let cancelled = false;
     platform.loadingStart();
-    void import('~/game/render/game').then(({ Game }) => {
+    void import('~/game/render/game').then(async ({ Game }) => {
+      if (cancelled || !canvas.current) return;
+      // The engine has arrived; let the bar show it before the lot is built (that blocks the page for a moment).
+      setLoadStep('engine');
+      await new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(r)));
       if (cancelled || !canvas.current) return;
       const facts = deviceFacts(platform.deviceType());
       const s = settingsRef.current;
@@ -528,8 +550,10 @@ export const Race = ({ platform: given, flavour = 'studio', exit, support, credi
         menu,
       });
       g.attachMinimap(minimap.current);
+      g.attachPointer(pointer.current);
       gameRef.current = g;
       setGame(g);
+      setLoadStep('built');
       if (process.env.NODE_ENV !== 'production') Object.assign(window, { __game: g, __levels: CAMPAIGN });
     });
     return () => {
@@ -540,6 +564,13 @@ export const Race = ({ platform: given, flavour = 'studio', exit, support, credi
   }, [platform, flavour, escPause, menu, store]);
 
   useApplySettings(game, settings, platform);
+  // The first frame is drawn: the loading screen fades out, then goes.
+  const ready = !!hud;
+  useEffect(() => {
+    if (!ready) return;
+    const t = window.setTimeout(() => setLoadGone(true), 350);
+    return () => window.clearTimeout(t);
+  }, [ready]);
   // Nothing is drawn behind the map.
   useEffect(() => {
     game?.setHidden(!!map);
@@ -554,21 +585,27 @@ export const Race = ({ platform: given, flavour = 'studio', exit, support, credi
   const inMenu = !!hud?.menu;
   const showResult = !inMenu && !!hud?.result && hud.endedFor >= (hud.result.reason === 'pedestrian' || hud.result.reason === 'crash' ? 2.2 : 1.2);
   const showMeter = !inMenu && !!hud && hud.phase !== 'countdown' && (hud.inBay > 0 || hud.park > 0) && !hud.result;
-  const showHint = !inMenu && !touch && !!hud && hud.phase !== 'done' && hud.clock < 9 && !hud.paused && !showMeter;
+  // The keys stay on screen the whole time you drive (a quiet strip at the foot), except while the park meter has that spot.
+  const showHint = !inMenu && !touch && !!hud && hud.phase !== 'done' && !hud.paused && !showMeter && !hud.result;
   const session = useSession(game, hud, platform, showResult, testBreaks ? { firstAfterRounds: 1, firstAfterPlay: 5, interval: 30, hintEvery: 10, freeHintAfter: 3 } : undefined);
 
   const lvHud = !inMenu ? (hud?.campaign ?? null) : null;
   const nextLevel = lvHud?.run?.failed === null ? nextOpenLevel(campaign.progress, levelById(lvHud.id)!) : null;
   const playLevel = useCallback((id: string) => {
+    playWipe('level');
     setMap(null);
     campaign.clearNews();
     gameRef.current?.playLevel(id);
-  }, [campaign]);
-  const openMap = useCallback((focus?: string) => setMap({ focus }), []);
+  }, [campaign, playWipe]);
+  const openMap = useCallback((focus?: string) => (playWipe('map'), setMap({ focus })), [playWipe]);
   confirmRef.current = () => {
     if (lvHud?.run) void session.next(() => (nextLevel ? playLevel(nextLevel.id) : (campaign.clearNews(), gameRef.current?.retry())));
     else void session.next(() => gameRef.current?.confirm());
   };
+  // The result card arrives under a sweep.
+  useEffect(() => {
+    if (showResult) playWipe('result');
+  }, [showResult, playWipe]);
   // A level's result: record it (once per attempt) as soon as the card shows.
   useEffect(() => {
     if (showResult && lvHud?.run) campaign.record(`${lvHud.id}:${lvHud.round}`, lvHud);
@@ -587,6 +624,16 @@ export const Race = ({ platform: given, flavour = 'studio', exit, support, credi
   return (
     <main className="fixed inset-0 overflow-hidden bg-ink-deep select-none" onPointerDown={() => gameRef.current?.unlockAudio()}>
       <canvas ref={canvas} className="absolute inset-0 h-full w-full touch-none" />
+      {/* The edge arrow to the free bay: the game moves it every frame and hides it while the bay is on screen. */}
+      <div ref={pointer} className="pointer-events-none absolute top-0 left-0 z-[12] flex flex-col items-center gap-0.5 transition-opacity duration-200" style={{ opacity: 0 }} aria-hidden="true">
+        <div className="flex h-12 w-12 items-center justify-center rounded-full border-2 border-[#ffd23f] bg-[#0a0d18]/80 shadow-[0_0_18px_rgba(255,210,63,0.6)] sm:h-14 sm:w-14">
+          <svg viewBox="0 0 24 24" className="h-7 w-7" fill="#ffd23f"><path d="M5 11h9.2l-3.6-3.6L12 6l6 6-6 6-1.4-1.4 3.6-3.6H5z" /></svg>
+        </div>
+        <div className="rounded-sm bg-[#0a0d18]/85 px-1.5 py-0.5 text-[11px] font-bold whitespace-nowrap text-[#ffd23f]">
+          <span className="font-display mr-1">P</span>
+          <span data-dist />
+        </div>
+      </div>
       {settings.graphics.showFps && hud && (
         <div className="bg-ink-deep/70 text-green pointer-events-none absolute z-[60] px-1.5 py-0.5 font-mono text-[11px] font-bold tabular-nums" style={{ bottom: 'calc(4px + env(safe-area-inset-bottom))', right: 'calc(4px + env(safe-area-inset-right))' }}>
           {Math.round(hud.fps)} FPS
@@ -604,11 +651,8 @@ export const Race = ({ platform: given, flavour = 'studio', exit, support, credi
         <canvas ref={minimap} width={360} height={216} className={`border-cream/25 pointer-events-none border-2 ${touch ? 'h-[4.8rem] w-32' : 'h-28 w-[11.7rem] sm:h-44 sm:w-[18.3rem]'}`} aria-label="Minimap" />
       </div>
 
-      {!hud && (
-        <div className="bg-ink-deep absolute inset-0 z-40 flex items-center justify-center">
-          <div className="font-display text-gold text-3xl">Loading the lot…</div>
-        </div>
-      )}
+      {!loadGone && <LoadingScreen step={hud ? 'ready' : loadStep} leaving={!!hud} />}
+      <Wipe id={wipe.id} kind={wipe.kind} />
 
       {hud && inMenu && (
         <MainMenu
@@ -619,7 +663,7 @@ export const Race = ({ platform: given, flavour = 'studio', exit, support, credi
           tier={hud.tier}
           portalMuted={portalMuted}
           logoSrc={logoSrc}
-          onPlay={(n) => (n === undefined ? openMap() : gameRef.current?.startRace(n))}
+          onPlay={(n) => (n === undefined ? openMap() : (playWipe('level'), gameRef.current?.startRace(n)))}
           onSound={(k) => gameRef.current?.uiSound(k)}
           campaign={campaign.progress}
         />
@@ -631,6 +675,7 @@ export const Race = ({ platform: given, flavour = 'studio', exit, support, credi
           focus={map.focus}
           onPlay={playLevel}
           onBack={() => {
+            playWipe('menu');
             setMap(null);
             if (menu) gameRef.current?.enterMenu();
             else gameRef.current?.startRace();
@@ -672,6 +717,19 @@ export const Race = ({ platform: given, flavour = 'studio', exit, support, credi
             </div>}
           </div>
 
+          {/* What to do, in words, while you drive a solo level (the first two levels keep it up the whole time). */}
+          {lvHud?.solo && hud.phase === 'race' && !hud.result && hud.disqualified === null && (lvHud.n <= 2 || hud.clock < 8) && (
+            <div
+              className={`pointer-events-none absolute left-1/2 z-10 -translate-x-1/2 ${touch ? 'portrait:top-[calc(204px+env(safe-area-inset-top))] portrait:max-w-[92vw] landscape:top-[calc(60px+env(safe-area-inset-top))] landscape:max-w-[calc(100vw-22rem)]' : 'top-[calc(56px+env(safe-area-inset-top))] max-w-[92vw]'}`}
+              style={{ animation: 'fadeIn 0.4s ease-out both' }}
+              role="status"
+            >
+              <div className="panel-cut bg-ink-deep/80 border-gold/40 text-cream flex items-center gap-2 border px-3 py-1 text-xs font-semibold backdrop-blur-sm sm:text-sm">
+                <span className="font-display bg-[#1f6fd6] px-1.5 text-white">P</span>
+                {objectiveOf(lvHud)}
+              </div>
+            </div>
+          )}
           {hud.phase === 'countdown' && (lvHud ? <LevelIntro hud={hud} touch={touch} compact={!firstTry} /> : <Intro hud={hud} touch={touch} onboard={onboard} />)}
           {hud.phase === 'race' && !hud.result && !lvHud?.solo && (
             // On a phone held upright the top edge has no room between the standings and the buttons: the board goes under the
@@ -748,8 +806,8 @@ export const Race = ({ platform: given, flavour = 'studio', exit, support, credi
           )}
 
           {showHint && (
-            <div className="pointer-events-none absolute bottom-24 left-1/2 z-10 flex -translate-x-1/2 flex-wrap justify-center gap-x-4 gap-y-1 text-xs text-cream" style={{ animation: 'fadeIn 0.5s ease-out both' }}>
-              <span className="bg-ink-deep/70 flex flex-wrap items-center justify-center gap-x-4 gap-y-1 px-3 py-1.5">
+            <div className="pointer-events-none absolute left-1/2 z-10 flex max-w-[calc(100vw-2*19.5rem)] min-w-[24rem] -translate-x-1/2 flex-wrap justify-center gap-x-4 gap-y-1 text-xs text-cream" style={{ bottom: 'calc(12px + env(safe-area-inset-bottom))', animation: 'fadeIn 0.5s ease-out both' }} aria-label="Controls">
+              <span className="bg-ink-deep/75 flex flex-wrap items-center justify-center gap-x-4 gap-y-1 px-3 py-1.5 backdrop-blur-sm">
                 <span><BoundKeys b={settings.controls.bindings} a="up" /> gas · <BoundKeys b={settings.controls.bindings} a="down" /> {hud.manual ? 'brake' : 'brake/reverse'}</span>
                 <span><BoundKeys b={settings.controls.bindings} a="left" /> <BoundKeys b={settings.controls.bindings} a="right" /> steer</span>
                 <span><BoundKeys b={settings.controls.bindings} a="handbrake" /> handbrake</span>
@@ -793,7 +851,7 @@ export const Race = ({ platform: given, flavour = 'studio', exit, support, credi
               game={gameRef.current}
               onResume={() => session.setPaused(false)}
               onSettings={() => (gameRef.current?.uiSound('pick'), setPauseSettings(true))}
-              onQuit={menu ? () => gameRef.current?.enterMenu() : undefined}
+              onQuit={menu ? () => (playWipe('menu'), gameRef.current?.enterMenu()) : undefined}
               exit={exit}
               support={support}
               credit={credit}
@@ -814,7 +872,7 @@ export const Race = ({ platform: given, flavour = 'studio', exit, support, credi
               onMap={() => void session.next(() => openMap(lvHud.id), { noBreak: true })}
             />
           )}
-          {showResult && !lvHud?.run && <Result hud={hud} game={gameRef.current} session={session} exit={exit} support={support} onMenu={menu ? () => gameRef.current?.enterMenu() : undefined} />}
+          {showResult && !lvHud?.run && <Result hud={hud} game={gameRef.current} session={session} exit={exit} support={support} onMenu={menu ? () => (playWipe('menu'), gameRef.current?.enterMenu()) : undefined} />}
           {session.inBreak && <BreakCover kind={session.inBreak} />}
         </>
       )}

@@ -333,3 +333,211 @@ html.pl-calm *::after {
 @media (prefers-reduced-motion: reduce) {
   .fx-star { animation: none !important; opacity: 1 !important; }
 }
+
+/* The support cup: three wisps of steam rising and fading, one after another. */
+@keyframes steamRise {
+  0% {
+    transform: translateY(2px) scaleY(0.8);
+    opacity: 0;
+  }
+  35% {
+    opacity: 0.9;
+  }
+  100% {
+    transform: translateY(-9px) scaleY(1.1);
+    opacity: 0;
+  }
+}
+.steam path {
+  animation: steamRise 2.4s ease-out infinite;
+  transform-box: fill-box;
+}
+.steam path:nth-child(2) {
+  animation-delay: 0.8s;
+}
+.steam path:nth-child(3) {
+  animation-delay: 1.6s;
+}
+@media (prefers-reduced-motion: reduce) {
+  .steam path {
+    animation: none;
+    opacity: 0.7;
+  }
+}
+
+/* ------------------------------------------------------------------ */
+/* Loading screen and the screen-to-screen wipe (components/Transitions) */
+/* ------------------------------------------------------------------ */
+
+/* A neon lot rolling towards you: bay lines on a tilted plane, scrolling. */
+.load-grid {
+  position: absolute;
+  left: -50%;
+  right: -50%;
+  bottom: -30%;
+  height: 90%;
+  background-image:
+    linear-gradient(rgba(62, 197, 255, 0.35) 2px, transparent 2px),
+    linear-gradient(90deg, rgba(62, 197, 255, 0.35) 2px, transparent 2px);
+  background-size: 80px 120px;
+  transform: perspective(420px) rotateX(62deg);
+  transform-origin: 50% 0;
+  mask-image: linear-gradient(to top, black 30%, transparent 95%);
+  animation: gridRoll 1.1s linear infinite;
+}
+@keyframes gridRoll {
+  to {
+    background-position: 0 120px;
+  }
+}
+/* A scan line sweeping down the screen. */
+.load-scan {
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(to bottom, transparent 0%, rgba(255, 210, 63, 0.08) 48%, rgba(255, 210, 63, 0.22) 50%, transparent 52%);
+  background-size: 100% 220%;
+  animation: scanDown 2.4s linear infinite;
+}
+@keyframes scanDown {
+  from {
+    background-position: 0 100%;
+  }
+  to {
+    background-position: 0 -100%;
+  }
+}
+.load-car {
+  animation: carIdle 0.5s ease-in-out infinite alternate;
+}
+@keyframes carIdle {
+  to {
+    transform: translateY(-3px);
+  }
+}
+.load-beams {
+  transform-origin: 60px 62px;
+  animation: beamSweep 2.2s ease-in-out infinite alternate;
+}
+@keyframes beamSweep {
+  from {
+    transform: rotate(-9deg);
+    opacity: 0.7;
+  }
+  to {
+    transform: rotate(9deg);
+    opacity: 1;
+  }
+}
+/* The bar moves only on real steps; the sheen runs along it so it still looks alive. */
+.load-fill {
+  background: linear-gradient(90deg, #ffd23f, #3ec5ff, #ffd23f);
+  background-size: 200% 100%;
+  box-shadow: 0 0 14px rgba(255, 210, 63, 0.6);
+  transition: width 0.35s cubic-bezier(0.2, 0.8, 0.2, 1);
+  animation: sheen 1.4s linear infinite;
+}
+@keyframes sheen {
+  to {
+    background-position: -200% 0;
+  }
+}
+
+/* The wipe: a skewed band of colour shoots across with three light streaks, 450 ms, and the screen change happens under it. */
+.wipe-band {
+  position: absolute;
+  top: -10%;
+  bottom: -10%;
+  width: 70%;
+  left: -80%;
+  transform: skewX(-18deg);
+  background: linear-gradient(90deg, transparent, rgba(62, 197, 255, 0.35) 8%, rgba(10, 13, 24, 0.9) 22%, rgba(10, 13, 24, 0.9) 82%, #ffd23f 95%, rgba(255, 255, 255, 0.9) 97%, transparent);
+  box-shadow: 0 0 60px rgba(255, 210, 63, 0.35);
+  animation: wipeAcross 0.45s cubic-bezier(0.6, 0, 0.3, 1) both;
+}
+.wipe-streak {
+  position: absolute;
+  height: 3px;
+  width: 45%;
+  left: -50%;
+  border-radius: 3px;
+  background: linear-gradient(90deg, transparent, #ffd23f, #fff);
+  box-shadow: 0 0 12px #ffd23f;
+  animation: streakAcross 0.42s cubic-bezier(0.5, 0, 0.2, 1) both;
+}
+.wipe-level .wipe-streak,
+.wipe-result .wipe-streak {
+  background: linear-gradient(90deg, transparent, #3ec5ff, #fff);
+  box-shadow: 0 0 12px #3ec5ff;
+}
+.wipe-streak-1 {
+  top: 28%;
+}
+.wipe-streak-2 {
+  top: 52%;
+  animation-delay: 0.05s;
+}
+.wipe-streak-3 {
+  top: 71%;
+  animation-delay: 0.1s;
+}
+@keyframes wipeAcross {
+  from {
+    left: -80%;
+  }
+  to {
+    left: 120%;
+  }
+}
+@keyframes streakAcross {
+  from {
+    left: -50%;
+    opacity: 1;
+  }
+  to {
+    left: 110%;
+    opacity: 0.6;
+  }
+}
+/* A screen arriving: a small zoom from slightly larger, quick. */
+@keyframes zoomIn {
+  from {
+    opacity: 0;
+    transform: scale(1.04);
+    filter: blur(4px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+    filter: none;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .load-grid,
+  .load-scan,
+  .load-car,
+  .load-beams,
+  .load-fill {
+    animation: none;
+  }
+  .wipe .wipe-streak {
+    display: none;
+  }
+  .wipe .wipe-band {
+    left: 0;
+    width: 100%;
+    transform: none;
+    background: rgba(10, 13, 24, 0.6);
+    animation: wipeFade 0.2s ease-out both;
+  }
+}
+html.pl-calm .wipe .wipe-streak {
+  display: none;
+}
+@keyframes wipeFade {
+  from {
+    opacity: 1;
+  }
+  to {
+    opacity: 0;
+  }
+}
