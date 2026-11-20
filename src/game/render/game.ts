@@ -119,6 +119,15 @@ export interface HudState {
   mapLevels: { level: number; name: string; color: number }[];
 }
 
+/** A fixed camera for key art (covers, thumbnails): where the eye is, what it looks at, and which bay to light up. */
+export interface Shot {
+  eye: [number, number, number];
+  look: [number, number, number];
+  fov?: number;
+  /** The bay whose outline and beam are shown (the free bay of a staged "four cars, one space" moment). */
+  bay?: number;
+}
+
 export interface GameOptions {
   /** 'race': you drive car 0. 'showcase': four bots, a slow cinematic camera (the home page). */
   mode: 'race' | 'showcase';
@@ -377,6 +386,7 @@ export class Game {
   private fpsGuard = new FpsGuard();
   private hinted = false;
   private frozen = false;
+  private shot: Shot | null = null;
 
   constructor(
     private canvas: HTMLCanvasElement,
@@ -910,16 +920,17 @@ export class Game {
 
     // The free bay is not marked while the round is on. Only when it is over, a short reveal of
     // where it was (the bay the winner took).
-    const reveal = s.phase === 'done' && this.time - this.endedAt < 6 && this.endedAt >= 0;
+    const shotBay = this.shot?.bay;
+    const reveal = shotBay !== undefined || (s.phase === 'done' && this.time - this.endedAt < 6 && this.endedAt >= 0);
     this.marker.group.visible = reveal;
     if (reveal) {
-      const bay = this.lot.bays[s.winBay >= 0 ? s.winBay : s.target];
+      const bay = this.lot.bays[shotBay ?? (s.winBay >= 0 ? s.winBay : s.target)];
       this.marker.group.position.set(bay.x, bay.y, bay.z);
       this.marker.group.rotation.y = bay.h;
       this.marker.group.scale.set(bay.w / BAY.width, 1, bay.d / BAY.depth);
-      const fade = Math.min(1, (this.time - this.endedAt) * 2) * Math.min(1, (6 - (this.time - this.endedAt)) * 2);
+      const fade = shotBay !== undefined ? 1 : Math.min(1, (this.time - this.endedAt) * 2) * Math.min(1, (6 - (this.time - this.endedAt)) * 2);
       this.marker.lineMat.opacity = 0.95 * fade;
-      this.marker.fillMat.opacity = (0.12 + Math.sin(t * 4) * 0.05) * fade;
+      this.marker.fillMat.opacity = shotBay !== undefined ? 0.32 : (0.12 + Math.sin(t * 4) * 0.05) * fade;
       this.marker.beamMat.uniforms.uTime.value = t;
       this.marker.sign.position.y = 3.4 + Math.sin(t * 2) * 0.15;
       (this.marker.sign.material as THREE.SpriteMaterial).opacity = fade;
@@ -1067,7 +1078,26 @@ export class Game {
     const dir = this.sun.position.clone().sub(this.sun.target.position).normalize();
     this.sun.target.position.set(fx, y, fz);
     this.sun.position.set(fx, y, fz).addScaledVector(dir, 80);
+    if (this.shot) {
+      const [ex, ey, ez] = this.shot.eye;
+      const [lx, ly, lz] = this.shot.look;
+      this.camera.position.set(ex, ey, ez);
+      this.camera.up.set(0, 1, 0);
+      this.camera.lookAt(lx, ly, lz);
+      if (this.shot.fov && this.camera.fov !== this.shot.fov) {
+        this.camera.fov = this.shot.fov;
+        this.camera.updateProjectionMatrix();
+      }
+      this.sun.target.position.set(lx, ly, lz);
+      this.sun.position.set(lx, ly, lz).addScaledVector(dir, 80);
+    }
   }
+
+  /** Key art: hold a fixed camera (and light a bay) until called with null. Freeze the game first to stage the cars. */
+  setShot = (shot: Shot | null) => {
+    this.shot = shot;
+    if (!shot) this.resize();
+  };
 
   /** The map's fixed layers, one per level (tarmac, roads, islands, shops, the carport, the gates, or a deck's bays and walls), drawn once and blitted each frame. */
   private mapLayers = new Map<number, HTMLCanvasElement>();
