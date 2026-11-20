@@ -453,6 +453,22 @@ What differs from the site:
 - **P pauses**; Esc is left to the portal (it leaves fullscreen). No fullscreen request on touch (portals provide it).
 - **Fonts** are self-hosted in `portal/public/fonts` (no request leaves the bundle).
 
+### Testing on your phone (same Wi-Fi)
+
+1. Mac and phone on the same Wi-Fi network.
+2. On the Mac: `npm run phone:portal`. It runs `build:portal` (with its checks) and serves `dist/portal/` with
+   `vite preview --host` on port 3203. For live reload while changing code, `npm run dev:portal:lan` serves the
+   development build on port 3201 instead.
+3. Find the Mac's address: Vite prints it as `Network: http://192.168.x.y:3203/`, or run `ipconfig getifaddr en0`
+   (System Settings > Wi-Fi > Details also shows it).
+4. On the phone, open `http://<that address>:3203/` (`:3201` for `dev:portal:lan`). Turn the phone sideways for the
+   portal layout; upright works too.
+5. If the page does not load: the phone must not be on a guest or isolated network, a VPN on either device can block
+   it, and the first run may ask to let Node accept incoming connections (allow it, or check System Settings >
+   Network > Firewall). Stop the server with Ctrl+C.
+
+Away from CrazyGames the SDK shows at most its demo ads (or is skipped and the web fallback runs); that is expected.
+
 ### Platform adapter (`src/platform/`)
 
 `types.ts` is the interface the game uses: `init`, `loadingStart/Stop`, `gameplayStart/Stop`, `commercialBreak`,

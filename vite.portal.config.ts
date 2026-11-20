@@ -1,6 +1,7 @@
 /**
  * The portal build: one static folder (dist/portal) with relative paths, the game and its menus, nothing fetched from our own
- * servers. `npm run build:portal`, then zip the folder for CrazyGames. `npm run dev:portal` serves it on port 3201.
+ * servers. `npm run build:portal`, then zip the folder for CrazyGames. `npm run dev:portal` serves it on port 3201;
+ * `npm run phone:portal` builds it and serves the build on port 3203 to the local network (see docs/TECHNICAL.md, section 14).
  */
 import path from 'path';
 import { defineConfig } from 'vite';
@@ -21,6 +22,8 @@ export default defineConfig({
   esbuild: { jsx: 'automatic' },
   define: { 'process.env.NODE_ENV': JSON.stringify(process.env.NODE_ENV ?? 'production') },
   server: { port: 3201 },
+  // `npm run phone:portal` serves the built folder here (with --host, to a phone on the same Wi-Fi).
+  preview: { port: 3203 },
   plugins: [
     {
       // 'use client' marks components for Next.js; it means nothing here.

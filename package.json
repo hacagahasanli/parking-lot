@@ -10,7 +10,9 @@
     "test": "vitest",
     "test:run": "vitest run",
     "dev:portal": "vite --config vite.portal.config.ts",
-    "build:portal": "vite build --config vite.portal.config.ts && node scripts/portal-report.mjs"
+    "build:portal": "vite build --config vite.portal.config.ts && node scripts/portal-report.mjs",
+    "dev:portal:lan": "vite --config vite.portal.config.ts --host",
+    "phone:portal": "npm run build:portal && vite preview --config vite.portal.config.ts --host"
   },
   "dependencies": {
     "next": "^16.4.5",
