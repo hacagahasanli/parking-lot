@@ -11,6 +11,7 @@
  *
  * Progress (`Progress`) lives in memory only: a page load starts again at stage 1.
  */
+import { RACE } from './constants';
 import { spottable } from './visibility';
 
 import type { Closure, Lot, Open } from './lot';
@@ -53,6 +54,15 @@ export const STAGE1_NEAR = 36;
  */
 export const botPace = (stage: number | undefined): { cruise: number; launch: number } =>
   stage === 1 ? { cruise: 0.45, launch: 14 } : stage === 2 ? { cruise: 0.5, launch: 8 } : { cruise: 1, launch: 0 };
+/**
+ * The round cap by stage (seconds from GO): short where the free bay is near (the open lot and the first deck), longer where
+ * the drive is long (stage 4's roof is ~500 m of one-way decks from the gate). `RACE.maxTime` (120 s) is the longest, and a
+ * round with no stage (the home page) keeps it. Picked against the bots' first-park times (TECHNICAL.md section 14), so the
+ * bots usually arrive in the last stretch of the clock: that is where the tension is.
+ */
+export const ROUND_CAP: Record<number, number> = { 1: 75, 2: 75, 3: 90, 4: 120, 5: 110, 6: 110 };
+export const roundCap = (stage: number | undefined): number => (stage === undefined ? RACE.maxTime : (ROUND_CAP[stage] ?? RACE.maxTime));
+
 export const stageDef = (n: number): StageDef => STAGES[Math.max(1, Math.min(STAGE_COUNT, n)) - 1];
 
 /** Is a closure shut in this stage? */

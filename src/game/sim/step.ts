@@ -10,7 +10,7 @@ import { COPY } from './flavour';
 import { followRoute, routeToNode } from './nav';
 import type { Flavour } from './flavour';
 import { buildWalks, createPeds, pedLimit, stepPeds } from './ped';
-import { stageLot } from './stages';
+import { roundCap, stageLot } from './stages';
 
 import type { Box, Lot, Shape } from './lot';
 import { OWNER_ENTRY, OWNER_EXIT } from './types';
@@ -193,7 +193,7 @@ export const createRound = (fullLot: Lot, opts: RoundOptions): { state: GameStat
   const state: GameState = {
     t: 0,
     clock: 0,
-    maxTime: opts.maxTime ?? RACE.maxTime,
+    maxTime: opts.maxTime ?? roundCap(opts.stage),
     flavour: opts.flavour ?? 'studio',
     phase: 'countdown',
     cars,

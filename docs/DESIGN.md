@@ -76,7 +76,7 @@ from the sky. Every stage starts at the entry gate, as before: stages 2 to 5 mea
 | The board | "FREE SPACES: 1" from the start; from 12 s the part of the site (open lot or garage; from the start in stages 2 to 5); from 32 s, if the bay is in the garage and more than one deck is open, two decks flicker, one right and one a decoy (the first one flashed is no clue); when a car pulls out the count goes to 2. Shown on a small panel on the ticket booth, on the wall by the garage door and in the HUD, to the bots too | `hint.ts` |
 | Second free bay | one parked car (an ordinary car, in the open lot or on a deck) pulls out at 12 to 28 s and drives off to the exit gate; once it has driven clear, the bay it left is free too and counts for the win. When it is on a deck the radio says which one | `Leaver` in `step.ts` |
 | Pedestrians | 30 shoppers (22 outdoors, 8 on the decks); contact with a car on their level moving over 1 m/s disqualifies that driver for the round | `PED`, `ped.ts` |
-| Round limit | 240 s, then no winner | `RACE.maxTime` |
+| Round limit | 75 s in stages 1-2, 90 s in stage 3, 120 s in stage 4, 110 s in stages 5-6, then no winner | `ROUND_CAP` in `stages.ts` (`RACE.maxTime`, 120 s, without a stage) |
 | Parked: position | all 4 corners of the car inside the bay rectangle plus 0.22 m of slack | `PARK.slack` |
 | Parked: angle | within 22° of the bay's angle, nose in or reversed in | `PARK.maxAngle`, `aligned()` |
 | Parked: stillness | speed under 0.45 m/s (and spin under 0.2 rad/s) for 0.9 s | `PARK.maxSpeed`, `PARK.hold` |

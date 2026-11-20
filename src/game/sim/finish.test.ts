@@ -9,7 +9,7 @@ import { botInput, createBrain, JOIN_AHEAD, PACE, toldDeck } from './bot';
 import { RACE } from './constants';
 import { buildLot } from './lot';
 import { routeLength } from './nav';
-import { stageDef, stageLot } from './stages';
+import { roundCap, stageDef, stageLot } from './stages';
 import { createRound, step } from './step';
 import { SIGHT } from './visibility';
 
@@ -17,8 +17,8 @@ const lot = buildLot();
 const idle = { throttle: 0, brake: 0, steer: 0, handbrake: false, horn: false };
 
 /** Plays a round with bots in every seat; returns when the first car parked (Infinity: nobody did) and the spot routes. */
-const play = (stage: number, seed: number, bots = 4) => {
-  const { state, world } = createRound(lot, { seed, stage, bots: Array(bots).fill(true) });
+const play = (stage: number, seed: number, bots = 4, maxTime?: number) => {
+  const { state, world } = createRound(lot, { seed, stage, bots: Array(bots).fill(true), maxTime });
   const brains = state.cars.map((c) => createBrain(world, c, seed));
   const spotRoutes: number[] = [];
   while (state.phase !== 'done') {
@@ -37,7 +37,7 @@ describe('bots finish rounds in the deep stages', () => {
 
   it.each(rounds)('stage %i seed %i: a bot parks inside the cap, and not straight away', async (stage, seed) => {
     const { first, state } = play(stage, seed);
-    expect(first, `bay ${state.target} (deck ${lot.bays[state.target].lvl})`).toBeLessThan(RACE.maxTime - 5);
+    expect(first, `bay ${state.target} (deck ${lot.bays[state.target].lvl})`).toBeLessThan(roundCap(stage) - 5);
     expect(first).toBeGreaterThan(20);
     await new Promise((r) => setTimeout(r, 0));
   }, 30000);
@@ -52,7 +52,8 @@ describe('a bot that spots the bay goes straight in', () => {
 
   it.each([2, 3, 5])('in the car park (stage %i) the way from spotting to the bay is short, not a lap of the deck', (stage) => {
     for (const seed of [1, 2, 3]) {
-      const { spotRoutes, first } = play(stage, seed, 1);
+      // One bot alone, at the stage's slow early pace: give it the two minutes (the stage cap is for a race of four).
+      const { spotRoutes, first } = play(stage, seed, 1, RACE.maxTime);
       expect(spotRoutes.length).toBeGreaterThan(0);
       // A deck is a one-way ring about 110 m round; going round again was the old way.
       expect(spotRoutes[0]).toBeLessThan(40);

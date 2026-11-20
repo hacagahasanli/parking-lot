@@ -6,23 +6,31 @@ import { botInput, createBrain } from './bot';
 import { RACE } from './constants';
 import { HINT, HINT_AREA_R, hintArea, hintLines, hintOf, hintTimes, sideOf } from './hint';
 import { buildLot } from './lot';
-import { botPace, STAGE1_NEAR, stageLot } from './stages';
+import { botPace, roundCap, STAGE1_NEAR, stageLot } from './stages';
 import { createRound, step } from './step';
 
 const lot = buildLot();
 const entry = lot.graph.nodes[lot.entryNode];
 
 describe('the round cap', () => {
-  it('is two minutes from GO, and nobody wins when it runs out', () => {
+  it('is short where the bay is near and longer for the deep decks, never over two minutes', () => {
     expect(RACE.maxTime).toBe(120);
+    expect([1, 2, 3, 4, 5, 6].map(roundCap)).toEqual([75, 75, 90, 120, 110, 110]);
+    for (let n = 1; n <= 6; n++) expect(roundCap(n)).toBeLessThanOrEqual(RACE.maxTime);
+    expect(roundCap(undefined)).toBe(RACE.maxTime);
+    expect(createRound(lot, { seed: 3, bots: [false], stage: 4 }).state.maxTime).toBe(120);
+    expect(createRound(lot, { seed: 3, bots: [false] }).state.maxTime).toBe(120);
+  });
+
+  it('ends the round at the cap, and nobody wins when it runs out', () => {
     const { state, world } = createRound(lot, { seed: 3, bots: [false], stage: 1 });
-    expect(state.maxTime).toBe(120);
+    expect(state.maxTime).toBe(75);
     const idle = { throttle: 0, brake: 0, steer: 0, handbrake: false, horn: false };
-    for (let i = 0; i < 60 * (RACE.countdown + 121) && state.phase !== 'done'; i++) step(state, world, [idle]);
+    for (let i = 0; i < 60 * (RACE.countdown + 76) && state.phase !== 'done'; i++) step(state, world, [idle]);
     expect(state.phase).toBe('done');
     expect(state.winner).toBeNull();
-    expect(state.clock).toBeGreaterThanOrEqual(120);
-    expect(state.clock).toBeLessThan(120.1);
+    expect(state.clock).toBeGreaterThanOrEqual(75);
+    expect(state.clock).toBeLessThan(75.1);
   });
 
   it('can be raised for a test that measures a long search', () => {
@@ -63,16 +71,19 @@ describe('stage 1: the bay near the start', () => {
     expect(b1.launch).toBeCloseTo(b6.launch + botPace(1).launch, 6);
   });
 
-  // The bots still finish a stage-1 round well inside the cap, but not in the first few seconds: a new player has a chance.
-  it.each(Array.from({ length: 12 }, (_, i) => i + 1))('bots park inside the cap, leaving the player time (seed %i)', (seed) => {
-    const { state, world } = createRound(lot, { seed, stage: 1, bots: [true, true, true, true] });
-    const brains = state.cars.map((c) => createBrain(world, c, seed));
-    while (state.phase !== 'done') step(state, world, state.cars.map((c) => botInput(state, world, c, brains[c.id])));
-    expect(state.winner, `bay ${state.target}`).not.toBeNull();
-    const first = Math.min(...state.cars.map((c) => c.parkedAt ?? Infinity));
-    expect(first).toBeGreaterThan(12);
-    expect(first).toBeLessThan(RACE.maxTime);
-  }, 30000);
+  // Stage 1's bots are slow on purpose (botPace) and its cap is short (75 s), so they usually park in the last stretch of the
+  // clock and now and then not at all (the round ends "time up"); never in the first seconds: a new player has a chance.
+  it('bots usually park inside the cap, late enough to leave the player time (seeds 1-12)', () => {
+    const firsts = Array.from({ length: 12 }, (_, i) => {
+      const seed = i + 1;
+      const { state, world } = createRound(lot, { seed, stage: 1, bots: [true, true, true, true] });
+      const brains = state.cars.map((c) => createBrain(world, c, seed));
+      while (state.phase !== 'done') step(state, world, state.cars.map((c) => botInput(state, world, c, brains[c.id])));
+      return Math.min(...state.cars.map((c) => c.parkedAt ?? Infinity));
+    });
+    for (const f of firsts) expect(f).toBeGreaterThan(30);
+    expect(firsts.filter((f) => f < roundCap(1)).length).toBeGreaterThanOrEqual(9);
+  }, 60000);
 });
 
 describe('the board, by stage', () => {
