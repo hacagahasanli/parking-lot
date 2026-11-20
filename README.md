@@ -30,17 +30,30 @@ Today you play offline, you against 3 bots. Online play is next.
 
 ## Controls
 
-| Key | Does |
-| --- | --- |
-| W / Up | Accelerate |
-| S / Down | Brake; once stopped, reverse |
-| A D / Left Right | Steer |
-| Space | Handbrake (slides the tail) |
-| H | Horn |
-| C | Cycle camera: chase, high, top |
-| Esc | Pause |
+Every key can be changed in **Settings › Controls** (click a key, press the new one; a key another action uses is swapped).
+These are the defaults.
 
-Touch controls are wired into the game loop (`setTouch` in `src/game/render/game.ts`).
+| Key | Gamepad | Does |
+| --- | --- | --- |
+| W / Up | RT | Gas (manual: in R, drives backwards) |
+| S / Down | LT | Brake; automatic: once stopped, reverse |
+| A D / Left Right | Left stick | Steer |
+| Space | A | Handbrake (slides the tail) |
+| E / Q | RB / LB | Manual gearbox: shift up / down |
+| H | X | Horn |
+| C | Y | Switch camera: parking view (default) or chase |
+| P (Esc on our site) | Start | Pause: Resume · Settings · Quit to menu |
+
+**Transmission** (Settings › Controls): *Automatic* (default) or *Manual*. Manual gives you R, N and 1–4: each gear pulls
+hardest mid-band and hits the rev limiter at its top (the shift light flashes just before), too high a gear lugs and pulls
+weakly, R only engages with the car stopped, and the brake only brakes. 4th tops out at the same speed as the automatic,
+so a good shifter is quicker off the line, never faster flat out. The HUD shows the gear, a rev bar and the shift light;
+phones get + / − buttons beside the pedals. Bots always drive the automatic.
+
+On phones: ◀ ▶ steer, GAS / BRAKE / HAND on the right (size, opacity and a left-handed swap in Settings › Controls).
+
+The portal build opens on a **main menu** over the live lot (Play, Stage select, Settings, How to play, Credits). Settings
+has five tabs (Controls, Camera, Graphics, Audio, Accessibility), saves at once and applies live.
 
 ## Run it
 

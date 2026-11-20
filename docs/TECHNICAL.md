@@ -540,3 +540,26 @@ steps down once after 4 s under 40 fps. The pause menu has Auto/Low/Mid/High, sa
 `Game.setShot()` holds a fixed camera and lights a bay; `scripts/portal-covers.mjs` stages four racers around one free bay
 and renders three variants at 1920x1080, 800x1200 and 800x800 into `docs/portal/covers/` (title only, no other text, as
 CrazyGames asks). `scripts/portal-shots.mjs` captures the flow on desktop and a phone into `docs/portal/screens/`.
+
+## 15. Main menu, settings and the manual gearbox
+
+- **Settings** (`src/game/settings.ts`, pure, tested in `settings.test.ts`): one object saved as JSON under
+  `parking-lot.settings` through the platform's storage. Every load is sanitised (clamped numbers, known words only, a key
+  claimed twice keeps its first claim), the old single keys (`parking-lot.quality`, `parking-lot.camera`, the sound's
+  volumes) are read once as starting values, and every storage call is wrapped. `rebind` swaps on conflict; `keyMap` is the
+  table the game's key handler reads. Esc, Tab and Enter cannot be bound.
+- **Applying** (`src/components/menu/useSettings.ts`): one effect per section pushes the values into `Game`
+  (`setBindings`, `setTransmission`, `setCameraMode`, `setShake`, `setCalm`, `setRenderPrefs`, `setTier`, `setVolume`,
+  `setUserMuted`) and toggles `pl-calm` / `pl-cb` / `pl-large` on `<html>` (reduced motion, colour-blind blue instead of
+  green, larger text).
+- **Menu** (`src/components/menu/MainMenu.tsx`): `Game` is built with `menu: true`; it idles stage 1 with four bots, a
+  slow orbit round the free bay and the bay's beam and paint lit. `startRace(stage?)` and `enterMenu()` switch without a
+  reload (progress is kept). On the low tier the menu draws every other frame. The portal build passes `menu`; the site
+  keeps its home page and goes straight into the race.
+- **Navigation** (`src/components/menu/ui.tsx`): `useMenuNav` (↑/↓ between `[data-nav]` items, Esc back) and `usePadNav`
+  (d-pad, A, B, LB/RB for tabs). The gamepad drives the car through `src/game/render/pad.ts` (read once a frame).
+- **Manual gearbox** (`src/game/sim/gearbox.ts`, tested in `gearbox.test.ts`): `Car.box` is `'manual'` only for people's
+  cars in a round made with `manual: true`. `shift` moves one gear (R only below 0.6 m/s from N); `manualDrive` gives the
+  pull from a torque curve over the gear's speed band (lugging low, limiter at the top) and the revs for the dial and the
+  engine sound; `Input.shift` carries one press for one step. The automatic path in `drive` is unchanged.
+
