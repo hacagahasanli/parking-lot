@@ -210,13 +210,15 @@ export const LevelResult = ({
             {!run.goals.par ? `Beat ${lv.par} s for the second star.` : lv.scoresPrecision ? `Park clean and ${PRECISION_STAR}% straight for the third.` : 'Touch nothing for the third star.'}
           </p>
         )}
-        <div className="mt-3 flex flex-col gap-2 sm:mt-4 sm:flex-row [@media(max-height:420px)]:flex-row">
+        {next && (
+          <p className="text-cream/70 mt-3 text-sm [@media(max-height:420px)]:mt-1 [@media(max-height:420px)]:text-xs">
+            Up next: <b className="text-cream">{next.name}</b>
+          </p>
+        )}
+        <div className="mt-2 flex flex-col gap-2 sm:flex-row [@media(max-height:420px)]:flex-row">
           {next && (
-            <button type="button" autoFocus onClick={onNext} className="panel-cut bg-gold font-display text-ink-deep flex min-w-0 flex-[1.6] items-center justify-center px-4 py-3 text-base whitespace-nowrap transition hover:brightness-110 active:scale-95 sm:text-lg [@media(max-height:420px)]:py-2">
-              <span className="truncate">
-                Next<span className="max-sm:hidden [@media(max-height:420px)]:hidden">: {next.name}</span>
-              </span>
-              <span className="ml-1">→</span>
+            <button type="button" autoFocus onClick={onNext} className="panel-cut bg-gold font-display text-ink-deep flex min-w-0 flex-[1.4] items-center justify-center px-4 py-3 text-base whitespace-nowrap transition hover:brightness-110 active:scale-95 sm:text-lg [@media(max-height:420px)]:py-2">
+              Next <span className="ml-1">→</span>
             </button>
           )}
           <button
