@@ -56,19 +56,31 @@ const Key = ({ k }: { k: string }) => (
   <kbd className="bg-cream/10 border-cream/30 text-cream inline-flex min-w-5 items-center justify-center rounded-sm border border-b-2 px-1.5 text-[11px] leading-5 font-bold">{k}</kbd>
 );
 
+/**
+ * Who is where. On a phone (`compact`) the panel is narrow, so it keeps the names whole and drops the bump counts (contact puts
+ * you out, so they are nearly always 0): only a parked car gets a green tick and a car that is out gets OUT.
+ */
 const Standings = ({ hud, compact }: { hud: HudState; compact: boolean }) => (
   <ol className={`panel-cut bg-ink-deep/75 backdrop-blur-sm ${compact ? 'w-[8.5rem] p-1' : 'w-52 p-2 sm:w-64'}`} aria-label="Standings">
     {hud.standings.map((s, i) => (
       <li
         key={s.id}
-        className={`flex items-center gap-2 px-2 ${compact ? 'py-0.5 text-[11px]' : 'py-1 text-sm'} ${s.me ? 'bg-gold/20 text-gold font-bold' : 'text-cream/85'}`}
+        className={`flex items-center ${compact ? 'gap-1.5 px-1.5 py-0.5 text-xs' : 'gap-2 px-2 py-1 text-sm'} ${s.me ? 'bg-gold/20 text-gold font-bold' : 'text-cream/85'}`}
       >
-        <span className="font-display w-4 text-xs">{i + 1}</span>
+        <span className={`font-display text-xs ${compact ? 'w-2.5' : 'w-4'}`}>{i + 1}</span>
         <span className="h-3 w-3 shrink-0 rounded-sm border border-black/50" style={{ background: hex(s.color) }} />
-        <span className="flex-1 truncate">{s.me ? 'You' : s.name}</span>
-        <span className={`tabular-nums ${s.parked ? 'font-display text-green text-xs' : s.out ? 'font-display text-orange text-xs' : 'text-cream/60 text-xs'}`}>
-          {s.parked ? 'PARKED' : s.out ? 'OUT' : `${s.bumps} ${s.bumps === 1 ? 'bump' : 'bumps'}`}
-        </span>
+        <span className="min-w-0 flex-1 truncate">{s.me ? 'You' : s.name}</span>
+        {compact ? (
+          (s.parked || s.out) && (
+            <span className={`font-display shrink-0 text-[10px] ${s.parked ? 'text-green' : 'text-orange'}`}>
+              {s.parked ? <span aria-label="parked">✓</span> : 'OUT'}
+            </span>
+          )
+        ) : (
+          <span className={`tabular-nums ${s.parked ? 'font-display text-green text-xs' : s.out ? 'font-display text-orange text-xs' : 'text-cream/60 text-xs'}`}>
+            {s.parked ? 'PARKED' : s.out ? 'OUT' : `${s.bumps} ${s.bumps === 1 ? 'bump' : 'bumps'}`}
+          </span>
+        )}
       </li>
     ))}
   </ol>
@@ -518,7 +530,11 @@ export const Race = ({ platform: given, flavour = 'studio', exit, support, credi
 
           {hud.phase === 'countdown' && <Intro hud={hud} touch={touch} onboard={onboard} />}
           {hud.phase === 'race' && !hud.result && (
-            <div className="pointer-events-none absolute left-1/2 z-10 -translate-x-1/2" style={{ top: touch ? 'calc(10px + env(safe-area-inset-top))' : 'calc(54px + env(safe-area-inset-top))' }}>
+            // On a phone held upright the top edge has no room between the standings and the buttons: the board goes under the
+            // stage and clock on the right (and the speed moves down to make way).
+            <div
+              className={`pointer-events-none absolute left-1/2 z-10 -translate-x-1/2 ${touch ? 'top-[calc(10px+env(safe-area-inset-top))] portrait:top-[calc(100px+env(safe-area-inset-top))] portrait:right-[calc(14px+env(safe-area-inset-right))] portrait:left-auto portrait:translate-x-0' : 'top-[calc(54px+env(safe-area-inset-top))]'}`}
+            >
               <Board hud={hud} />
             </div>
           )}
@@ -540,7 +556,10 @@ export const Race = ({ platform: given, flavour = 'studio', exit, support, credi
           )}
 
 
-          <div className="pointer-events-none absolute z-10 text-right" style={{ right: 'calc(14px + env(safe-area-inset-right))', ...(touch ? { top: 'calc(112px + env(safe-area-inset-top))' } : { bottom: 'calc(14px + env(safe-area-inset-bottom))' }) }}>
+          <div
+            className={`pointer-events-none absolute z-10 text-right ${touch ? 'top-[calc(112px+env(safe-area-inset-top))] portrait:top-[calc(152px+env(safe-area-inset-top))]' : ''}`}
+            style={{ right: 'calc(14px + env(safe-area-inset-right))', ...(touch ? {} : { bottom: 'calc(14px + env(safe-area-inset-bottom))' }) }}
+          >
             <div className={`font-display text-cream tabular-nums drop-shadow-lg ${touch ? 'text-3xl' : 'text-5xl'}`}>{Math.round(hud.speed)}<span className="text-lilac ml-1 text-base">km/h</span></div>
             <div className="font-display text-gold text-2xl drop-shadow-lg">{hud.gear}</div>
             {(hud.inGarage || hud.level !== 0) && (
