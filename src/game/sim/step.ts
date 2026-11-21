@@ -883,6 +883,23 @@ export const distanceToTarget = (state: GameState, world: World, car: Car) => {
 };
 
 /** Final placings: the winner first, then everyone else by how close they got. Only for after the round. */
+/**
+ * The race as it stands while it is on, never saying who is nearest the free bay: the parked cars in the order they parked,
+ * then the ones still looking (seat order), then the ones out. `place(id)`: a parked car's place; for one still looking, the
+ * place it would take by parking now (one after every car already parked); 0 for a car that is out.
+ */
+export const liveStandings = (state: GameState) => {
+  const parked = state.cars.filter((c) => c.parkedAt !== null).sort((a, b) => a.parkedAt! - b.parkedAt! || a.id - b.id);
+  const rank = (c: Car) => (c.parkedAt !== null ? parked.indexOf(c) : c.dq !== null ? 100 + c.id : 10 + c.id);
+  const order = [...state.cars].sort((a, b) => rank(a) - rank(b));
+  const place = (id: number) => {
+    const c = state.cars[id];
+    return c.parkedAt !== null ? parked.indexOf(c) + 1 : c.dq !== null ? 0 : parked.length + 1;
+  };
+  return { order, parked, place };
+};
+
+/** The final order (and the order once you are out): parked by time, then the rest by distance to the free bay, the ones out last. */
 export const standings = (state: GameState, world: World) =>
   [...state.cars].sort((a, b) => {
     if ((a.dq !== null) !== (b.dq !== null)) return a.dq !== null ? 1 : -1;

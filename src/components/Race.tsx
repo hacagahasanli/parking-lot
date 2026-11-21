@@ -59,9 +59,12 @@ const Key = ({ k }: { k: string }) => (
   <kbd className="bg-cream/10 border-cream/30 text-cream inline-flex min-w-5 items-center justify-center rounded-sm border border-b-2 px-1.5 text-[11px] leading-5 font-bold">{k}</kbd>
 );
 
+const ordinal = (n: number) => `${n}${n % 100 >= 11 && n % 100 <= 13 ? 'th' : ['th', 'st', 'nd', 'rd'][n % 10] ?? 'th'}`;
+
 /**
- * Who is where. On a phone (`compact`) the panel is narrow, so it keeps the names whole and drops the bump counts (contact puts
- * you out, so they are nearly always 0): only a parked car gets a green tick and a car that is out gets OUT.
+ * Who is where, live: the cars that have parked first, in the order they parked (with their place), then the ones still looking,
+ * then the ones out. It never says who is nearest the free bay. On a phone (`compact`) the panel is narrow: a parked car gets
+ * its place and a tick, a car that is out gets OUT.
  */
 const Standings = ({ hud, compact }: { hud: HudState; compact: boolean }) => (
   <ol className={`panel-cut bg-ink-deep/75 backdrop-blur-sm ${compact ? 'w-[8.5rem] p-1' : 'w-52 p-2 sm:w-64'}`} aria-label="Standings">
@@ -76,18 +79,45 @@ const Standings = ({ hud, compact }: { hud: HudState; compact: boolean }) => (
         {compact ? (
           (s.parked || s.out) && (
             <span className={`font-display shrink-0 text-[10px] ${s.parked ? 'text-green' : 'text-orange'}`}>
-              {s.parked ? <span aria-label="parked">✓</span> : 'OUT'}
+              {s.parked ? <span aria-label={`parked ${ordinal(s.place)}`}>{ordinal(s.place)} ✓</span> : 'OUT'}
             </span>
           )
         ) : (
-          <span className={`tabular-nums ${s.parked ? 'font-display text-green text-xs' : s.out ? 'font-display text-orange text-xs' : 'text-cream/60 text-xs'}`}>
-            {s.parked ? 'PARKED' : s.out ? 'OUT' : `${s.bumps} ${s.bumps === 1 ? 'bump' : 'bumps'}`}
+          <span className={`tabular-nums ${s.parked ? 'font-display text-green text-xs' : s.out ? 'font-display text-orange text-xs' : 'text-cream/50 text-xs'}`}>
+            {s.parked ? `PARKED ${ordinal(s.place)}` : s.out ? 'OUT' : 'looking'}
           </span>
         )}
       </li>
     ))}
   </ol>
 );
+
+/**
+ * Your place in a race as it stands, big, beside the clock: the place you would take by parking now (one after every rival
+ * already parked), green with a tick once you have parked, OUT once you are out.
+ */
+const PlaceBadge = ({ hud }: { hud: HudState }) => {
+  const { now, of, parked, out } = hud.place;
+  const tone = out ? 'text-orange' : parked ? 'text-green' : now === 1 ? 'text-gold' : 'text-cream';
+  return (
+    <div
+      className={`panel-cut bg-ink-deep/80 font-display flex items-baseline gap-1 px-2.5 py-1 leading-none sm:px-3 ${tone}`}
+      role="status"
+      aria-label={out ? 'You are out' : parked ? `You parked ${ordinal(now)} of ${of}` : `Place ${ordinal(now)} of ${of}${now > 1 ? `, ${now - 1} parked ahead of you` : ''}`}
+    >
+      {out ? (
+        <span className="self-center text-base sm:text-xl">OUT</span>
+      ) : (
+        <>
+          <span key={now} className="text-xl tabular-nums sm:text-3xl" style={{ animation: 'riseIn 0.3s ease-out both' }}>{now}</span>
+          <span className="text-xs sm:text-sm">{ordinal(now).slice(-2).toUpperCase()}</span>
+          <span className="text-cream/50 text-xs sm:text-sm">/{of}</span>
+          {parked && <span className="text-sm sm:text-base" aria-hidden="true">✓</span>}
+        </>
+      )}
+    </div>
+  );
+};
 
 /** What the bots say over the radio: the latest few lines, each fading out. */
 const Radio = ({ hud, compact }: { hud: HudState; compact: boolean }) => (
@@ -698,6 +728,7 @@ export const Race = ({ platform: given, flavour = 'studio', exit, support, credi
             className={`pointer-events-none absolute z-10 flex items-stretch gap-1.5 ${touch ? '' : 'left-1/2 -translate-x-1/2'}`}
             style={touch ? { top: 'calc(60px + env(safe-area-inset-top))', right: 'calc(12px + env(safe-area-inset-right))' } : { top: 'calc(10px + env(safe-area-inset-top))' }}
           >
+            {!lvHud?.solo && hud.phase !== 'countdown' && <PlaceBadge hud={hud} />}
             {lvHud && <LevelBar hud={hud} touch={touch} />}
             {!lvHud && hud.stage.n > 0 && (
               <div className="panel-cut bg-ink-deep/75 font-display text-gold flex items-center px-2 text-xs tracking-wide whitespace-nowrap sm:px-3 sm:text-sm" aria-label={`Stage ${hud.stage.n} of ${hud.stage.total}: ${hud.stage.name}`}>
@@ -727,7 +758,8 @@ export const Race = ({ platform: given, flavour = 'studio', exit, support, credi
               </div>
             </div>
           )}
-          {hud.phase === 'countdown' && (lvHud ? <LevelIntro hud={hud} touch={touch} compact={!firstTry} /> : <Intro hud={hud} touch={touch} onboard={onboard} />)}
+          {/* The card: through the countdown on a desktop (it sits to the side); on a phone only in the lead-in, so the 3-2-1 has the middle. */}
+          {hud.phase === 'countdown' && (!touch || hud.intro) && (lvHud ? <LevelIntro hud={hud} touch={touch} compact={!firstTry} /> : <Intro hud={hud} touch={touch} onboard={onboard} />)}
           {hud.phase === 'race' && !hud.result && !lvHud?.solo && (
             // On a phone held upright the top edge has no room between the standings and the buttons: the board goes under the
             // stage and clock on the right (and the speed moves down to make way).

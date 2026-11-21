@@ -18,7 +18,7 @@ import { LEVELS, LEVEL_COLOR, LEVEL_H, levelName, levelOf, levelY } from '../sim
 import { BAY, CONE_R, CORRAL, bayCones, buildLot, parkedSpot } from '../sim/lot';
 import { radio } from '../sim/radio';
 import { hasNext, isShut, newProgress, next, pick, stageDef, STAGE_COUNT, won } from '../sim/stages';
-import { createRound, distanceToTarget, forwardSpeed, inIntro, skipIntro, standings, step } from '../sim/step';
+import { createRound, distanceToTarget, forwardSpeed, inIntro, liveStandings, skipIntro, standings, step } from '../sim/step';
 import { NO_INPUT } from '../sim/types';
 import { MANUAL, band, gearName } from '../sim/gearbox';
 import { DEFAULT_BINDINGS, keyMap } from '../settings';
@@ -63,6 +63,8 @@ export interface Standing {
   /** Bumps so far: the standings never say how close anyone is to the free bay. */
   bumps: number;
   parked: boolean;
+  /** The place it parked in (1 = first), or 0 while it has not. */
+  place: number;
   /** Disqualified for hitting a pedestrian, a car or something hard. */
   out: boolean;
   me: boolean;
@@ -91,7 +93,13 @@ export interface HudState {
   manual: null | { gear: string; rpm: number; idle: number; redline: number; band: number; light: boolean; limiter: boolean; shiftId: number; denied: number };
   /** The menu is showing (the world idles behind it: bots only, a slow camera). */
   menu: boolean;
+  /** Who is where: the parked cars first in the order they parked, then the ones still looking (seat order), then the ones out. */
   standings: Standing[];
+  /**
+   * Your place as it stands: once parked, the place you parked in; while still looking, the place you would take by parking
+   * now (one after every rival already parked). It never says who is nearest the free bay.
+   */
+  place: { now: number; of: number; parked: boolean; out: boolean };
   chat: ChatBubble[];
   /** Seconds since you were disqualified, or null; and what you hit ('pedestrian', 'car' or 'obstacle') and its name ("Staging", "a parked car", "a post"). */
   disqualified: number | null;
@@ -2096,9 +2104,9 @@ export class Game {
     const s = this.state;
     const me = s.cars[0];
     const vF = forwardSpeed(me);
-    // In the race the list never says who is closest to the free bay: seat order, with the parked ones first.
-    const seats = [...s.cars].sort((x, y) => (x.parkedAt !== null ? 0 : 1) - (y.parkedAt !== null ? 0 : 1) || x.id - y.id);
-    const order = s.phase === 'done' || me.dq !== null ? standings(s, this.world) : seats;
+    // While the race is on the list never says who is closest to the free bay (see `liveStandings`).
+    const live = liveStandings(s);
+    const order = s.phase === 'done' || me.dq !== null ? standings(s, this.world) : live.order;
     const over = s.phase === 'done' || me.dq !== null;
     const result = over
       ? {
@@ -2137,7 +2145,8 @@ export class Game {
             }
           : null,
       menu: this.menu,
-      standings: order.map((c) => ({ id: c.id, name: c.name, color: c.color, bumps: c.bumps, parked: c.parkedAt !== null, out: c.dq !== null, me: c.id === 0 })),
+      standings: order.map((c) => ({ id: c.id, name: c.name, color: c.color, bumps: c.bumps, parked: c.parkedAt !== null, place: live.parked.indexOf(c) + 1, out: c.dq !== null, me: c.id === 0 })),
+      place: { now: live.place(0), of: s.cars.length, parked: me.parkedAt !== null, out: me.dq !== null },
       chat: s.chat.filter((l) => s.t - l.t < 6.5).slice(-3).map((l) => ({ id: l.id, name: l.name, color: l.color, text: l.text, age: s.t - l.t })),
       disqualified: me.dq !== null && this.dqAt >= 0 ? this.time - this.dqAt : null,
       dqWhy: me.dq !== null ? (me.dqWhy ?? { kind: 'pedestrian', what: 'a pedestrian' }) : null,

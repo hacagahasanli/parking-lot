@@ -10,7 +10,7 @@ import { buildLot, LAYOUT } from './lot';
 import type { Shape } from './lot';
 import { routeToDock, shortestPath } from './nav';
 import { radio } from './radio';
-import { bayBox, carBox, createRound, createWorld, drive, forwardSpeed, step, steerLimit } from './step';
+import { bayBox, carBox, createRound, createWorld, drive, forwardSpeed, liveStandings, step, steerLimit } from './step';
 
 import type { Input } from './types';
 
@@ -309,6 +309,24 @@ describe('a round', () => {
     for (let i = 0; i < 60 && state.phase === 'race'; i++) step(state, world, [press({})]);
     expect(state.winner).toBe(0);
     expect(state.phase).toBe('done');
+  });
+
+  it('shows the live standing without saying who is nearest the bay: parked in parking order, then seat order, then the ones out', () => {
+    const { state } = createRound(lot, { seed: 3, bots: [false, true, true, true] });
+    const ids = () => liveStandings(state).order.map((c) => c.id);
+    // Nobody parked: seat order, and you would park first.
+    expect(ids()).toEqual([0, 1, 2, 3]);
+    expect(liveStandings(state).place(0)).toBe(1);
+    // Seat 2 parks, then seat 1: they lead in that order, and you would now take third.
+    state.cars[2].parkedAt = 30;
+    state.cars[1].parkedAt = 34;
+    expect(ids()).toEqual([2, 1, 0, 3]);
+    expect([0, 1, 2, 3].map(liveStandings(state).place)).toEqual([3, 2, 1, 3]);
+    // Seat 3 is out: last, with no place; you park: third.
+    state.cars[3].dq = 40;
+    state.cars[0].parkedAt = 41;
+    expect(ids()).toEqual([2, 1, 0, 3]);
+    expect([0, 1, 2, 3].map(liveStandings(state).place)).toEqual([3, 2, 1, 0]);
   });
 
   it('does not count a car parked crooked', () => {

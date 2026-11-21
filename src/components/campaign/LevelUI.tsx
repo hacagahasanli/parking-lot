@@ -1,8 +1,8 @@
 'use client';
 
 /**
- * The campaign level's screens over the game: the intro card on the start line, the top bar (time against par, the stars still
- * in reach), the parking meter with precision, and the result card with the stars landing one by one.
+ * The campaign level's screens over the game: the intro card on the start line, the top bar (the clock and the three stars still
+ * in reach, each with a bar that drains), the parking meter with precision, and the result card with the stars landing one by one.
  */
 import { CHAPTERS, PRECISION_STAR } from '~/game/sim/campaign';
 
@@ -104,26 +104,66 @@ export const LevelIntro = ({ hud, touch, compact }: { hud: HudState; touch: bool
   );
 };
 
-/** Top bar: the level, the time against par (and the limit at the end), and the three stars still in reach. */
+/**
+ * The three stars as they stand, each with a bar that drains: the first for finishing (the time left to the limit; in a race,
+ * still first), the second for the par time (empties at par), the third for a clean run (empties at the first graze). A star
+ * whose bar is empty goes dark: what is still lit is what this run can still earn.
+ */
+export const StarTrack = ({ hud, touch }: { hud: HudState; touch: boolean }) => {
+  const lv = hud.campaign!;
+  const t = hud.clock;
+  const race = lv.type === 'race';
+  const out = hud.disqualified !== null;
+  const stars = [
+    { label: race ? '1st' : `${lv.limit} s`, fill: out || (race && hud.place.now > 1) ? 0 : Math.max(0, 1 - t / lv.limit), what: race ? 'park first' : `park inside ${lv.limit} seconds` },
+    { label: `${lv.par} s`, fill: out ? 0 : Math.max(0, 1 - t / lv.par), what: `under ${lv.par} seconds` },
+    { label: 'clean', fill: out || lv.grazes > 0 ? 0 : 1, what: race ? 'touch nothing' : 'no grazes' },
+  ];
+  const lit = stars.filter((x) => x.fill > 0).length;
+  return (
+    <div
+      className="panel-cut bg-ink-deep/75 flex items-center gap-2 px-2.5 py-1 sm:gap-3 sm:px-3"
+      role="meter"
+      aria-label={`Stars in reach: ${lit} of 3. ${stars.map((x) => `${x.what}: ${x.fill > 0 ? 'in reach' : 'missed'}`).join(', ')}`}
+      aria-valuenow={lit}
+      aria-valuemin={0}
+      aria-valuemax={3}
+    >
+      {stars.map((x, i) => {
+        const on = x.fill > 0;
+        const low = on && x.fill < 0.25 && i < 2;
+        return (
+          <div key={i} className={`flex flex-col items-center gap-0.5 ${touch ? 'w-9' : 'w-10 sm:w-12'}`}>
+            <div className="flex items-center gap-1">
+              <StarIcon on={on} className={`${touch ? 'h-3.5 w-3.5' : 'h-4 w-4 sm:h-5 sm:w-5'} transition-opacity`} style={on ? undefined : { opacity: 0.55 }} />
+              <span className={`text-[10px] font-bold tabular-nums whitespace-nowrap sm:text-[11px] ${on ? 'text-cream/85' : 'text-cream/35 line-through'}`}>{x.label}</span>
+            </div>
+            <div className="bg-cream/10 h-1.5 w-full overflow-hidden rounded-sm" aria-hidden="true">
+              <div className={`h-full ${low ? 'bg-orange' : 'bg-gold'}`} style={{ width: `${Math.round(x.fill * 100)}%` }} />
+            </div>
+          </div>
+        );
+      })}
+    </div>
+  );
+};
+
+/** Top bar: the level, the clock (in the last ten seconds, what is left), and the stars still in reach with their bars. */
 export const LevelBar = ({ hud, touch }: { hud: HudState; touch: boolean }) => {
   const lv = hud.campaign!;
   const t = hud.clock;
   const hurry = hud.phase === 'race' && hud.left <= 10;
   return (
-    <div className="flex items-stretch gap-1.5" role="status" aria-label={`Level ${lv.n}, ${fmt(t)}, two stars for under ${lv.par} seconds`}>
+    <div className="flex items-stretch gap-1.5" role="status" aria-label={`Level ${lv.n}, ${fmt(t)}`}>
       <div className="panel-cut bg-ink-deep/75 font-display text-gold flex items-center px-2 text-xs whitespace-nowrap sm:px-3 sm:text-sm">
         {lv.n}
-        <span className={`text-cream/80 pl-1.5 ${touch ? 'hidden' : 'hidden sm:inline'}`}>{lv.name}</span>
+        <span className={`text-cream/80 pl-1.5 ${touch ? 'hidden' : 'hidden lg:inline'}`}>{lv.name}</span>
         {lv.legs > 1 && <span className="text-blue pl-1.5">{`Bay ${lv.leg + 1}/${lv.legs}`}</span>}
       </div>
-      <div className={`panel-cut bg-ink-deep/75 flex items-center gap-2 px-3 py-1 sm:px-4 ${hurry ? 'text-orange' : 'text-cream'}`} style={hurry ? { animation: 'hurry 1s ease-in-out infinite' } : undefined}>
+      <div className={`panel-cut bg-ink-deep/75 flex items-center px-3 py-1 sm:px-4 ${hurry ? 'text-orange' : 'text-cream'}`} style={hurry ? { animation: 'hurry 1s ease-in-out infinite' } : undefined}>
         <span className="font-display text-base tabular-nums sm:text-xl">{hurry ? `0:${String(Math.ceil(hud.left)).padStart(2, '0')}` : fmt(t)}</span>
-        {/* The time goal in words: the second star is for parking under this time (the stars themselves land on the result card). */}
-        <span className={`flex items-center gap-1 text-[11px] font-bold tabular-nums whitespace-nowrap sm:text-xs ${t <= lv.par ? 'text-green' : 'text-lilac'}`} title="Park under this time for the second star">
-          <StarIcon on className="h-3 w-3" />
-          {t <= lv.par ? `under ${lv.par} s` : `missed ${lv.par} s`}
-        </span>
       </div>
+      <StarTrack hud={hud} touch={touch} />
     </div>
   );
 };
