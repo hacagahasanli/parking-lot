@@ -1,0 +1,33 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover" />
+    <meta name="theme-color" content="#17181D" />
+    <meta name="description" content="Four company cars. One free space. No insurance. First to park wins." />
+    <meta property="og:title" content="Parking Lot" />
+    <meta property="og:description" content="Four company cars. One free space. No insurance. First to park wins." />
+    <meta property="og:image" content="https://parkinglot.nalbakigames.com/og.jpg" />
+    <meta name="twitter:card" content="summary_large_image" />
+    <link rel="icon" href="/favicon.ico" sizes="48x48" />
+    <link rel="icon" href="../portal/public/brand/favicon.svg" type="image/svg+xml" />
+    <link rel="icon" href="../portal/public/brand/favicon-32.png" type="image/png" sizes="32x32" />
+    <link rel="icon" href="../portal/public/brand/favicon-16.png" type="image/png" sizes="16x16" />
+    <link rel="apple-touch-icon" href="../portal/public/brand/apple-touch-icon.png" sizes="180x180" />
+    <title>%GAME_TITLE%</title>
+    <meta name="author" content="%STUDIO_NAME%" />
+    <style>
+      html,body{margin:0;height:100%;background:#0a0d18}
+      /* Before the script runs: the loader's page at 0 % (the same asphalt, logo, bar and number; the lot scene comes with the script). */
+      #boot{position:fixed;inset:0;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:16px;overflow:hidden;background:radial-gradient(ellipse at 50% 45%,rgba(255,210,63,.1),transparent 60%),repeating-linear-gradient(90deg,transparent 0 118px,rgba(242,242,238,.06) 118px 122px),linear-gradient(#25272d,#16171b)}
+      #boot img{width:min(22rem,70vw);height:auto}
+      #boot div{width:min(34rem,92vw);display:flex;justify-content:space-between;align-items:flex-end;font:600 15px 'Chakra Petch',system-ui,sans-serif;color:rgba(230,235,245,.85)}
+      #boot div span{font:400 28px Bungee,system-ui,sans-serif;color:#ffd23f}
+      #boot b{display:block;width:min(34rem,92vw);height:12px;transform:skewX(-12deg);background:rgba(0,0,0,.45);box-shadow:0 0 0 1px rgba(255,255,255,.1)}
+    </style>
+  </head>
+  <body>
+    <div id="root"><div id="boot" role="progressbar" aria-label="Loading" aria-valuenow="0"><img src="../portal/public/brand/logo.svg" alt="Parking Lot" /><div>Loading the page<span>0%</span></div><b></b></div></div>
+    <script type="module" src="./main.tsx"></script>
+  </body>
+</html>

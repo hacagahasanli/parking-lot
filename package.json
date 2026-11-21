@@ -12,7 +12,10 @@
     "dev:portal": "vite --config vite.portal.config.ts",
     "build:portal": "vite build --config vite.portal.config.ts && node scripts/portal-report.mjs",
     "dev:portal:lan": "vite --config vite.portal.config.ts --host",
-    "phone:portal": "npm run build:portal && vite preview --config vite.portal.config.ts --host"
+    "phone:portal": "npm run build:portal && vite preview --config vite.portal.config.ts --host",
+    "dev:web": "vite --config vite.web.config.ts",
+    "build:web": "vite build --config vite.web.config.ts && node scripts/web-report.mjs",
+    "preview:web": "vite preview --config vite.web.config.ts"
   },
   "dependencies": {
     "next": "^16.4.5",
