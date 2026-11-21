@@ -196,7 +196,7 @@ export const MainMenu = ({ hud, settings, store, touch, tier, portalMuted, logoS
                 </span>
               )}
             </h1>
-            <p className="text-cream/85 mt-3 text-sm font-semibold tracking-wide sm:text-base [@media(max-height:500px)]:hidden">Four company cars. One free space. Touch nothing.</p>
+            <p className="text-cream/85 mt-3 text-sm font-semibold tracking-wide sm:text-base [@media(max-height:500px)]:hidden">One free space. Four cars want it. Touch nothing.</p>
           </header>
 
           <nav aria-label="Main menu" className="mt-8 [@media(max-height:500px)]:mt-3 portrait:max-sm:bg-ink-deep/80 portrait:max-sm:-mx-6 portrait:max-sm:mt-0 portrait:max-sm:px-6 portrait:max-sm:pt-4 portrait:max-sm:pb-2 portrait:max-sm:backdrop-blur-md portrait:max-sm:[animation:sheetIn_0.45s_cubic-bezier(0.2,0.8,0.2,1)_both]">
