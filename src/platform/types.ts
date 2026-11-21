@@ -5,7 +5,7 @@
  * Rules every adapter keeps:
  *  - every call is safe at any time, including before `init` resolves and after an SDK error (they never throw);
  *  - `gameplayStart`/`gameplayStop` are idempotent (the adapter forwards only real changes);
- *  - a break resolves when the game may go on, whether or not an ad was shown; the game mutes and pauses only in `onStart`.
+ *  - a rewarded break resolves when the game may go on, whether or not an ad was shown; the game mutes and pauses only in `onStart`.
  */
 export type DeviceType = 'desktop' | 'tablet' | 'mobile';
 
@@ -32,10 +32,20 @@ export interface Platform {
   loadingStop(): void;
   gameplayStart(): void;
   gameplayStop(): void;
-  /** A midgame ad, only ever between rounds. */
-  commercialBreak(hooks?: BreakHooks): Promise<BreakResult>;
   /** A rewarded ad the player chose; give the reward only on 'shown'. */
   rewardedBreak(hooks?: BreakHooks): Promise<BreakResult>;
+  /**
+   * Whether display banners can be requested here (false: never render a banner slot). The game shows one only on the main
+   * menu, never during a round, and asks for no midgame video ads at all (they broke the tempo between rounds).
+   */
+  readonly banners: boolean;
+  /**
+   * Fills the element with this id (on screen, fully visible, with a size) with a responsive banner that fits it. Resolves
+   * true when one is shown, false when none can be (no fill, cooldown, banners disabled, no size fits, no SDK).
+   */
+  requestBanner(id: string): Promise<boolean>;
+  /** Removes the banner in that element (call before the element goes away). */
+  clearBanner(id: string): void;
   /** Why the last break failed, if the SDK said ('adsDisabled', 'unfilled', 'adblock', 'adCooldown', 'other'). */
   lastBreakError(): string | null;
   /** A big moment (every stage cleared): portals may celebrate it. */

@@ -13,6 +13,7 @@ import { CAMPAIGN, continueLevel, totalStars } from '~/game/sim/campaign';
 import type { CampaignProgress } from '~/game/sim/campaign';
 import { GAME_TITLE, GAME_VERSION, STUDIO_NAME } from '~/lib/studio';
 
+import { MenuBanner } from './MenuBanner';
 import { SettingsPanel } from './SettingsPanel';
 import { Kbd, Panel, useMenuNav, usePadNav, useHoverSound } from './ui';
 
@@ -20,6 +21,7 @@ import type { Tab } from './SettingsPanel';
 import type { HudState } from '~/game/render/game';
 import type { Tier } from '~/game/render/quality';
 import type { Settings, SettingsStore } from '~/game/settings';
+import type { Platform } from '~/platform/types';
 
 export type MenuView = 'root' | 'settings' | 'how' | 'credits';
 
@@ -132,12 +134,16 @@ export interface MainMenuProps {
   onSound: (kind: 'move' | 'pick' | 'back') => void;
   /** The saved progress (Play shows where the campaign continues). */
   campaign?: CampaignProgress;
+  /** The page's platform: on a portal with banners, one banner sits under the menu (MenuBanner); nothing on our own site. */
+  platform?: Platform;
+  /** The menu is really on screen (the loading screen has gone): the banner may be requested. */
+  shown?: boolean;
   /** Start on a sub-view (the screenshot script). */
   initialView?: MenuView;
   initialTab?: Tab;
 }
 
-export const MainMenu = ({ hud, settings, store, touch, tier, portalMuted, logoSrc, onPlay, onSound, initialView = 'root', initialTab, campaign }: MainMenuProps) => {
+export const MainMenu = ({ hud, settings, store, touch, tier, portalMuted, logoSrc, onPlay, onSound, initialView = 'root', initialTab, campaign, platform, shown = true }: MainMenuProps) => {
   const hover = useHoverSound(() => onSound('move'));
   const [view, setViewState] = useState<MenuView>(initialView);
   const root = useRef<HTMLDivElement>(null);
@@ -197,6 +203,12 @@ export const MainMenu = ({ hud, settings, store, touch, tier, portalMuted, logoS
               <Item id="credits" label="Credits" delay={0.26} onPick={open('credits')} />
             </ul>
           </nav>
+          {/* The portal's banner (none on our own site): under the menu, on a phone at the foot of the sheet, collapsed when empty. */}
+          {platform && (
+            <div className="mt-4 portrait:max-sm:bg-ink-deep/80 portrait:max-sm:-mx-6 portrait:max-sm:mt-0 portrait:max-sm:px-6 portrait:max-sm:pb-2 empty:hidden">
+              <MenuBanner platform={platform} active={shown && view === 'root'} />
+            </div>
+          )}
         </div>
         <footer className="flex items-center justify-between gap-3 px-6 pb-4 text-xs font-semibold text-lilac sm:px-10 portrait:max-sm:bg-ink-deep/80" style={{ paddingBottom: 'calc(14px + env(safe-area-inset-bottom))', animation: 'fadeIn 0.8s ease-out 0.4s both' }}>
           <span>

@@ -4,8 +4,13 @@
  *  - `init()` must be awaited before anything else; on a domain the SDK does not know, `environment` is 'disabled' and its
  *    calls throw, so `detectPlatform` falls back to the plain web adapter;
  *  - `game.loadingStart/Stop`, `game.gameplayStart/Stop` (forwarded only on a real change), `game.happytime`;
- *  - `ad.requestAd('midgame' | 'rewarded', { adStarted, adFinished, adError })`: the game mutes and freezes in adStarted only,
- *    resumes in adFinished/adError; the SDK enforces its own 3-minute midgame cooldown (we also schedule, see `breaks.ts`);
+ *  - `ad.requestAd('rewarded', { adStarted, adFinished, adError })`: the game mutes and freezes in adStarted only, resumes
+ *    in adFinished/adError. No midgame ads: they came after every round and broke the tempo;
+ *  - `banner.requestResponsiveBanner(id)` / `banner.clearBanner(id)` (https://docs.crazygames.com/sdk/banners/): one
+ *    banner, on the main menu only, in a container that is on screen and fully visible; the SDK picks the largest of its
+ *    sizes (320x50, 300x250, 728x90, ...) that fits, refuses a refresh of the same container within 30 s and has a
+ *    per-session refresh limit; any refusal (bannersDisabled, unfilled, notVisible, noAvailableSizes, bannerCooldown,
+ *    maxRefreshReached, ...) just leaves the slot empty, and the menu collapses it;
  *  - `game.settings.muteAudio` and `game.addSettingsChangeListener` for the portal's mute;
  *  - `user.systemInfo.device.type` for the device (the docs ask for this instead of touch detection alone);
  *  - `data` (localStorage API, synced to the player's account) for saves.
@@ -30,7 +35,11 @@ export interface CrazySdk {
     removeSettingsChangeListener?(cb: (s: { muteAudio?: boolean }) => void): void;
   };
   ad: {
-    requestAd(type: 'midgame' | 'rewarded', cb: { adStarted?: () => void; adFinished?: () => void; adError?: (e: { code?: string } | string) => void }): void;
+    requestAd(type: 'rewarded', cb: { adStarted?: () => void; adFinished?: () => void; adError?: (e: { code?: string } | string) => void }): void;
+  };
+  banner?: {
+    requestResponsiveBanner(id: string): Promise<void> | void;
+    clearBanner(id: string): void;
   };
   user?: { systemInfo?: { device?: { type?: string } } };
   data?: KeyValue;
@@ -53,7 +62,7 @@ export const createCrazyGamesPlatform = (sdk: CrazySdk, opts: { storage?: KeyVal
   let lastError: string | null = null;
   const timeoutMs = opts.timeoutMs ?? AD_START_TIMEOUT_MS;
 
-  const request = (type: 'midgame' | 'rewarded', hooks?: BreakHooks) =>
+  const request = (type: 'rewarded', hooks?: BreakHooks) =>
     new Promise<BreakResult>((resolve) => {
       let started = false;
       let done = false;
@@ -113,7 +122,17 @@ export const createCrazyGamesPlatform = (sdk: CrazySdk, opts: { storage?: KeyVal
       playing = false;
       safe(() => sdk.game.gameplayStop());
     },
-    commercialBreak: (hooks) => request('midgame', hooks),
+    banners: !!sdk.banner,
+    requestBanner: async (id) => {
+      try {
+        if (!sdk.banner) return false;
+        await sdk.banner.requestResponsiveBanner(id);
+        return true;
+      } catch {
+        return false;
+      }
+    },
+    clearBanner: (id) => safe(() => sdk.banner?.clearBanner(id)),
     rewardedBreak: (hooks) => request('rewarded', hooks),
     lastBreakError: () => lastError,
     happytime: () => safe(() => sdk.game.happytime?.()),

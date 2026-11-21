@@ -1,12 +1,12 @@
-import { BREAK_RULES, BreakScheduler } from './breaks';
 import { createCrazyGamesPlatform } from './crazygames';
+import { HintScheduler } from './hints';
 import { detectPlatform } from './index';
 import { createWebPlatform, memoryStore } from './web';
 
 import type { CrazySdk } from './crazygames';
 
 /** A fake SDK that records calls; `ad` decides what each requestAd does. */
-const fakeSdk = (opts: { where?: string; init?: () => Promise<void>; ad?: CrazySdk['ad']['requestAd']; muted?: boolean; device?: string } = {}) => {
+const fakeSdk = (opts: { where?: string; init?: () => Promise<void>; ad?: CrazySdk['ad']['requestAd']; muted?: boolean; device?: string; banner?: CrazySdk['banner'] | null } = {}) => {
   const calls: string[] = [];
   let listener: ((s: { muteAudio?: boolean }) => void) | null = null;
   const sdk: CrazySdk = {
@@ -31,6 +31,13 @@ const fakeSdk = (opts: { where?: string; init?: () => Promise<void>; ad?: CrazyS
           cb.adFinished?.();
         }),
     },
+    banner:
+      opts.banner === null
+        ? undefined
+        : (opts.banner ?? {
+            requestResponsiveBanner: async (id) => void calls.push(`banner:${id}`),
+            clearBanner: (id) => void calls.push(`clear:${id}`),
+          }),
     user: { systemInfo: { device: { type: opts.device ?? 'mobile' } } },
     data: memoryStore(),
   };
@@ -66,7 +73,9 @@ describe('the web fallback', () => {
     p.gameplayStart();
     p.gameplayStop();
     p.happytime();
-    expect(await p.commercialBreak()).toBe('skipped');
+    expect(p.banners).toBe(false);
+    expect(await p.requestBanner('slot')).toBe(false);
+    p.clearBanner('slot');
     expect(await p.rewardedBreak()).toBe('skipped');
     expect(p.muted()).toBe(false);
     expect(p.deviceType()).toBeNull();
@@ -110,7 +119,7 @@ describe('the CrazyGames adapter', () => {
 
   it('turns ad errors, SDK exceptions and an ad that never starts into "error", and remembers why', async () => {
     const unfilled = createCrazyGamesPlatform(fakeSdk({ ad: (_t, cb) => cb.adError?.({ code: 'unfilled' }) }).sdk);
-    expect(await unfilled.commercialBreak()).toBe('error');
+    expect(await unfilled.rewardedBreak()).toBe('error');
     expect(unfilled.lastBreakError()).toBe('unfilled');
     const throws = createCrazyGamesPlatform(
       fakeSdk({
@@ -122,9 +131,41 @@ describe('the CrazyGames adapter', () => {
     expect(await throws.rewardedBreak()).toBe('error');
     const silent = createCrazyGamesPlatform(fakeSdk({ ad: () => undefined }).sdk, { timeoutMs: 20 });
     let muted = false;
-    expect(await silent.commercialBreak({ onStart: () => (muted = true) })).toBe('error');
+    expect(await silent.rewardedBreak({ onStart: () => (muted = true) })).toBe('error');
     expect(muted).toBe(false);
     expect(silent.lastBreakError()).toBe('timeout');
+  });
+
+  it('has no midgame ads at all: the platform offers only rewarded breaks', () => {
+    const p = createCrazyGamesPlatform(fakeSdk().sdk);
+    expect('commercialBreak' in p).toBe(false);
+  });
+
+  it('asks for a responsive banner in the given container and clears it', async () => {
+    const f = fakeSdk();
+    const p = createCrazyGamesPlatform(f.sdk);
+    expect(p.banners).toBe(true);
+    expect(await p.requestBanner('menu-banner')).toBe(true);
+    p.clearBanner('menu-banner');
+    expect(f.calls).toEqual(['banner:menu-banner', 'clear:menu-banner']);
+  });
+
+  it('reports a refused banner (cooldown, unfilled, disabled, an SDK without banners) as not shown, never throwing', async () => {
+    const refused = createCrazyGamesPlatform(
+      fakeSdk({
+        banner: {
+          requestResponsiveBanner: () => Promise.reject({ code: 'bannerCooldown' }),
+          clearBanner: () => {
+            throw new Error('x');
+          },
+        },
+      }).sdk,
+    );
+    expect(await refused.requestBanner('b')).toBe(false);
+    expect(() => refused.clearBanner('b')).not.toThrow();
+    const none = createCrazyGamesPlatform(fakeSdk({ banner: null }).sdk);
+    expect(none.banners).toBe(false);
+    expect(await none.requestBanner('b')).toBe(false);
   });
 
   it('never throws when the SDK does', () => {
@@ -153,83 +194,45 @@ describe('the CrazyGames adapter', () => {
   });
 });
 
-describe('ad-break scheduling', () => {
-  const R = BREAK_RULES;
-  /** Plays `n` rounds of `secs` seconds each. */
-  const play = (s: BreakScheduler, n: number, secs: number, won = false, stage = 1) => {
-    for (let i = 0; i < n; i++) {
-      s.addPlay(secs);
-      s.roundEnded(won, stage);
-    }
+describe('the rewarded hint offer', () => {
+  /** Ends `n` rounds. */
+  const play = (s: HintScheduler, n: number, won = false, stage = 1) => {
+    for (let i = 0; i < n; i++) s.roundEnded(won, stage);
   };
 
-  it('never asks before the player has had enough play', () => {
-    const s = new BreakScheduler();
-    expect(s.shouldBreak(1000)).toBe(false);
-    play(s, 1, 500);
-    expect(s.shouldBreak(1000)).toBe(false); // one round only
-    const t = new BreakScheduler();
-    play(t, 5, 10);
-    expect(t.shouldBreak(1000)).toBe(false); // five short rounds, under the play time
-    play(t, 1, R.firstAfterPlay);
-    expect(t.shouldBreak(1000)).toBe(true);
-  });
-
-  it('asks at most once per gap between rounds and once per interval', () => {
-    const s = new BreakScheduler();
-    play(s, 2, 80);
-    expect(s.shouldBreak(500)).toBe(true);
-    s.adShown(500);
-    expect(s.shouldBreak(500)).toBe(false);
-    play(s, 1, 60);
-    expect(s.shouldBreak(500 + R.interval - 1)).toBe(false);
-    expect(s.shouldBreak(500 + R.interval)).toBe(true);
-  });
-
-  it('a rewarded ad counts toward the interval, and a hint gap never also gets a midgame ad', () => {
-    const s = new BreakScheduler();
-    play(s, 2, 60, true);
-    play(s, 1, 60);
-    expect(s.hintOffer(400, true, true)).toBe('ad');
-    s.offered(400);
-    s.hintTaken(false);
-    s.adShown(400);
-    expect(s.shouldBreak(400 + R.interval + 10)).toBe(false); // same gap
-    play(s, 1, 30);
-    expect(s.shouldBreak(400 + R.interval - 1)).toBe(false);
-    expect(s.shouldBreak(400 + R.interval)).toBe(true);
-  });
-
   it('offers the hint only after a loss, not too often, and free after a losing streak', () => {
-    const s = new BreakScheduler();
-    play(s, 1, 30, true);
+    const s = new HintScheduler();
+    play(s, 1, true);
     expect(s.hintOffer(100, false, true)).toBeNull();
-    play(s, 1, 30, false);
+    play(s, 1, false);
     expect(s.hintOffer(100, true, true)).toBe('ad');
     s.offered(100);
-    play(s, 1, 30, false);
+    play(s, 1, false);
     expect(s.hintOffer(150, true, true)).toBeNull(); // within hintEvery
     expect(s.hintOffer(150, true, false)).toBeNull(); // no ads, no streak yet
-    play(s, 1, 30, false); // third loss in a row on stage 1
+    play(s, 1, false); // third loss in a row on stage 1
     expect(s.hintOffer(160, true, true)).toBe('free');
     expect(s.hintOffer(160, true, false)).toBe('free');
     s.hintTaken(true);
-    play(s, 1, 30, false);
+    play(s, 1, false);
     expect(s.hintOffer(400, true, false)).toBeNull(); // the free hint reset the streak
   });
 
-  it('counts a losing streak per stage', () => {
-    const s = new BreakScheduler();
-    play(s, 2, 30, false, 2);
-    play(s, 1, 30, false, 3);
-    expect(s.stats.streak).toBe(1);
+  it('offers nothing more on a card where a hint was already taken', () => {
+    const s = new HintScheduler();
+    play(s, 1, false);
+    expect(s.hintOffer(100, true, true)).toBe('ad');
+    s.offered(100);
+    s.hintTaken(false);
+    expect(s.hintOffer(300, true, true)).toBeNull();
+    play(s, 1, false);
+    expect(s.hintOffer(300, true, true)).toBe('ad');
   });
 
-  it('ignores nonsense play time', () => {
-    const s = new BreakScheduler();
-    s.addPlay(-5);
-    s.addPlay(Number.NaN);
-    s.addPlay(Infinity);
-    expect(s.stats.play).toBe(0);
+  it('counts a losing streak per stage', () => {
+    const s = new HintScheduler();
+    play(s, 2, false, 2);
+    play(s, 1, false, 3);
+    expect(s.stats.streak).toBe(1);
   });
 });

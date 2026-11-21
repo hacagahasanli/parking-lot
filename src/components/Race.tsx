@@ -48,7 +48,7 @@ export interface RaceProps {
   credit?: string;
   /** Esc pauses (default true). Portals reserve Esc for leaving fullscreen; P always pauses. */
   escPause?: boolean;
-  /** Development only: shorter ad-break rules, so the screenshot script reaches the break quickly. */
+  /** Development only: shorter hint rules, so the screenshot script reaches the rewarded hint quickly. */
   testBreaks?: boolean;
   /** Open on the main menu (the portal build): PLAY starts the race, the pause menu can quit back to it. */
   menu?: boolean;
@@ -212,7 +212,7 @@ const Lock = () => (
 );
 
 /** The stage chips: cleared and open stages can be played, the rest are locked until you park first in the one before. */
-const StageChips = ({ hud, game, onPick, via }: { hud: HudState; game: Game | null; onPick?: () => void; via?: (action: () => void) => Promise<void> }) => (
+const StageChips = ({ hud, game, onPick, via }: { hud: HudState; game: Game | null; onPick?: () => void; via?: (action: () => void) => void }) => (
   <div className="flex flex-wrap justify-center gap-1.5" role="group" aria-label="Stages">
     {Array.from({ length: hud.stage.total }, (_, i) => {
       const n = i + 1;
@@ -227,7 +227,7 @@ const StageChips = ({ hud, game, onPick, via }: { hud: HudState; game: Game | nu
           aria-label={`Stage ${n}${locked ? ', locked' : now ? ', current' : ''}`}
           onClick={() => {
             const go = () => game?.selectStage(n);
-            if (via) void via(go);
+            if (via) via(go);
             else go();
             onPick?.();
           }}
@@ -290,9 +290,9 @@ const VideoIcon = () => (
 );
 
 /** While an ad is requested or plays: the game is paused and the UI blocked until it ends (the portal draws the ad on top). */
-const BreakCover = ({ kind }: { kind: 'midgame' | 'rewarded' }) => (
+const BreakCover = () => (
   <div className="bg-ink-deep/90 absolute inset-0 z-50 flex flex-col items-center justify-center gap-3 p-6 text-center" role="alertdialog" aria-label="Ad break" aria-busy="true">
-    <div className="font-display text-gold text-2xl sm:text-4xl">{kind === 'rewarded' ? 'Your hint is loading' : 'Quick break'}</div>
+    <div className="font-display text-gold text-2xl sm:text-4xl">Your hint is loading</div>
     <div className="text-cream/80 text-sm sm:text-base">The next round starts right after the ad.</div>
     <div className="border-gold/30 border-t-gold mt-2 h-8 w-8 animate-spin rounded-full border-4" aria-hidden="true" />
   </div>
@@ -330,7 +330,7 @@ const Result = ({ hud, game, session, exit, support: Support, onMenu }: { hud: H
         </div>
         {st.n > 0 && (
           <div className="mt-4">
-            <StageChips hud={hud} game={game} via={(go) => session.next(go, { noBreak: true })} />
+            <StageChips hud={hud} game={game} via={(go) => session.next(go)} />
           </div>
         )}
         {session.hintOffer && (
@@ -340,7 +340,7 @@ const Result = ({ hud, game, session, exit, support: Support, onMenu }: { hud: H
               {session.hintOffer === 'ad' && <VideoIcon />}
               <span>{session.hintOffer === 'ad' ? 'Watch ad: retry with a hint' : 'Free hint: retry with a hint'}</span>
             </button>
-            <button type="button" onClick={() => void session.next(() => game?.newRound())} className={HINT_BTN}>
+            <button type="button" onClick={() => session.next(() => game?.newRound())} className={HINT_BTN}>
               <span>No thanks: retry</span>
             </button>
           </div>
@@ -348,14 +348,14 @@ const Result = ({ hud, game, session, exit, support: Support, onMenu }: { hud: H
         {session.notice && <p className="text-cream/80 mt-3 text-sm">{session.notice}</p>}
         <div className="mt-4 flex flex-col gap-3 sm:mt-5 sm:flex-row [@media(max-height:420px)]:flex-row [@media(max-height:420px)]:gap-2">
           {unlockedNow && (
-            <button type="button" autoFocus onClick={() => void session.next(() => game?.nextStage())} className="panel-cut bg-gold font-display text-ink-deep flex flex-[1.7] items-center justify-center px-4 py-3 text-base whitespace-nowrap [@media(max-height:420px)]:py-2 transition hover:brightness-110 active:scale-95 sm:text-lg">
+            <button type="button" autoFocus onClick={() => session.next(() => game?.nextStage())} className="panel-cut bg-gold font-display text-ink-deep flex flex-[1.7] items-center justify-center px-4 py-3 text-base whitespace-nowrap [@media(max-height:420px)]:py-2 transition hover:brightness-110 active:scale-95 sm:text-lg">
               Next stage →
             </button>
           )}
           {!session.hintOffer && <button
             type="button"
             autoFocus={!unlockedNow}
-            onClick={() => void session.next(() => game?.newRound())}
+            onClick={() => session.next(() => game?.newRound())}
             className={`panel-cut font-display flex flex-1 items-center justify-center px-4 py-3 text-base transition active:scale-95 sm:text-lg ${unlockedNow ? 'bg-cream/10 text-cream hover:bg-cream/20' : 'bg-gold text-ink-deep hover:brightness-110'}`}
           >
             Retry
@@ -621,7 +621,7 @@ export const Race = ({ platform: given, flavour = 'studio', exit, support, credi
   const showMeter = !inMenu && !!hud && hud.phase !== 'countdown' && (hud.inBay > 0 || hud.park > 0) && !hud.result;
   // The keys stay on screen the whole time you drive (a quiet strip at the foot), except while the park meter has that spot.
   const showHint = !inMenu && !touch && !!hud && hud.phase !== 'done' && !hud.paused && !showMeter && !hud.result;
-  const session = useSession(game, hud, platform, showResult, testBreaks ? { firstAfterRounds: 1, firstAfterPlay: 5, interval: 30, hintEvery: 10, freeHintAfter: 3 } : undefined);
+  const session = useSession(game, hud, platform, showResult, testBreaks ? { hintEvery: 10, freeHintAfter: 3 } : undefined);
 
   const lvHud = !inMenu ? (hud?.campaign ?? null) : null;
   const nextLevel = lvHud?.run?.failed === null ? nextOpenLevel(campaign.progress, levelById(lvHud.id)!) : null;
@@ -643,8 +643,8 @@ export const Race = ({ platform: given, flavour = 'studio', exit, support, credi
   }, [playWipe, menu]);
   const openModes = useCallback(() => (playWipe('menu'), setScreen({ kind: 'modes' })), [playWipe]);
   confirmRef.current = () => {
-    if (lvHud?.run) void session.next(() => (nextLevel ? playLevel(nextLevel.id) : (campaign.clearNews(), gameRef.current?.retry())));
-    else void session.next(() => gameRef.current?.confirm());
+    if (lvHud?.run) session.next(() => (nextLevel ? playLevel(nextLevel.id) : (campaign.clearNews(), gameRef.current?.retry())));
+    else session.next(() => gameRef.current?.confirm());
   };
   // The result card arrives under a sweep.
   useEffect(() => {
@@ -710,6 +710,8 @@ export const Race = ({ platform: given, flavour = 'studio', exit, support, credi
           onPlay={openModes}
           onSound={(k) => gameRef.current?.uiSound(k)}
           campaign={campaign.progress}
+          platform={platform}
+          shown={loadGone}
         />
       )}
 
@@ -940,14 +942,14 @@ export const Race = ({ platform: given, flavour = 'studio', exit, support, credi
               hud={hud}
               news={campaign.news}
               next={nextLevel ? { n: nextLevel.n, name: nextLevel.name } : null}
-              onNext={() => void session.next(() => nextLevel && playLevel(nextLevel.id))}
-              onRetry={() => void session.next(() => (campaign.clearNews(), gameRef.current?.retry()))}
-              onMap={() => void session.next(() => openMap(lvHud.id), { noBreak: true })}
+              onNext={() => session.next(() => nextLevel && playLevel(nextLevel.id))}
+              onRetry={() => session.next(() => (campaign.clearNews(), gameRef.current?.retry()))}
+              onMap={() => session.next(() => openMap(lvHud.id))}
               support={support}
             />
           )}
           {showResult && !lvHud?.run && <Result hud={hud} game={gameRef.current} session={session} exit={exit} support={support} onMenu={menu ? () => (playWipe('menu'), gameRef.current?.enterMenu()) : openModes} />}
-          {session.inBreak && <BreakCover kind={session.inBreak} />}
+          {session.inBreak && <BreakCover />}
         </>
       )}
     </main>

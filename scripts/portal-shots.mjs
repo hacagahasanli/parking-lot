@@ -46,15 +46,10 @@ const run = async (name, ctxOpts) => {
   await p.waitForSelector('[role="dialog"][aria-label="Result"]', { timeout: 15000 });
   await p.waitForTimeout(700);
   await p.screenshot({ path: `${OUT}/${name}-3-round-end.png` });
-  // Leave the result card: with the short test rules a midgame ad is due; the SDK's local mode shows its demo ad.
+  // Leave the result card: straight into the next round, no midgame ad.
   const btn = p.getByRole('button', { name: /Next stage|Retry/ }).first();
   await btn.click();
-  await p.waitForTimeout(700);
-  await p.screenshot({ path: `${OUT}/${name}-4-ad-break.png` });
-  await p.waitForTimeout(2500);
-  await p.screenshot({ path: `${OUT}/${name}-4b-ad-playing.png` });
-  // Wait for the ad to end and the next round to begin.
-  await p.waitForFunction(() => !document.querySelector('[aria-label="Ad break"]'), null, { timeout: 60000 }).catch(() => errs.push('ad cover never went away'));
+  if (await p.locator('[aria-label="Ad break"]').count()) errs.push('an ad break came up between rounds');
   await p.waitForTimeout(1500);
   await p.screenshot({ path: `${OUT}/${name}-5-next-round.png` });
   // A loss: touch the car beside you, then the result card offers the hint.

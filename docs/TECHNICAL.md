@@ -446,7 +446,7 @@ Run `npm run test:run` after any change in `src/game/sim/`.
 A second entry, `portal/`, builds the same game into one static folder with Vite: `npm run build:portal` writes
 `dist/portal/` (9 files, about 1.08 MB, 347 KB gzipped) and then runs `scripts/portal-report.mjs`, which fails the build on
 an absolute path, more than 1500 files, more than 20 MB, any absolute URL other than the CrazyGames SDK, or studio in-jokes in
-the shipped text. `npm run dev:portal` serves it on port 3201 (`?testBreaks` shortens the ad rules in development only).
+the shipped text. `npm run dev:portal` serves it on port 3201 (`?testBreaks` shortens the hint rules in development only).
 Zip the contents of `dist/portal/` (index.html at the root of the zip) to upload.
 
 What differs from the site:
@@ -479,17 +479,29 @@ Away from CrazyGames the SDK shows at most its demo ads (or is skipped and the w
 
 ### Platform adapter (`src/platform/`)
 
-`types.ts` is the interface the game uses: `init`, `loadingStart/Stop`, `gameplayStart/Stop`, `commercialBreak`,
-`rewardedBreak`, `happytime`, `muted`/`onMutedChange`, `deviceType`, `storage`. `crazygames.ts` wraps SDK v3 (every call
+`types.ts` is the interface the game uses: `init`, `loadingStart/Stop`, `gameplayStart/Stop`, `rewardedBreak`,
+`banners`/`requestBanner`/`clearBanner`, `happytime`, `muted`/`onMutedChange`, `deviceType`, `storage`. `crazygames.ts` wraps SDK v3 (every call
 guarded, gameplay events only on a real change, mute only in `adStarted`, a 12 s guard if an ad never starts). `web.ts` is
 the no-op fallback. `index.ts` `detectPlatform()` returns the web adapter when the SDK script is missing, `init` fails or
 takes over 4 s, or the SDK says `disabled`. A Poki or Yandex adapter is one more file implementing `Platform`.
 
-`breaks.ts` (`BreakScheduler`) decides between rounds: a midgame ad only when the player leaves a result card, after at
-least 2 rounds and 120 s of play, at most every 180 s (the SDK's own cooldown, which counts rewarded ads too), never in the
-same gap as a rewarded hint. The rewarded hint is offered only on a lost round's card, at most every 90 s, with an equal
-"No thanks: retry" button; after 3 losses in a row on a stage it is free. If the SDK answers `adsDisabled` (Basic Launch),
-the hint becomes free instead of leaving a dead button. `src/components/useSession.ts` wires it to the race.
+**Ads.** No midgame video ads: they used to play as the player left a result card and broke the tempo between rounds (on
+localhost the SDK shows its "Midgame ad would appear here" demo for them), so Next stage, Retry, the stage chips and the map
+now go straight on. Two kinds of ad remain, both on the portal build only:
+
+- **The menu banner** (`src/components/menu/MenuBanner.tsx`, SDK `banner.requestResponsiveBanner`): one banner under the main
+  menu's buttons (on a phone held upright, at the foot of the bottom sheet). Requested once the loading screen has gone and
+  the menu's root view is up, cleared when the menu goes (Play opens the game modes), so never during a race. The slot is
+  320x50 (320x250 on windows at least 880 px tall, where the SDK may pick 300x250) and is not rendered at all on windows
+  under 560 px tall (phones held sideways). No SDK, or any refusal (no fill, `bannerCooldown` within 30 s of the last
+  request, `maxRefreshReached`, `bannersDisabled`, `notVisible`, `noAvailableSizes`): the slot collapses, never an empty box.
+- **The rewarded hint**, which the player chooses (`hints.ts`, `HintScheduler`): offered only on a lost round's card, at most
+  every 90 s, with an equal "No thanks: retry" button; after 3 losses in a row on a stage it is free. If the SDK answers
+  `adsDisabled` (Basic Launch), the hint becomes free instead of leaving a dead button. `src/components/useSession.ts` wires
+  it to the race.
+
+The site build (Next.js) never loads the SDK script and always uses the web adapter (`banners: false`, every break
+`skipped`), so the site shows no ads and no placeholder.
 
 ### Pacing (portal and site)
 

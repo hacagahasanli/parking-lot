@@ -1,31 +1,32 @@
 'use client';
 
 /**
- * The session around the rounds: tells the platform when play starts and stops, counts play time, decides between rounds
- * whether a midgame ad may play (`BreakScheduler`), and runs the optional rewarded hint. On our own site the platform is the
- * no-op web adapter, so all of this quietly does nothing but start the next round.
+ * The session around the rounds: tells the platform when play starts and stops, and runs the optional rewarded hint
+ * (`HintScheduler`). No midgame ads between rounds (they broke the tempo): leaving a result card goes straight on, and the
+ * portal's only other ad is the banner under the main menu (MenuBanner). On our own site the platform is the no-op web
+ * adapter, so all of this quietly does nothing but start the next round.
  */
 import { useCallback, useEffect, useRef, useState } from 'react';
 
 import { useTelemetry } from '~/components/useTelemetry';
 import { loadDone } from '~/lib/telemetry';
-import { BreakScheduler } from '~/platform/breaks';
+import { HintScheduler } from '~/platform/hints';
 
 import type { Game, HudState } from '~/game/render/game';
-import type { HintOffer } from '~/platform/breaks';
+import type { HintOffer } from '~/platform/hints';
 import type { Platform } from '~/platform/types';
 
-export type BreakKind = 'midgame' | 'rewarded';
+export type BreakKind = 'rewarded';
 
 export interface Session {
-  /** An ad is being requested or played: the UI is blocked until it ends. */
+  /** The rewarded hint's ad is being requested or played: the UI is blocked until it ends. */
   inBreak: BreakKind | null;
   /** What the result card may offer this time. */
   hintOffer: HintOffer;
   /** A short message after the hint offer ("Hint ready…", "No video right now"). */
   notice: string | null;
-  /** Leave the result card with Next stage or Retry (a midgame ad may come first); `noBreak` for a menu-like choice (a stage chip). */
-  next: (action: () => void, opts?: { noBreak?: boolean }) => Promise<void>;
+  /** Leave the result card (Next stage, Retry, a stage chip, the map): straight on, no ad in between. */
+  next: (action: () => void) => void;
   /** The rewarded (or free) hint: on success the next round starts with the hint circle. */
   takeHint: () => Promise<void>;
   /** Pause/resume through the menu (tells the platform). */
@@ -34,8 +35,8 @@ export interface Session {
 
 const now = () => performance.now() / 1000;
 
-export const useSession = (game: Game | null, hud: HudState | null, platform: Platform, showResult: boolean, testRules?: ConstructorParameters<typeof BreakScheduler>[0]): Session => {
-  const sched = useRef(new BreakScheduler(testRules));
+export const useSession = (game: Game | null, hud: HudState | null, platform: Platform, showResult: boolean, testRules?: ConstructorParameters<typeof HintScheduler>[0]): Session => {
+  const sched = useRef(new HintScheduler(testRules));
   const [inBreak, setInBreak] = useState<BreakKind | null>(null);
   const [hintOffer, setHintOffer] = useState<HintOffer>(null);
   const [notice, setNotice] = useState<string | null>(null);
@@ -65,22 +66,7 @@ export const useSession = (game: Game | null, hud: HudState | null, platform: Pl
     else platform.gameplayStop();
   }, [playing, hud, platform]);
 
-  // Count the seconds of real play.
-  useEffect(() => {
-    if (!playing) return;
-    let last = now();
-    const id = setInterval(() => {
-      const t = now();
-      sched.current.addPlay(t - last);
-      last = t;
-    }, 1000);
-    return () => {
-      sched.current.addPlay(now() - last);
-      clearInterval(id);
-    };
-  }, [playing]);
-
-  // A round ended (the result card appears): count it and decide what the card may offer.
+  // A round ended (the result card appears): decide what the card may offer.
   const resultKey = showResult && hud?.result ? `${hud.stage.n}:${hud.result.time}:${hud.result.reason}` : null;
   useEffect(() => {
     if (!resultKey || !hud?.result) return;
@@ -104,21 +90,13 @@ export const useSession = (game: Game | null, hud: HudState | null, platform: Pl
   const freeze = useCallback(() => game?.setFrozen(true), [game]);
 
   const next = useCallback(
-    async (action: () => void, opts: { noBreak?: boolean } = {}) => {
+    (action: () => void) => {
       if (inBreak) return;
-      if (!opts.noBreak && platform.ads && !adsOff.current && sched.current.shouldBreak(now())) {
-        setInBreak('midgame');
-        const r = await platform.commercialBreak({ onStart: freeze });
-        game?.setFrozen(false);
-        if (r === 'shown') sched.current.adShown(now());
-        else if (platform.lastBreakError() === 'adsDisabled') adsOff.current = true;
-        setInBreak(null);
-      }
       setHintOffer(null);
       setNotice(null);
       action();
     },
-    [game, platform, inBreak, freeze],
+    [inBreak],
   );
 
   const takeHint = useCallback(async () => {
@@ -137,7 +115,6 @@ export const useSession = (game: Game | null, hud: HudState | null, platform: Pl
     game?.setFrozen(false);
     setInBreak(null);
     if (r === 'shown') {
-      sched.current.adShown(now());
       start();
     } else if (platform.lastBreakError() === 'adsDisabled') {
       // Ads are switched off for this game here (CrazyGames Basic Launch): the hint is simply free from now on.
