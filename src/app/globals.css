@@ -509,3 +509,27 @@ html.pl-calm .wipe .wipe-streak {
     opacity: 0;
   }
 }
+
+/* A game-mode tile: lifts and lights its edge on hover or focus. */
+.mode-tile {
+  border: 2px solid rgba(230, 235, 245, 0.12);
+  transition:
+    transform 0.18s cubic-bezier(0.2, 0.8, 0.2, 1),
+    border-color 0.18s,
+    box-shadow 0.18s;
+}
+.mode-tile:hover,
+.mode-tile:focus-visible {
+  transform: translateY(-6px);
+  border-color: var(--accent);
+  box-shadow: 0 18px 50px rgba(0, 0, 0, 0.55), 0 0 0 1px var(--accent);
+}
+.mode-tile:active {
+  transform: translateY(-2px) scale(0.99);
+}
+@media (prefers-reduced-motion: reduce) {
+  .mode-tile:hover,
+  .mode-tile:focus-visible {
+    transform: none;
+  }
+}

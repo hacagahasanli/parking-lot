@@ -1,6 +1,11 @@
 import { botInput, createBrain, spotRoute } from './bot';
 import {
+  ALL_LEVELS,
   CAMPAIGN,
+  RACES,
+  continueRace,
+  raceStars,
+  racesWon,
   CHAPTERS,
   CAMPAIGN_KEY,
   GO_GRACE,
@@ -91,21 +96,19 @@ const toDock = (me: Car, world: World, bay: number) => {
 };
 
 describe('the campaign data', () => {
-  it('has thirty levels in order, in four chapters, each chapter ending in a race', () => {
-    expect(CAMPAIGN).toHaveLength(30);
+  it('has its solo levels in order, in four chapters, and no races (those are their own mode)', () => {
     CAMPAIGN.forEach((l, i) => expect(l.n).toBe(i + 1));
-    expect(new Set(CAMPAIGN.map((l) => l.id)).size).toBe(30);
+    expect(new Set(ALL_LEVELS.map((l) => l.id)).size).toBe(ALL_LEVELS.length);
     for (const ch of CHAPTERS) {
       const levels = CAMPAIGN.filter((l) => l.chapter === ch.n);
-      expect(levels.length).toBeGreaterThanOrEqual(6);
-      expect(levels.some((l) => l.type === 'race')).toBe(true);
+      expect(levels.length).toBeGreaterThanOrEqual(3);
+      expect(levels.every((l) => l.type !== 'race')).toBe(true);
     }
-    expect(CAMPAIGN[29].type).toBe('race');
   });
 
   it('gives every level a teaching line, a par under its limit, and one new idea (no two levels the same setup)', () => {
     const keys = new Set<string>();
-    for (const l of CAMPAIGN) {
+    for (const l of ALL_LEVELS) {
       expect(l.teaches.length, l.id).toBeGreaterThan(10);
       expect(l.par, l.id).toBeLessThan(l.limit);
       const key = `${l.type}:${l.target.join(',')}:${l.facing}:${JSON.stringify(l.spawn)}`;
@@ -115,13 +118,13 @@ describe('the campaign data', () => {
   });
 
   it('uses only words that are fine on portals', () => {
-    const text = JSON.stringify(CAMPAIGN) + JSON.stringify(CHAPTERS);
+    const text = JSON.stringify(ALL_LEVELS) + JSON.stringify(CHAPTERS);
     for (const bad of [/Staging/, /Hotfix/, /pull request/i, /merge conflict/i, /donate/i]) expect(text).not.toMatch(bad);
   });
 });
 
 describe('every level is playable', () => {
-  for (const l of CAMPAIGN) {
+  for (const l of ALL_LEVELS) {
     it(`${l.n} ${l.name}: the start is clear, and the bays it names are free and fit a car parked the way it asks`, () => {
       const { state, world } = round(l);
       const me = state.cars[0];
@@ -154,7 +157,7 @@ describe('every level is playable', () => {
   }
 
   // The whole idea of the game: the lot has exactly one free space. Every other bay holds something.
-  for (const l of CAMPAIGN) {
+  for (const l of ALL_LEVELS) {
     it(`${l.n} ${l.name}: exactly one bay is free, and every other bay is filled`, () => {
       for (const seed of [3, 11]) {
         const { state, world } = round(l, seed);
@@ -242,7 +245,7 @@ describe('every level is playable', () => {
   }
 
   it('races put the rivals on the line and keep the countdown', () => {
-    for (const l of CAMPAIGN.filter((x) => x.type === 'race')) {
+    for (const l of RACES) {
       const { state } = createRound(lot, { seed: 4, bots: [false], level: l });
       expect(state.cars).toHaveLength(1 + l.bots!.n);
       expect(state.cars.slice(1).every((c) => c.bot)).toBe(true);
@@ -405,10 +408,12 @@ describe('progress', () => {
     store.setItem(CAMPAIGN_KEY, '{not json');
     expect(loadProgress(store)).toEqual(emptyProgress());
     store.setItem(CAMPAIGN_KEY, JSON.stringify({ v: 1, levels: { nope: { stars: 3 }, 'first-bay': { stars: 9, best: 'x' } } }));
-    expect(loadProgress(store)).toEqual({ levels: { 'first-bay': { stars: 3, best: 0, precision: 0 } } });
+    expect(loadProgress(store)).toEqual({ levels: { 'first-bay': { stars: 3, best: 0, precision: 0 } }, unlocked: ['first-bay', 'neighbours'] });
+    store.setItem(CAMPAIGN_KEY, JSON.stringify({ v: 2, levels: {}, unlocked: ['nope', 7, 'trial'] }));
+    expect(loadProgress(store)).toEqual({ levels: {}, unlocked: ['trial'] });
   });
 
-  it('opens levels one by one and chapters by their star gates', () => {
+  it('opens levels one by one and chapters by their star gates (campaign stars only)', () => {
     let p = emptyProgress();
     expect(levelOpen(p, CAMPAIGN[0])).toBe(true);
     expect(levelOpen(p, CAMPAIGN[1])).toBe(false);
@@ -417,19 +422,70 @@ describe('progress', () => {
       const r = { finished: true, time: stars >= 2 ? l.par - 1 : l.limit - 1, grazes: stars >= 3 ? 0 : 1, precision: 100 };
       p = recordRun(p, l, r);
     };
-    // Chapter 1 with one star each: 8 stars, not enough for chapter 2 (10).
-    for (const l of CAMPAIGN.filter((x) => x.chapter === 1)) done(l, 1);
-    expect(totalStars(p)).toBe(8);
+    const ch1 = CAMPAIGN.filter((x) => x.chapter === 1);
+    const firstOf2 = CAMPAIGN.find((x) => x.chapter === 2)!;
+    const gate = CHAPTERS[1].gate;
+    // Chapter 1 with one star each is not enough for chapter 2.
+    for (const l of ch1) done(l, 1);
+    expect(totalStars(p)).toBe(ch1.length);
+    expect(totalStars(p)).toBeLessThan(gate);
+    expect(levelOpen(p, firstOf2)).toBe(false);
+    expect(nextOpenLevel(p, ch1[ch1.length - 1])).toBeNull();
+    // Race stars do not count towards the campaign's gates.
+    for (const r of RACES) done(r, 3);
+    expect(totalStars(p)).toBe(ch1.length);
+    expect(raceStars(p)).toBe(RACES.length * 3);
+    // Better runs of the first levels: the gate is met and chapter 2 opens.
+    for (const l of ch1) if (totalStars(p) < gate) done(l, 3);
+    expect(totalStars(p)).toBeGreaterThanOrEqual(gate);
+    expect(levelOpen(p, firstOf2)).toBe(true);
+    expect(nextOpenLevel(p, ch1[ch1.length - 1])?.id).toBe(firstOf2.id);
+    expect(continueLevel(p).id).toBe(firstOf2.id);
+  });
+
+  it('keeps the races in their own mode, opened one by one, and the endless race opens with the first race won', () => {
+    expect(RACES.length).toBe(6);
+    RACES.forEach((l, i) => expect(l.n).toBe(i + 1));
+    expect(RACES.every((l) => l.type === 'race')).toBe(true);
+    expect(CAMPAIGN.some((l) => l.type === 'race')).toBe(false);
+    let p = emptyProgress();
+    expect(levelOpen(p, RACES[0])).toBe(true);
+    expect(levelOpen(p, RACES[1])).toBe(false);
+    expect(endlessOpen(p)).toBe(false);
+    expect(continueRace(p).id).toBe('first-race');
+    p = recordRun(p, RACES[0], { finished: true, time: 50, grazes: 1, precision: 100 });
+    expect(levelOpen(p, RACES[1])).toBe(true);
     expect(endlessOpen(p)).toBe(true);
-    const nine = CAMPAIGN[8];
-    expect(levelOpen(p, nine)).toBe(false);
-    expect(nextOpenLevel(p, CAMPAIGN[7])).toBeNull();
-    // Better runs of two levels: 10 stars, chapter 2 opens.
-    done(CAMPAIGN[0], 2);
-    done(CAMPAIGN[1], 2);
-    expect(levelOpen(p, nine)).toBe(true);
-    expect(nextOpenLevel(p, CAMPAIGN[7])?.id).toBe(nine.id);
-    expect(continueLevel(p).id).toBe(nine.id);
+    expect(racesWon(p)).toBe(1);
+    expect(nextOpenLevel(p, RACES[0])?.id).toBe(RACES[1].id);
+    expect(continueRace(p).id).toBe(RACES[1].id);
+    // Winning a race opens nothing in the campaign.
+    expect(levelOpen(p, CAMPAIGN[1])).toBe(false);
+  });
+
+  it('migrates a version 1 save (races inside the campaign) without closing anything that was open', () => {
+    const store = memoryStore();
+    // A player who finished old levels 1 to 16 (races 8 and 16 among them) with two stars each: 32 stars, chapter 3 open in
+    // version 1. Old level 17 (ground floor) was their next level.
+    const v1 = [
+      'first-bay', 'neighbours', 'angled', 'swing', 'back-in', 'vans', 'trial', 'first-race',
+      'crossing', 'pulling-out', 'kerbside', 'parallel', 'dead-end', 'trolleys', 'shuffle', 'saturday-race',
+    ];
+    store.setItem(CAMPAIGN_KEY, JSON.stringify({ v: 1, levels: Object.fromEntries(v1.map((id) => [id, { stars: 2, best: 30, precision: 70 }])) }));
+    const p = loadProgress(store);
+    // Every record is kept, the races' too (now in Race mode).
+    expect(Object.keys(p.levels).sort()).toEqual([...v1].sort());
+    expect(racesWon(p)).toBe(2);
+    expect(levelOpen(p, levelById('decoy-race')!)).toBe(true);
+    expect(endlessOpen(p)).toBe(true);
+    // Every campaign level that was open is still open, the next one included, though the campaign alone now has fewer stars.
+    for (const id of [...v1.filter((id) => !levelById(id)!.type.includes('race')), 'ground-floor']) expect(levelOpen(p, levelById(id)!), id).toBe(true);
+    expect(totalStars(p)).toBe(28);
+    expect(continueLevel(p).n).toBeLessThanOrEqual(levelById('ground-floor')!.n);
+    // Saved again, it is a version 2 save that loads the same.
+    saveProgress(store, p);
+    expect(JSON.parse(store.getItem(CAMPAIGN_KEY)!).v).toBe(2);
+    expect(loadProgress(store)).toEqual(p);
   });
 });
 

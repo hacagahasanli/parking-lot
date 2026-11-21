@@ -4,7 +4,7 @@
  * The campaign level's screens over the game: the intro card on the start line, the top bar (the clock and the three stars still
  * in reach, each with a bar that drains), the parking meter with precision, and the result card with the stars landing one by one.
  */
-import { CHAPTERS, PRECISION_STAR } from '~/game/sim/campaign';
+import { CHAPTERS, PRECISION_STAR, RACES } from '~/game/sim/campaign';
 
 import type { HudState, LevelHud } from '~/game/render/game';
 import type { RunNews } from '~/components/useCampaign';
@@ -32,6 +32,9 @@ export const Stars = ({ n, size = 'h-4 w-4', label = true }: { n: number; size?:
 );
 
 const chapterName = (n: number) => CHAPTERS[n - 1]?.name ?? '';
+
+/** "Level 3" in the campaign, "Race 2" in Race mode. */
+export const levelTag = (lv: Pick<LevelHud, 'type' | 'n'>) => (lv.type === 'race' ? `Race ${lv.n}` : `Level ${lv.n}`);
 
 /** What to do in this level, in one plain sentence (the core idea first: the lot has one free bay, find it and park in it). */
 export const objectiveOf = (lv: LevelHud): string =>
@@ -77,11 +80,11 @@ export const LevelIntro = ({ hud, touch, compact }: { hud: HudState; touch: bool
       className={`pointer-events-none absolute z-[5] flex flex-col items-center gap-1.5 px-4 text-center ${touch ? 'portrait:top-[200px] portrait:inset-x-2 landscape:top-[64px] landscape:inset-x-[11rem]' : 'left-3 w-[26rem] max-w-[40vw] lg:left-6'}`}
       style={{ ...(touch ? {} : { top: 'calc(56px + env(safe-area-inset-top))' }), animation: 'fadeIn 0.25s ease-out both' }}
       role="group"
-      aria-label={`Level ${lv.n}: ${lv.name}`}
+      aria-label={`${levelTag(lv)}: ${lv.name}`}
     >
       <div className="panel-cut bg-ink-deep/80 flex max-w-lg flex-col items-center gap-1.5 px-5 py-3 backdrop-blur-sm sm:px-7 sm:py-4">
         <div className="text-lilac text-xs font-semibold sm:text-sm">
-          Level {lv.n} · {chapterName(lv.chapter)}
+          {lv.type === 'race' ? `Race ${lv.n} of ${RACES.length}` : `Level ${lv.n} · ${chapterName(lv.chapter)}`}
         </div>
         <div className="font-display text-gold text-2xl leading-none sm:text-4xl [@media(max-height:420px)]:text-xl" style={{ animation: 'riseIn 0.4s ease-out both' }}>
           {lv.name}
@@ -154,7 +157,7 @@ export const LevelBar = ({ hud, touch }: { hud: HudState; touch: boolean }) => {
   const t = hud.clock;
   const hurry = hud.phase === 'race' && hud.left <= 10;
   return (
-    <div className="flex items-stretch gap-1.5" role="status" aria-label={`Level ${lv.n}, ${fmt(t)}`}>
+    <div className="flex items-stretch gap-1.5" role="status" aria-label={`${levelTag(lv)}, ${fmt(t)}`}>
       <div className="panel-cut bg-ink-deep/75 font-display text-gold flex items-center px-2 text-xs whitespace-nowrap sm:px-3 sm:text-sm">
         {lv.n}
         <span className={`text-cream/80 pl-1.5 ${touch ? 'hidden' : 'hidden lg:inline'}`}>{lv.name}</span>
@@ -238,7 +241,7 @@ export const LevelResult = ({
     <div className="bg-ink-deep/70 absolute inset-0 z-30 flex items-center justify-center p-3 backdrop-blur-sm" style={{ animation: 'fadeIn 0.3s ease-out both' }} role="dialog" aria-label="Result">
       <div className="panel-cut bg-ink border-blue/20 max-h-[calc(100dvh-16px)] w-full max-w-md overflow-y-auto border p-4 text-center sm:p-6" style={{ animation: 'riseIn 0.4s ease-out both' }}>
         <div className="text-lilac text-sm font-semibold">
-          Level {lv.n} · {lv.name}
+          {levelTag(lv)} · {lv.name}
         </div>
         <div className={`font-display text-3xl sm:text-4xl ${ok ? 'text-green' : 'text-orange'}`}>{title}</div>
         <div className="my-2 flex items-end justify-center gap-2 sm:my-3 [@media(max-height:420px)]:my-1" role="img" aria-label={`${run.stars} of 3 stars`}>
@@ -266,7 +269,7 @@ export const LevelResult = ({
         {news && (news.opened || news.newBest || news.endless) && (
           <div className="text-gold mt-2 flex flex-col gap-0.5 text-sm font-semibold">
             {news.opened && <span>Chapter {news.opened}, {CHAPTERS[news.opened - 1].name}, is open.</span>}
-            {news.endless && <span>Endless race is open in the main menu.</span>}
+            {news.endless && <span>Endless is open in Game modes.</span>}
             {news.newBest && !news.opened && <span>New best time.</span>}
           </div>
         )}
@@ -295,11 +298,11 @@ export const LevelResult = ({
             Retry
           </button>
           <button type="button" onClick={onMap} className="panel-cut bg-cream/10 font-display text-cream flex flex-1 items-center justify-center px-4 py-3 text-base transition hover:bg-cream/20 active:scale-95 sm:text-lg [@media(max-height:420px)]:py-2">
-            Map
+            {lv.type === 'race' ? 'Races' : 'Map'}
           </button>
         </div>
         <p className="text-lilac mt-3 hidden text-xs sm:block">
-          <kbd className="font-bold">Enter</kbd> {next ? 'plays the next level' : 'tries again'} · <kbd className="font-bold">R</kbd> restarts any time
+          <kbd className="font-bold">Enter</kbd> {next ? (lv.type === 'race' ? 'plays the next race' : 'plays the next level') : 'tries again'} · <kbd className="font-bold">R</kbd> restarts any time
         </p>
       </div>
     </div>

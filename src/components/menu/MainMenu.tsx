@@ -2,14 +2,13 @@
 
 /**
  * The main menu: the live lot behind it (bots hunting for the one free bay, the bay glowing yellow, a slow orbiting camera),
- * a slanted menu column on the left, and panels that slide in over the column (stage select, settings, how to play, credits).
+ * a slanted menu column on the left, and panels that slide in over the column (settings, how to play, credits). Play opens the game modes (Modes.tsx).
  * On a phone held upright the column becomes a bottom sheet of big buttons under the logo.
  */
 import { useEffect, useRef, useState } from 'react';
 
 import { keyLabel } from '~/game/settings';
-import { STAGES } from '~/game/sim/stages';
-import { CAMPAIGN, continueLevel, endlessOpen, totalStars } from '~/game/sim/campaign';
+import { CAMPAIGN, continueLevel, totalStars } from '~/game/sim/campaign';
 
 import type { CampaignProgress } from '~/game/sim/campaign';
 import { GAME_TITLE, GAME_VERSION, STUDIO_NAME } from '~/lib/studio';
@@ -22,13 +21,7 @@ import type { HudState } from '~/game/render/game';
 import type { Tier } from '~/game/render/quality';
 import type { Settings, SettingsStore } from '~/game/settings';
 
-export type MenuView = 'root' | 'stages' | 'settings' | 'how' | 'credits';
-
-const Lock = () => (
-  <svg viewBox="0 0 16 16" className="h-4 w-4" aria-hidden="true" fill="currentColor">
-    <path d="M5 7V5a3 3 0 1 1 6 0v2h1a1 1 0 0 1 1 1v6a1 1 0 0 1-1 1H4a1 1 0 0 1-1-1V8a1 1 0 0 1 1-1zm1.6 0h2.8V5a1.4 1.4 0 1 0-2.8 0z" />
-  </svg>
-);
+export type MenuView = 'root' | 'settings' | 'how' | 'credits';
 
 const Item = ({ id, label, sub, onPick, primary = false, delay, autoFocus = false, badge }: { id: string; label: string; sub?: string; onPick: () => void; primary?: boolean; delay: number; autoFocus?: boolean; badge?: string }) => (
   <li data-id={id} style={{ animation: `menuIn 0.45s cubic-bezier(0.2,0.8,0.2,1) ${delay}s both` }}>
@@ -47,46 +40,6 @@ const Item = ({ id, label, sub, onPick, primary = false, delay, autoFocus = fals
     </button>
   </li>
 );
-
-const StageSelect = ({ hud, onPlay, onBack }: { hud: HudState; onPlay: (n: number) => void; onBack: () => void }) => {
-  const ref = useRef<HTMLDivElement>(null);
-  useMenuNav(ref, onBack);
-  usePadNav(ref, { onBack });
-  const { unlocked, current } = hud.stage;
-  return (
-    <Panel title="Endless race" kicker={`${unlocked} of ${STAGES.length} stages open`} onBack={onBack} panelRef={ref}>
-      <ol className="flex flex-col gap-2">
-        {STAGES.map((st, i) => {
-          const n = i + 1;
-          const locked = n > unlocked;
-          const [floor, name] = st.name.includes(' — ') ? st.name.split(' — ') : [`Stage ${n}`, st.name];
-          return (
-            <li key={n} style={{ animation: `menuIn 0.35s ease-out ${i * 0.04}s both` }}>
-              <button
-                type="button"
-                data-nav
-                autoFocus={n === current}
-                disabled={locked}
-                onClick={() => onPlay(n)}
-                aria-label={`Stage ${n}, ${st.name}${locked ? ', locked: park first in the stage before' : ''}`}
-                className={`menu-item flex w-full -skew-x-6 items-center gap-4 border-l-4 px-4 py-3 text-left ${locked ? 'border-cream/10 bg-cream/[0.03] text-cream/35 cursor-not-allowed' : n === current ? 'border-gold bg-gold/10 text-cream' : 'border-cream/25 bg-cream/[0.06] text-cream'}`}
-              >
-                <span className="font-display w-10 skew-x-6 text-3xl leading-none">{locked ? <Lock /> : n}</span>
-                <span className="min-w-0 flex-1 skew-x-6">
-                  <span className="text-lilac block text-xs font-semibold">{floor}</span>
-                  <span className="font-display block truncate text-lg leading-tight">{name}</span>
-                  {!locked && <span className="text-cream/65 mt-0.5 line-clamp-2 block text-xs">{st.news}</span>}
-                </span>
-                {n === current && !locked && <span className="text-gold skew-x-6 text-[10px] font-bold tracking-widest uppercase">Last played</span>}
-              </button>
-            </li>
-          );
-        })}
-      </ol>
-      <p className="text-lilac mt-4 text-xs leading-relaxed">The original race: three rivals, one free bay picked at random. Park first in a stage to open the next; every visit starts at stage 1.</p>
-    </Panel>
-  );
-};
 
 const HowTo = ({ s, onBack, touch }: { s: Settings; onBack: () => void; touch: boolean }) => {
   const ref = useRef<HTMLDivElement>(null);
@@ -111,8 +64,8 @@ const HowTo = ({ s, onBack, touch }: { s: Settings; onBack: () => void; touch: b
           ['Find the free bay', 'One space left, and nobody tells you where. Drive the aisles; it lights up yellow when you are close.'],
           ['Park straight, then stop', 'All four wheels inside the lines, standing still. First car parked wins.'],
           ['Touch nothing', 'Another car, a post or a shopper puts you out. Slow is fast.'],
-          ['Earn your stars', 'Thirty levels on the map, each with one new trick. Park inside the time, beat the par, and park clean and straight for three stars. Stars open the next chapter.'],
-          ['Then race', 'Win level 8 and the endless race opens: the original game, a random bay and three rivals.'],
+          ['Earn your stars', 'Campaign: the levels on the map, each with one new trick and a bay that is harder to find. Park inside the time, beat the par, and park clean and straight for three stars. Stars open the next chapter. Stuck? H shows the way, for one star.'],
+          ['Then race', 'Race: who parks first, against up to three rivals. Win the first race and Endless opens: the original game, a random bay and three rivals.'],
         ].map(([t, d], i) => (
           <li key={t} className="flex gap-4" style={{ animation: `menuIn 0.35s ease-out ${i * 0.05}s both` }}>
             <span className="font-display text-gold w-8 text-3xl leading-none">{i + 1}</span>
@@ -173,10 +126,10 @@ export interface MainMenuProps {
   tier: Tier | null;
   portalMuted: boolean;
   logoSrc?: string;
-  /** No stage: the campaign's level map. A stage: the endless race on it. */
-  onPlay: (stage?: number) => void;
+  /** Play: the game modes. */
+  onPlay: () => void;
   onSound: (kind: 'move' | 'pick' | 'back') => void;
-  /** The campaign's saved progress (Play shows where it continues; the endless race opens with the first chapter's race). */
+  /** The saved progress (Play shows where the campaign continues). */
   campaign?: CampaignProgress;
   /** Start on a sub-view (the screenshot script). */
   initialView?: MenuView;
@@ -200,10 +153,8 @@ export const MainMenu = ({ hud, settings, store, touch, tier, portalMuted, logoS
     root.current?.querySelector<HTMLElement>(`[data-id="${lastFocus.current}"] button`)?.focus();
   }, [view]);
 
-  const { unlocked } = hud.stage;
   const cont = campaign ? continueLevel(campaign) : CAMPAIGN[0];
   const stars = campaign ? totalStars(campaign) : 0;
-  const endless = !campaign || endlessOpen(campaign);
   const open = (v: MenuView) => () => {
     lastFocus.current = v;
     setView(v);
@@ -238,18 +189,10 @@ export const MainMenu = ({ hud, settings, store, touch, tier, portalMuted, logoS
           <nav aria-label="Main menu" className="mt-8 [@media(max-height:500px)]:mt-3 portrait:max-sm:bg-ink-deep/80 portrait:max-sm:-mx-6 portrait:max-sm:mt-0 portrait:max-sm:px-6 portrait:max-sm:pt-4 portrait:max-sm:pb-2 portrait:max-sm:backdrop-blur-md portrait:max-sm:[animation:sheetIn_0.45s_cubic-bezier(0.2,0.8,0.2,1)_both]">
             <div className="kerb mb-3 hidden h-1 portrait:max-sm:block" aria-hidden="true" />
             <ul className="flex flex-col gap-1.5 [@media(max-height:500px)]:gap-0.5">
-              <Item id="play" label="Play" sub={`Level ${cont.n} · ${cont.name}${stars ? ` · ${stars}★` : ''}`} primary delay={0.08} autoFocus={initialView === 'root'} onPick={() => (onSound('pick'), onPlay())} />
-              <Item
-                id="stages"
-                label="Endless race"
-                sub={endless ? `${unlocked}/${STAGES.length}` : 'Win level 8'}
-                badge={endless ? undefined : 'LOCKED'}
-                delay={0.14}
-                onPick={endless ? open('stages') : () => onSound('back')}
-              />
-              <Item id="settings" label="Settings" delay={0.2} onPick={open('settings')} badge={settings.controls.transmission === 'manual' ? 'MANUAL' : undefined} />
-              <Item id="how" label="How to play" delay={0.26} onPick={open('how')} />
-              <Item id="credits" label="Credits" delay={0.32} onPick={open('credits')} />
+              <Item id="play" label="Play" sub={`Level ${cont.n}${stars ? ` · ${stars}★` : ''}`} primary delay={0.08} autoFocus={initialView === 'root'} onPick={() => (onSound('pick'), onPlay())} />
+              <Item id="settings" label="Settings" delay={0.14} onPick={open('settings')} badge={settings.controls.transmission === 'manual' ? 'MANUAL' : undefined} />
+              <Item id="how" label="How to play" delay={0.2} onPick={open('how')} />
+              <Item id="credits" label="Credits" delay={0.26} onPick={open('credits')} />
             </ul>
           </nav>
         </div>
@@ -266,7 +209,6 @@ export const MainMenu = ({ hud, settings, store, touch, tier, portalMuted, logoS
         </footer>
       </div>
 
-      {view === 'stages' && <StageSelect hud={hud} onBack={back} onPlay={(n) => (onSound('pick'), onPlay(n))} />}
       {view === 'settings' && <SettingsPanel settings={settings} store={store} onBack={back} tier={tier} touch={touch} portalMuted={portalMuted} initialTab={initialTab} kicker="Main menu" />}
       {view === 'how' && <HowTo s={settings} onBack={back} touch={touch} />}
       {view === 'credits' && <Credits onBack={back} />}

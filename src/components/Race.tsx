@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 
 import { MainMenu } from '~/components/menu/MainMenu';
+import { Modes } from '~/components/menu/Modes';
 import { SettingsPanel } from '~/components/menu/SettingsPanel';
 import { useApplySettings, useSettings } from '~/components/menu/useSettings';
 import { useMenuNav, usePadNav } from '~/components/menu/ui';
@@ -13,8 +14,8 @@ import { LoadingScreen, Wipe } from '~/components/Transitions';
 import { useSession } from '~/components/useSession';
 import { useCampaign } from '~/components/useCampaign';
 import { CampaignMap } from '~/components/campaign/CampaignMap';
-import { LevelBar, LevelIntro, LevelResult, PrecisionMeter, objectiveOf } from '~/components/campaign/LevelUI';
-import { CAMPAIGN, levelById, nextOpenLevel } from '~/game/sim/campaign';
+import { LevelBar, LevelIntro, LevelResult, PrecisionMeter, levelTag, objectiveOf } from '~/components/campaign/LevelUI';
+import { ALL_LEVELS, isRace, levelById, nextOpenLevel } from '~/game/sim/campaign';
 import { deviceFacts } from '~/game/render/deviceFacts';
 import { resolveTier } from '~/game/render/quality';
 import { keyLabel } from '~/game/settings';
@@ -22,6 +23,7 @@ import { createWebPlatform } from '~/platform/web';
 
 import type { ReactNode } from 'react';
 import type { Session } from '~/components/useSession';
+import type { ModesView } from '~/components/menu/Modes';
 import type { LoadStep, WipeKind } from '~/components/Transitions';
 import type { CameraMode, Game, HudState } from '~/game/render/game';
 import type { Tier } from '~/game/render/quality';
@@ -412,7 +414,7 @@ const PauseMenu = ({
         <div className="kerb mb-5 h-1.5 w-24" aria-hidden="true" />
         <div className="font-display text-gold -skew-x-6 text-5xl leading-none sm:text-6xl">Paused</div>
         {hud.campaign ? (
-          <div className="text-lilac mt-2 text-sm font-semibold">Level {hud.campaign.n} · {hud.campaign.name} · {CAMERAS[hud.camera]}</div>
+          <div className="text-lilac mt-2 text-sm font-semibold">{levelTag(hud.campaign)} · {hud.campaign.name} · {CAMERAS[hud.camera]}</div>
         ) : (
           hud.stage.n > 0 && <div className="text-lilac mt-2 text-sm font-semibold">Stage {hud.stage.n} · {hud.stage.name} · {CAMERAS[hud.camera]}</div>
         )}
@@ -427,7 +429,7 @@ const PauseMenu = ({
           )}
           {onMap && (
             <button type="button" data-nav onClick={onMap} className={`${PAUSE_BTN} text-cream`}>
-              <span className="inline-block skew-x-6">Level map</span>
+              <span className="inline-block skew-x-6">{hud.campaign?.type === 'race' ? 'Race list' : 'Level map'}</span>
             </button>
           )}
           <button type="button" data-nav onClick={onSettings} className={`${PAUSE_BTN} text-cream`}>
@@ -534,8 +536,13 @@ export const Race = ({ platform: given, flavour = 'studio', exit, support, credi
   /** Rounds started this visit: the rule card shows on the first stage-1 rounds. */
   const [roundsSeen, setRoundsSeen] = useState(0);
   const campaign = useCampaign(platform);
-  /** The level map is open (over everything; the game is not drawn behind it). Our own site opens on it. */
-  const [map, setMap] = useState<{ focus?: string } | null>(menu ? null : {});
+  /**
+   * A screen over the game: the game modes (over the live lot in the portal's menu), or the campaign's level map (the game is
+   * not drawn behind it). Our own site opens on the modes.
+   */
+  const [screen, setScreen] = useState<{ kind: 'modes'; view?: ModesView; focus?: string } | { kind: 'map'; focus?: string } | null>(menu ? null : { kind: 'modes' });
+  const map = screen?.kind === 'map' ? screen : null;
+  const modes = screen?.kind === 'modes' ? screen : null;
   /** The level being played and the round of its first attempt (the intro card is shorter on a retry). */
   const attempts = useRef<{ id: string; n: number }>({ id: '', n: 0 });
 
@@ -578,7 +585,7 @@ export const Race = ({ platform: given, flavour = 'studio', exit, support, credi
       gameRef.current = g;
       setGame(g);
       setLoadStep('built');
-      if (process.env.NODE_ENV !== 'production') Object.assign(window, { __game: g, __levels: CAMPAIGN });
+      if (process.env.NODE_ENV !== 'production') Object.assign(window, { __game: g, __levels: ALL_LEVELS });
     });
     return () => {
       cancelled = true;
@@ -595,10 +602,11 @@ export const Race = ({ platform: given, flavour = 'studio', exit, support, credi
     const t = window.setTimeout(() => setLoadGone(true), 350);
     return () => window.clearTimeout(t);
   }, [loadFull]);
-  // Nothing is drawn behind the map.
+  // Nothing is drawn behind the map (nor behind the modes on our own site, where no menu lot is running).
+  const hideGame = !!map || (!!modes && !menu);
   useEffect(() => {
-    game?.setHidden(!!map);
-  }, [game, map]);
+    game?.setHidden(hideGame);
+  }, [game, hideGame]);
   const paused = !!hud?.paused;
   useEffect(() => {
     if (!paused) setPauseSettings(false);
@@ -617,11 +625,21 @@ export const Race = ({ platform: given, flavour = 'studio', exit, support, credi
   const nextLevel = lvHud?.run?.failed === null ? nextOpenLevel(campaign.progress, levelById(lvHud.id)!) : null;
   const playLevel = useCallback((id: string) => {
     playWipe('level');
-    setMap(null);
+    setScreen(null);
     campaign.clearNews();
     gameRef.current?.playLevel(id);
   }, [campaign, playWipe]);
-  const openMap = useCallback((focus?: string) => (playWipe('map'), setMap({ focus })), [playWipe]);
+  /** Back to where a level was picked: the campaign's map, or Race mode's list. */
+  const openMap = useCallback((focus?: string) => {
+    playWipe('map');
+    const l = focus ? levelById(focus) : undefined;
+    if (l && isRace(l)) {
+      setScreen({ kind: 'modes', view: 'races', focus });
+      // The portal's modes stand over the live menu lot, not over the level that just ended.
+      if (menu) gameRef.current?.enterMenu();
+    } else setScreen({ kind: 'map', focus });
+  }, [playWipe, menu]);
+  const openModes = useCallback(() => (playWipe('menu'), setScreen({ kind: 'modes' })), [playWipe]);
   confirmRef.current = () => {
     if (lvHud?.run) void session.next(() => (nextLevel ? playLevel(nextLevel.id) : (campaign.clearNews(), gameRef.current?.retry())));
     else void session.next(() => gameRef.current?.confirm());
@@ -678,7 +696,7 @@ export const Race = ({ platform: given, flavour = 'studio', exit, support, credi
       {!loadGone && <LoadingScreen step={ready ? 'ready' : loadStep} leaving={loadFull} logoSrc={logoSrc} onDone={() => setLoadFull(true)} />}
       <Wipe id={wipe.id} kind={wipe.kind} />
 
-      {hud && inMenu && (
+      {hud && inMenu && !modes && (
         <MainMenu
           hud={hud}
           settings={settings}
@@ -687,9 +705,38 @@ export const Race = ({ platform: given, flavour = 'studio', exit, support, credi
           tier={hud.tier}
           portalMuted={portalMuted}
           logoSrc={logoSrc}
-          onPlay={(n) => (n === undefined ? openMap() : (playWipe('level'), gameRef.current?.startRace(n)))}
+          onPlay={openModes}
           onSound={(k) => gameRef.current?.uiSound(k)}
           campaign={campaign.progress}
+        />
+      )}
+
+      {hud && modes && (
+        <Modes
+          key={`${modes.view ?? 'root'}:${modes.focus ?? ''}`}
+          progress={campaign.progress}
+          stage={hud.stage}
+          initialView={modes.view}
+          focus={modes.focus}
+          solid={!menu}
+          onCampaign={() => openMap()}
+          onRace={playLevel}
+          onEndless={(n) => {
+            playWipe('level');
+            setScreen(null);
+            gameRef.current?.startRace(n);
+          }}
+          onBack={
+            menu
+              ? () => {
+                  playWipe('menu');
+                  setScreen(null);
+                  gameRef.current?.enterMenu();
+                }
+              : undefined
+          }
+          home={menu ? undefined : exit?.({ className: 'panel-cut bg-cream/10 font-display text-cream hover:bg-cream/20 flex min-h-11 items-center gap-1 px-3 text-sm sm:text-base', label: '← Home' })}
+          onSound={(k) => gameRef.current?.uiSound(k)}
         />
       )}
 
@@ -700,15 +747,13 @@ export const Race = ({ platform: given, flavour = 'studio', exit, support, credi
           onPlay={playLevel}
           onBack={() => {
             playWipe('menu');
-            setMap(null);
-            if (menu) gameRef.current?.enterMenu();
-            else gameRef.current?.startRace();
+            setScreen({ kind: 'modes' });
           }}
           onSound={(k) => gameRef.current?.uiSound(k)}
         />
       )}
 
-      {hud && !inMenu && (
+      {hud && !inMenu && !screen && (
         <>
           <div className="pointer-events-none absolute z-10" style={{ top: 'calc(10px + env(safe-area-inset-top))', left: 'calc(10px + env(safe-area-inset-left))' }}>
             <div className="flex flex-col gap-2">
@@ -873,7 +918,7 @@ export const Race = ({ platform: given, flavour = 'studio', exit, support, credi
               game={gameRef.current}
               onResume={() => session.setPaused(false)}
               onSettings={() => (gameRef.current?.uiSound('pick'), setPauseSettings(true))}
-              onQuit={menu ? () => (playWipe('menu'), gameRef.current?.enterMenu()) : undefined}
+              onQuit={menu ? () => (playWipe('menu'), gameRef.current?.enterMenu()) : () => (gameRef.current?.setPaused(false), openModes())}
               exit={exit}
               support={support}
               credit={credit}
@@ -894,7 +939,7 @@ export const Race = ({ platform: given, flavour = 'studio', exit, support, credi
               onMap={() => void session.next(() => openMap(lvHud.id), { noBreak: true })}
             />
           )}
-          {showResult && !lvHud?.run && <Result hud={hud} game={gameRef.current} session={session} exit={exit} support={support} onMenu={menu ? () => (playWipe('menu'), gameRef.current?.enterMenu()) : undefined} />}
+          {showResult && !lvHud?.run && <Result hud={hud} game={gameRef.current} session={session} exit={exit} support={support} onMenu={menu ? () => (playWipe('menu'), gameRef.current?.enterMenu()) : openModes} />}
           {session.inBreak && <BreakCover kind={session.inBreak} />}
         </>
       )}

@@ -1,5 +1,6 @@
 /**
- * The campaign: thirty hand-made levels in four chapters, each with one new idea, and the stars and saved progress around them.
+ * The campaign: hand-made solo levels in four chapters, each with one new idea, and the stars and saved progress around them.
+ * Race mode (`RACES`) is the same kind of data with rivals: who parks first. Both share the stars and the save.
  *
  * A level is data over the same lot the race uses. It picks which part of the site is open (`stage`, see stages.ts), where you
  * start (a pose near the bay, or the gate for a race), which bays you must park in (`target`, in order for a chain), how you must
@@ -84,7 +85,7 @@ export const CHAPTERS: ChapterDef[] = [
   { n: 1, name: "Learner's lot", blurb: 'An empty Sunday lot. Learn the car, the lines and the hold.', gate: 0, view: 'lot' },
   { n: 2, name: 'Busy Saturday', blurb: 'Shoppers, trolleys and the kerb. Patience pays.', gate: 10, view: 'lot' },
   { n: 3, name: 'The car park', blurb: 'Four decks, posts and ramps. Up to the roof and down into the dark.', gate: 25, view: 'garage' },
-  { n: 4, name: 'Closing time', blurb: 'The whole site, tight spaces and full-pace rivals.', gate: 45, view: 'site' },
+  { n: 4, name: 'Closing time', blurb: 'The whole site, tight spaces and a short clock.', gate: 45, view: 'site' },
 ];
 
 const E = Math.PI / 2;
@@ -127,38 +128,34 @@ export const CAMPAIGN: LevelDef[] = [
     id: 'trial', n: 7, chapter: 1, name: 'Time trial', teaches: 'Three bays in a row against the clock. Keep it flowing.',
     type: 'timeTrial', stage: 1, spawn: at(4, 30, E), target: [170, 163, 182], facing: 'any', par: 50, limit: 110,
   },
-  {
-    id: 'first-race', n: 8, chapter: 1, name: 'First race', teaches: 'One rival, one free bay. Find it first, and touch nothing.',
-    type: 'race', stage: 1, spawn: 'gate', target: [107], facing: 'any', leaver: false, bots: { n: 1, pace: { cruise: 0.45, launch: 14 } }, par: 35, limit: 75,
-  },
 
   // ---- Chapter 2: Busy Saturday (the open lot, with shoppers) ------------------------------------------------------------
   {
     // Up the avenue over the zebra at z = 22, then into the EC aisle.
-    id: 'crossing', n: 9, chapter: 2, name: 'Crossing', teaches: 'Shoppers on the zebra go first. Stop and let them cross.',
+    id: 'crossing', n: 8, chapter: 2, name: 'Crossing', teaches: 'Shoppers on the zebra go first. Stop and let them cross.',
     type: 'solo', stage: 1, spawn: at(-2, 12, N), target: [153], facing: 'any', peds: 14, par: 28, limit: 75,
   },
   {
-    id: 'pulling-out', n: 10, chapter: 2, name: 'Pulling out', teaches: 'A car is leaving. Wait for it to back out, then take its bay.',
+    id: 'pulling-out', n: 9, chapter: 2, name: 'Pulling out', teaches: 'A car is leaving. Wait for it to back out, then take its bay.',
     type: 'solo', stage: 1, spawn: at(-52, -10.7, E), target: [30], facing: 'nose', leaver: { bay: 30, at: 2.5 }, par: 26, limit: 75,
   },
   {
     // The first of the parallel bays along the west road: nothing parks behind it, so you can drive in forwards.
-    id: 'kerbside', n: 11, chapter: 2, name: 'Kerbside', teaches: 'The first parallel bay, with room behind: drive in at an angle, then straighten.',
+    id: 'kerbside', n: 10, chapter: 2, name: 'Kerbside', teaches: 'The first parallel bay, with room behind: drive in at an angle, then straighten.',
     type: 'solo', stage: 1, spawn: at(-58, -31, N), target: [240], facing: 'nose', slack: 0.3, par: 15, limit: 60,
   },
   {
-    id: 'parallel', n: 12, chapter: 2, name: 'Proper parallel', teaches: 'Pull up past the gap and reverse in: the S-turn.',
+    id: 'parallel', n: 11, chapter: 2, name: 'Proper parallel', teaches: 'Pull up past the gap and reverse in: the S-turn.',
     type: 'solo', stage: 1, spawn: at(-58, 2, N), target: [245], facing: 'nose', bays: { 244: 'car', 246: 'suv' }, par: 25, limit: 80,
   },
   {
     // Parked nose-in in the dead-end pocket between two vans; out to the main road.
-    id: 'dead-end', n: 13, chapter: 2, name: 'Dead end', teaches: 'Back out into a narrow pocket, turn round, and drive out.',
+    id: 'dead-end', n: 12, chapter: 2, name: 'Dead end', teaches: 'Back out into a narrow pocket, turn round, and drive out.',
     type: 'unpark', stage: 1, spawn: at(-47.92, -45.1, W), target: [], exit: { x: -42, z: -31.5, r: 3.2, lvl: 0 }, facing: 'any', bays: { 236: 'free' }, par: 20, limit: 60,
   },
   {
     // The WB aisle (one way, westbound) narrowed by cones; the bay is beyond them.
-    id: 'trolleys', n: 14, chapter: 2, name: 'Trolley run', teaches: 'Cones and trolleys narrow the aisle. Watch your corners.',
+    id: 'trolleys', n: 13, chapter: 2, name: 'Trolley run', teaches: 'Cones and trolleys narrow the aisle. Watch your corners.',
     type: 'solo', stage: 1, spawn: at(-3, 8.7, W), target: [51], facing: 'nose', peds: 6, bays: { 53: 'corral', 45: 'corral' },
     cones: [
       { x: -10, z: 12.2 }, { x: -10, z: 11.5 }, { x: -10, z: 10.8 },
@@ -168,78 +165,92 @@ export const CAMPAIGN: LevelDef[] = [
     par: 26, limit: 70,
   },
   {
-    id: 'shuffle', n: 15, chapter: 2, name: 'Shuffle', teaches: 'Park, back out, park again, with shoppers about.',
+    id: 'shuffle', n: 14, chapter: 2, name: 'Shuffle', teaches: 'Park, back out, park again, with shoppers about.',
     type: 'chain', stage: 1, spawn: at(-54, -10.7, E), target: [16, 31], facing: 'any', peds: 16, par: 40, limit: 90,
-  },
-  {
-    id: 'saturday-race', n: 16, chapter: 2, name: 'Saturday race', teaches: 'Two rivals and a full lot. Read the board, then search.',
-    type: 'race', stage: 1, spawn: 'gate', target: [47], facing: 'any', leaver: false, bots: { n: 2, pace: { cruise: 0.5, launch: 8 } }, par: 40, limit: 75,
   },
 
   // ---- Chapter 3: The car park (one more deck each level) ----------------------------------------------------------------
   {
     // P0, the south row of the east-bound aisle, across from your lane.
-    id: 'ground-floor', n: 17, chapter: 3, name: 'Ground floor', teaches: 'Under a deck: walls, columns and parked cars all count. Easy does it.',
+    id: 'ground-floor', n: 15, chapter: 3, name: 'Ground floor', teaches: 'Under a deck: walls, columns and parked cars all count. Easy does it.',
     type: 'solo', stage: 2, spawn: at(77, 8.7, E), target: [292], facing: 'any', par: 18, limit: 60,
   },
   {
-    id: 'column-reverse', n: 18, chapter: 3, name: 'Column reverse', teaches: 'Reverse in beside a column: watch the rear swing.',
+    id: 'column-reverse', n: 16, chapter: 3, name: 'Column reverse', teaches: 'Reverse in beside a column: watch the rear swing.',
     type: 'solo', stage: 2, spawn: at(108, -9.5, W), target: [299], facing: 'tail', par: 28, limit: 75,
   },
   {
-    id: 'ramp', n: 19, chapter: 3, name: 'Up the ramp', teaches: 'Climb to P1 and take the first bay after the ramp.',
+    id: 'ramp', n: 17, chapter: 3, name: 'Up the ramp', teaches: 'Climb to P1 and take the first bay after the ramp.',
     type: 'solo', stage: 3, spawn: at(96, 8.7, E), target: [339], facing: 'any', par: 35, limit: 90,
   },
   {
-    id: 'roof', n: 20, chapter: 3, name: 'The roof', teaches: 'A long run to the top. Arrive quick, stop exactly.',
+    id: 'roof', n: 18, chapter: 3, name: 'The roof', teaches: 'A long run to the top. Arrive quick, stop exactly.',
     type: 'solo', stage: 4, spawn: at(96, 8.7, E, 1), target: [370], facing: 'any', par: 40, limit: 90,
   },
   {
-    id: 'underground', n: 21, chapter: 3, name: 'Underground', teaches: 'Down into the dark, with people about. Slow down.',
+    id: 'underground', n: 19, chapter: 3, name: 'Underground', teaches: 'Down into the dark, with people about. Slow down.',
     type: 'solo', stage: 5, spawn: at(109.6, 4, S), target: [274], facing: 'any', peds: 6, par: 50, limit: 110,
   },
   {
     // P0, nose-in between two vans; out along the one-way aisle to the ramp junction.
-    id: 'boxed-in', n: 22, chapter: 3, name: 'Boxed in', teaches: 'Vans both sides: reverse out straight before you turn.',
+    id: 'boxed-in', n: 20, chapter: 3, name: 'Boxed in', teaches: 'Vans both sides: reverse out straight before you turn.',
     type: 'unpark', stage: 2, spawn: at(88.05, 15.32, N), target: [], exit: { x: 107, z: 8.7, r: 3.2, lvl: 0 }, facing: 'any', bays: { 280: 'van', 281: 'free', 282: 'van' }, par: 18, limit: 60,
   },
   {
-    id: 'two-decks', n: 23, chapter: 3, name: 'Two decks', teaches: 'One bay on the ground floor, one upstairs. Plan the route.',
+    id: 'two-decks', n: 21, chapter: 3, name: 'Two decks', teaches: 'One bay on the ground floor, one upstairs. Plan the route.',
     type: 'chain', stage: 3, spawn: at(77, 8.7, E), target: [292, 338], facing: 'any', par: 60, limit: 120,
-  },
-  {
-    id: 'decoy-race', n: 24, chapter: 3, name: 'Decoy race', teaches: 'Three rivals and a flickering board. Trust what you see.',
-    type: 'race', stage: 3, spawn: 'gate', target: [316], facing: 'any', bots: { n: 3, pace: { cruise: 0.75, launch: 4 } }, par: 60, limit: 90,
   },
 
   // ---- Chapter 4: Closing time (the whole site) --------------------------------------------------------------------------
   {
-    id: 'last-space', n: 25, chapter: 4, name: 'Last space', teaches: 'Reverse in between an SUV and a van, dead straight.',
+    id: 'last-space', n: 22, chapter: 4, name: 'Last space', teaches: 'Reverse in between an SUV and a van, dead straight.',
     type: 'solo', stage: 6, spawn: at(14, 10.7, E), target: [146], facing: 'tail', slack: 0.12, maxAngleDeg: 10, bays: { 147: 'van' }, par: 26, limit: 80,
   },
   {
-    id: 'leaver-race', n: 26, chapter: 4, name: 'Leaver race', teaches: 'A second bay opens mid-race. Change plan when it does.',
-    type: 'race', stage: 6, spawn: 'gate', target: [183], facing: 'any', leaver: true, bots: { n: 3, pace: { cruise: 0.9, launch: 2 } }, par: 50, limit: 110,
-  },
-  {
-    id: 'rush-hour', n: 27, chapter: 4, name: 'Rush hour', teaches: 'Every shopper is out. Two rivals. Keep your head.',
-    type: 'race', stage: 6, spawn: 'gate', target: [154], facing: 'any', leaver: false, bots: { n: 2, pace: { cruise: 0.9, launch: 2 } }, par: 45, limit: 100,
-  },
-  {
-    id: 'parallel-pressure', n: 28, chapter: 4, name: 'Parallel, quick', teaches: 'A tight parallel bay against a short clock.',
+    id: 'parallel-pressure', n: 23, chapter: 4, name: 'Parallel, quick', teaches: 'A tight parallel bay against a short clock.',
     type: 'solo', stage: 6, spawn: at(-58, 4, N), target: [246], facing: 'nose', peds: 10, bays: { 245: 'suv' }, par: 22, limit: 60,
   },
   {
-    id: 'grand-tour', n: 29, chapter: 4, name: 'Grand tour', teaches: 'The open lot, the roof, then underground. One run.',
+    id: 'grand-tour', n: 24, chapter: 4, name: 'Grand tour', teaches: 'The open lot, the roof, then underground. One run.',
     type: 'chain', stage: 6, spawn: at(22, 10.7, E), target: [149, 370, 274], facing: 'any', peds: 12, par: 150, limit: 300,
   },
+];
+
+/**
+ * Race mode: who parks first. Six races against one to three rivals, each opened by winning the one before (the first is
+ * always open). The bay is hidden like in the endless race; `chapter` only says which part of the site the race is set in.
+ */
+export const RACES: LevelDef[] = [
   {
-    id: 'final', n: 30, chapter: 4, name: 'The final', teaches: 'The whole site, three rivals at full pace, the bay anywhere.',
+    id: 'first-race', n: 1, chapter: 1, name: 'First race', teaches: 'One rival, one free bay. Find it first, and touch nothing.',
+    type: 'race', stage: 1, spawn: 'gate', target: [107], facing: 'any', leaver: false, bots: { n: 1, pace: { cruise: 0.45, launch: 14 } }, par: 35, limit: 75,
+  },
+  {
+    id: 'saturday-race', n: 2, chapter: 2, name: 'Saturday race', teaches: 'Two rivals and a full lot. Read the board, then search.',
+    type: 'race', stage: 1, spawn: 'gate', target: [47], facing: 'any', leaver: false, bots: { n: 2, pace: { cruise: 0.5, launch: 8 } }, par: 40, limit: 75,
+  },
+  {
+    id: 'decoy-race', n: 3, chapter: 3, name: 'Decoy race', teaches: 'Three rivals and a flickering board. Trust what you see.',
+    type: 'race', stage: 3, spawn: 'gate', target: [316], facing: 'any', bots: { n: 3, pace: { cruise: 0.75, launch: 4 } }, par: 60, limit: 90,
+  },
+  {
+    id: 'rush-hour', n: 4, chapter: 4, name: 'Rush hour', teaches: 'Every shopper is out. Two rivals. Keep your head.',
+    type: 'race', stage: 6, spawn: 'gate', target: [154], facing: 'any', leaver: false, bots: { n: 2, pace: { cruise: 0.9, launch: 2 } }, par: 45, limit: 100,
+  },
+  {
+    id: 'leaver-race', n: 5, chapter: 4, name: 'Leaver race', teaches: 'A second bay opens mid-race. Change plan when it does.',
+    type: 'race', stage: 6, spawn: 'gate', target: [183], facing: 'any', leaver: true, bots: { n: 3, pace: { cruise: 0.9, launch: 2 } }, par: 50, limit: 110,
+  },
+  {
+    id: 'final', n: 6, chapter: 4, name: 'The final', teaches: 'The whole site, three rivals at full pace, the bay anywhere.',
     type: 'race', stage: 6, spawn: 'gate', target: [], facing: 'any', leaver: true, bots: { n: 3, pace: { cruise: 1, launch: 0 } }, par: 50, limit: 110,
   },
 ];
 
-export const levelById = (id: string): LevelDef | undefined => CAMPAIGN.find((l) => l.id === id);
+/** Every level of both modes (progress is saved under their ids). */
+export const ALL_LEVELS: LevelDef[] = [...CAMPAIGN, ...RACES];
+
+export const levelById = (id: string): LevelDef | undefined => ALL_LEVELS.find((l) => l.id === id);
 export const isRace = (l: LevelDef) => l.type === 'race';
 
 /**
@@ -398,23 +409,53 @@ export interface LevelRecord {
 }
 
 export interface CampaignProgress {
+  /** Every level played, both modes, by id. */
   levels: Record<string, LevelRecord>;
+  /**
+   * Campaign levels kept open from an older save (version 1 mixed the races into the campaign, so its star totals and level
+   * order opened levels that the new rules alone might not). Empty for a new player.
+   */
+  unlocked: string[];
 }
 
-export const emptyProgress = (): CampaignProgress => ({ levels: {} });
+export const emptyProgress = (): CampaignProgress => ({ levels: {}, unlocked: [] });
 
-/** Reads the save; anything missing, broken or from an unknown level is dropped, never thrown. */
+/** The save's format: 1 had the races inside the thirty campaign levels, 2 keeps them in their own mode. */
+export const SAVE_VERSION = 2;
+
+/** Version 1's level order and chapter star gates, to work out which levels an old save had open. */
+const V1_ORDER = [
+  'first-bay', 'neighbours', 'angled', 'swing', 'back-in', 'vans', 'trial', 'first-race',
+  'crossing', 'pulling-out', 'kerbside', 'parallel', 'dead-end', 'trolleys', 'shuffle', 'saturday-race',
+  'ground-floor', 'column-reverse', 'ramp', 'roof', 'underground', 'boxed-in', 'two-decks', 'decoy-race',
+  'last-space', 'leaver-race', 'rush-hour', 'parallel-pressure', 'grand-tour', 'final',
+];
+const V1_GATES = [0, 10, 25, 45];
+
+/** The campaign levels a version 1 save had open (its rules: every star counted, races included, in its own order). */
+export const v1Open = (levels: Record<string, LevelRecord>): string[] => {
+  const total = Object.values(levels).reduce((a, r) => a + r.stars, 0);
+  return V1_ORDER.filter((id, i) => {
+    const chapter = Math.min(3, Math.floor(i / 8));
+    if (total < V1_GATES[chapter]) return false;
+    return i === 0 || (levels[V1_ORDER[i - 1]]?.stars ?? 0) > 0;
+  }).filter((id) => CAMPAIGN.some((l) => l.id === id));
+};
+
+/** Reads the save; anything missing, broken or from an unknown level is dropped, never thrown. A version 1 save is migrated. */
 export const loadProgress = (store: KeyValue): CampaignProgress => {
   try {
     const raw = store.getItem(CAMPAIGN_KEY);
     if (!raw) return emptyProgress();
-    const data = JSON.parse(raw) as { v?: number; levels?: Record<string, Partial<LevelRecord>> };
+    const data = JSON.parse(raw) as { v?: number; levels?: Record<string, Partial<LevelRecord>>; unlocked?: unknown };
     const levels: Record<string, LevelRecord> = {};
     for (const [id, r] of Object.entries(data.levels ?? {})) {
       if (!levelById(id) || typeof r?.stars !== 'number') continue;
       levels[id] = { stars: Math.max(0, Math.min(3, Math.round(r.stars))), best: Number(r.best) || 0, precision: Number(r.precision) || 0 };
     }
-    return { levels };
+    const kept = (data.v ?? 1) < 2 ? v1Open(levels) : Array.isArray(data.unlocked) ? data.unlocked : [];
+    const unlocked = kept.filter((id): id is string => typeof id === 'string' && CAMPAIGN.some((l) => l.id === id));
+    return { levels, unlocked };
   } catch {
     return emptyProgress();
   }
@@ -422,7 +463,7 @@ export const loadProgress = (store: KeyValue): CampaignProgress => {
 
 export const saveProgress = (store: KeyValue, p: CampaignProgress) => {
   try {
-    store.setItem(CAMPAIGN_KEY, JSON.stringify({ v: 1, levels: p.levels }));
+    store.setItem(CAMPAIGN_KEY, JSON.stringify({ v: SAVE_VERSION, levels: p.levels, unlocked: p.unlocked }));
   } catch {
     /* storage full or blocked: progress lives for this visit only */
   }
@@ -438,33 +479,53 @@ export const recordRun = (p: CampaignProgress, l: LevelDef, r: RunResult): Campa
     best: old?.best ? Math.min(old.best, r.time) : r.time,
     precision: Math.max(r.precision, old?.precision ?? 0),
   };
-  return { levels: { ...p.levels, [l.id]: rec } };
+  return { ...p, levels: { ...p.levels, [l.id]: rec } };
 };
 
-export const totalStars = (p: CampaignProgress) => Object.values(p.levels).reduce((a, r) => a + r.stars, 0);
-export const starsIn = (p: CampaignProgress, chapter: number) => CAMPAIGN.filter((l) => l.chapter === chapter).reduce((a, l) => a + (p.levels[l.id]?.stars ?? 0), 0);
+const starsOf = (p: CampaignProgress, list: LevelDef[]) => list.reduce((a, l) => a + (p.levels[l.id]?.stars ?? 0), 0);
+
+/** The campaign's stars (they open its chapters; race stars count only in Race mode). */
+export const totalStars = (p: CampaignProgress) => starsOf(p, CAMPAIGN);
+export const starsIn = (p: CampaignProgress, chapter: number) => starsOf(p, CAMPAIGN.filter((l) => l.chapter === chapter));
+/** Race mode's stars, and how many of its races you have won. */
+export const raceStars = (p: CampaignProgress) => starsOf(p, RACES);
+export const racesWon = (p: CampaignProgress) => RACES.filter((l) => (p.levels[l.id]?.stars ?? 0) > 0).length;
 
 export const chapterOpen = (p: CampaignProgress, chapter: number) => totalStars(p) >= CHAPTERS[chapter - 1].gate;
 
-/** A level is open when its chapter's star gate is met and the level before it has been finished (the very first is always open). */
+/** The list a level belongs to: the campaign, or Race mode. */
+const listOf = (l: LevelDef) => (isRace(l) ? RACES : CAMPAIGN);
+
+/**
+ * A campaign level is open when its chapter's star gate is met and the level before it has been finished (the very first is
+ * always open), or when an older save had it open. A race is open when the race before it is won (the first always is).
+ */
 export const levelOpen = (p: CampaignProgress, l: LevelDef) => {
-  if (!chapterOpen(p, l.chapter)) return false;
+  const list = listOf(l);
+  if (!isRace(l)) {
+    if (p.unlocked.includes(l.id)) return true;
+    if (!chapterOpen(p, l.chapter)) return false;
+  }
   if (l.n === 1) return true;
-  const prev = CAMPAIGN[l.n - 2];
+  const prev = list[l.n - 2];
   return (p.levels[prev.id]?.stars ?? 0) > 0;
 };
 
-/** Where "Continue" takes you: the first open level not yet finished, else the first open level short of three stars, else the last. */
-export const continueLevel = (p: CampaignProgress): LevelDef => {
-  const open = CAMPAIGN.filter((l) => levelOpen(p, l));
-  return open.find((l) => !p.levels[l.id]) ?? open.find((l) => (p.levels[l.id]?.stars ?? 0) < 3) ?? open[open.length - 1] ?? CAMPAIGN[0];
+const continueIn = (p: CampaignProgress, list: LevelDef[]): LevelDef => {
+  const open = list.filter((l) => levelOpen(p, l));
+  return open.find((l) => !p.levels[l.id]) ?? open.find((l) => (p.levels[l.id]?.stars ?? 0) < 3) ?? open[open.length - 1] ?? list[0];
 };
 
-/** The level after this one, if it is open now. */
+/** Where "Continue" takes you: the first open level not yet finished, else the first open level short of three stars, else the last. */
+export const continueLevel = (p: CampaignProgress): LevelDef => continueIn(p, CAMPAIGN);
+/** The same for Race mode. */
+export const continueRace = (p: CampaignProgress): LevelDef => continueIn(p, RACES);
+
+/** The level after this one in its own mode, if it is open now. */
 export const nextOpenLevel = (p: CampaignProgress, l: LevelDef): LevelDef | null => {
-  const next = CAMPAIGN[l.n];
+  const next = listOf(l)[l.n];
   return next && levelOpen(p, next) ? next : null;
 };
 
-/** The endless race (the six random stages) opens once the first chapter's race is won. */
+/** The endless race (the six random stages) opens once the first race of Race mode is won. */
 export const endlessOpen = (p: CampaignProgress) => (p.levels['first-race']?.stars ?? 0) > 0;
