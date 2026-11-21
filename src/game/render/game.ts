@@ -34,7 +34,7 @@ import { CAMERA_MODES, parkFollow, parkPose, precisionPose, styleFov } from './v
 import { NEAR_MISS, REVEAL, revealOf } from './reveal';
 import { buildFreeBayPaint, buildTargetMarker, buildWorld } from './world';
 import { buildBayGuide, buildExitGuide, buildNextGuides, buildPathGuide } from './guide';
-import { goalLines, goalsOf, levelById, limitTime, parTime, precisionOf, scoresPrecision, starsFor } from '../sim/campaign';
+import { failSpeedOf, goalLines, goalsOf, levelById, limitTime, parTime, precisionOf, scoresPrecision, starsFor } from '../sim/campaign';
 import { aligned } from '../sim/step';
 
 import type { LevelDef, RunResult, StarGoals } from '../sim/campaign';
@@ -112,7 +112,9 @@ export interface HudState {
   /** A full-screen flash (a new id each time): finding the bay, winning, losing. */
   flash: { id: number; kind: 'found' | 'win' | 'lose' } | null;
   /** A big word in the middle of the screen for a moment (a new id each time). */
-  callout: { id: number; text: string; tone: 'good' | 'bad' | 'warn' } | null;
+  callout: { id: number; text: string; tone: 'good' | 'bad' | 'warn'; /** 'high': 28 % from the top, clear of the bay (finding it). */ at: 'mid' | 'high'; /** How long it stays (s). */ secs: number } | null;
+  /** The speed (km/h) of the touch that put you out, or null. */
+  dqKmh: number | null;
   /** Seconds left in the round (the clock turns red in the last ten). */
   left: number;
   /** Set when the round is over. */
@@ -188,6 +190,8 @@ export interface LevelHud {
   /** Inside, straight and the right way round (the hold is filling). */
   aligned: boolean;
   grazes: number;
+  /** The touch speed (km/h) that fails this level; 0 when no touch does (the first four levels). */
+  failKmh: number;
   /** Precision counts for the third star here. */
   scoresPrecision: boolean;
   /** Set once the level is over. */
@@ -515,6 +519,8 @@ export class Game {
   private portrait = false;
   private paused = false;
   private endedAt = -1;
+  /** The closing speed (km/h) of the touch that put you out, or null. */
+  private dqKmh: number | null = null;
   /** Game time you were disqualified at, or -1. */
   private dqAt = -1;
   /**
@@ -690,7 +696,8 @@ export class Game {
     this.world = world;
     // Every round counts down; a retry of the same level or stage skips the lead-in and goes straight to the 3.
     const introKey = racing && !this.menu ? (level ? level.id : `stage${stage}`) : '';
-    if (introKey && introKey === this.introKey) skipIntro(state);
+    // The very first level has no lead-in either: the 3-2-1 starts at once.
+    if (introKey && (introKey === this.introKey || (level && level.type !== 'race' && level.n === 1))) skipIntro(state);
     this.introKey = introKey;
     this.brains = state.cars.map((c) => (c.bot || (c.id === 0 && this.autopilot) ? createBrain(world, c, seed) : null));
     this.prev = this.allCars().map((c) => ({ x: c.x, y: c.y, z: c.z, h: c.h }));
@@ -698,6 +705,7 @@ export class Game {
     this.wheelPrev = this.allCars().map(() => []);
     this.endedAt = -1;
     this.dqAt = -1;
+    this.dqKmh = null;
     this.holdUntil = -1;
     this.paused = false;
     this.found = [false, false];
@@ -1385,6 +1393,7 @@ export class Game {
         if (e.car === 0 && this.racing) {
           // Show the touch: hold the cars where they met, flash and spark at the contact point, crunch. Then the usual
           // way out (the shake, the sting and, a moment later, the result).
+          this.dqKmh = Math.round(e.speed * 3.6);
           this.holdUntil = this.time + CONTACT_HOLD;
           this.acc = 0;
           this.effects.contact(e.x, this.allCars()[e.car]?.y ?? 0, e.z);
@@ -1400,7 +1409,7 @@ export class Game {
         if (e.car === 0 && this.racing) {
           this.sfx.bump(Math.max(0.6, e.speed), e.x, e.z, true);
           this.effects.contact(e.x, s.cars[0].y, e.z);
-          this.pop(null, this.level && this.level.type !== 'race' ? 'GRAZED' : null, 'warn');
+          this.pop(null, this.level && this.level.type !== 'race' ? 'SCRAPE! −★' : null, 'good', 1.2);
         }
       } else if (e.type === 'leg') {
         // The next bay of the chain has just emptied: its car goes.
@@ -1425,7 +1434,6 @@ export class Game {
             this.sfx.lose();
             const me = s.cars[0];
             if (me.dq === null) this.pop('lose', e.winner === null ? 'TIME UP' : me.park > 0.25 ? 'SO CLOSE!' : `${s.cars[e.winner].name.toUpperCase()} GOT IT`, 'bad');
-            else if (this.level && this.level.type !== 'race') this.pop(null, me.dqWhy ? 'TOO HARD' : 'WATCH THE SHOPPERS', 'bad');
           }
         }
       }
@@ -1442,10 +1450,11 @@ export class Game {
   }
 
   /** Show a flash and a word (both optional), and push the HUD at once. */
-  private pop(flash: 'found' | 'win' | 'lose' | null, text: string | null, tone: 'good' | 'bad' | 'warn' = 'good') {
+  private pop(flash: 'found' | 'win' | 'lose' | null, text: string | null, tone: 'good' | 'bad' | 'warn' = 'good', secs = 1.6) {
     this.fxId++;
     if (flash) this.fx = { id: this.fxId, kind: flash };
-    if (text) this.callout = { id: this.fxId, text, tone };
+    // Finding the bay is called high on the screen, so the word never sits over the bay itself.
+    if (text) this.callout = { id: this.fxId, text, tone, at: flash === 'found' ? 'high' : 'mid', secs };
     this.emitHud(true);
   }
 
@@ -2215,6 +2224,7 @@ export class Game {
       paused: this.paused,
       flash: this.fx,
       callout: this.callout,
+      dqKmh: this.dqKmh,
       left: Math.max(0, s.maxTime - s.clock),
       result,
       endedFor: this.endedAt < 0 ? 0 : this.time - this.endedAt,
@@ -2294,6 +2304,7 @@ export class Game {
       precision: inside && bay ? precisionOf(me, bay, rules.facing) : null,
       aligned: inside && me.inBay >= 0.999 && !!bay && aligned(me.h, bay.h, rules),
       grazes: me.grazes,
+      failKmh: Number.isFinite(failSpeedOf(l)) ? Math.round(failSpeedOf(l) * 3.6) : 0,
       scoresPrecision: scoresPrecision(l),
       run,
     };

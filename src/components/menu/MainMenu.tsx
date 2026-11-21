@@ -2,7 +2,7 @@
 
 /**
  * The main menu: the live lot behind it (bots hunting for the one free bay, the bay glowing yellow, a slow orbiting camera),
- * a slanted menu column on the left, and panels that slide in over the column (settings, how to play, credits). Play opens the game modes (Modes.tsx).
+ * a slanted menu column on the left, and panels that slide in over the column (settings, how to play, credits). Play starts the next campaign level at once; Modes opens the game modes (Modes.tsx).
  * On a phone held upright the column becomes a bottom sheet of big buttons under the logo.
  */
 import { useEffect, useRef, useState } from 'react';
@@ -130,8 +130,10 @@ export interface MainMenuProps {
   tier: Tier | null;
   portalMuted: boolean;
   logoSrc?: string;
-  /** Play: the game modes. */
-  onPlay: () => void;
+  /** Play: straight into the next campaign level (the first one for a new player). */
+  onPlay: (levelId: string) => void;
+  /** Modes: the game modes screen (campaign map, Race, Endless). */
+  onModes: () => void;
   onSound: (kind: 'move' | 'pick' | 'back') => void;
   /** The saved progress (Play shows where the campaign continues). */
   campaign?: CampaignProgress;
@@ -146,7 +148,7 @@ export interface MainMenuProps {
   initialTab?: Tab;
 }
 
-export const MainMenu = ({ hud, settings, store, touch, tier, portalMuted, logoSrc, onPlay, onSound, initialView = 'root', initialTab, campaign, platform, shown = true, support: Support }: MainMenuProps) => {
+export const MainMenu = ({ hud, settings, store, touch, tier, portalMuted, logoSrc, onPlay, onModes, onSound, initialView = 'root', initialTab, campaign, platform, shown = true, support: Support }: MainMenuProps) => {
   const hover = useHoverSound(() => onSound('move'));
   const [view, setViewState] = useState<MenuView>(initialView);
   const root = useRef<HTMLDivElement>(null);
@@ -200,7 +202,8 @@ export const MainMenu = ({ hud, settings, store, touch, tier, portalMuted, logoS
           <nav aria-label="Main menu" className="mt-8 [@media(max-height:500px)]:mt-3 portrait:max-sm:bg-ink-deep/80 portrait:max-sm:-mx-6 portrait:max-sm:mt-0 portrait:max-sm:px-6 portrait:max-sm:pt-4 portrait:max-sm:pb-2 portrait:max-sm:backdrop-blur-md portrait:max-sm:[animation:sheetIn_0.45s_cubic-bezier(0.2,0.8,0.2,1)_both]">
             <div className="kerb mb-3 hidden h-1 portrait:max-sm:block" aria-hidden="true" />
             <ul className="flex flex-col gap-1.5 [@media(max-height:500px)]:gap-0.5">
-              <Item id="play" label="Play" sub={`Level ${cont.n}${stars ? ` · ${stars}★` : ''}`} primary delay={0.08} autoFocus={initialView === 'root'} onPick={() => (onSound('pick'), onPlay())} />
+              <Item id="play" label="Play" sub={`Level ${cont.n}${stars ? ` · ${stars}★` : ''}`} primary delay={0.08} autoFocus={initialView === 'root'} onPick={() => (onSound('pick'), onPlay(cont.id))} />
+              <Item id="modes" label="Modes" delay={0.11} onPick={() => (onSound('pick'), onModes())} />
               <Item id="settings" label="Settings" delay={0.14} onPick={open('settings')} badge={settings.controls.transmission === 'manual' ? 'MANUAL' : undefined} />
               <Item id="how" label="How to play" delay={0.2} onPick={open('how')} />
               <Item id="credits" label="Credits" delay={0.26} onPick={open('credits')} />

@@ -709,7 +709,8 @@ export const Race = ({ platform: given, flavour = 'studio', exit, support: given
           tier={hud.tier}
           portalMuted={portalMuted}
           logoSrc={logoSrc}
-          onPlay={openModes}
+          onPlay={playLevel}
+          onModes={openModes}
           onSound={(k) => gameRef.current?.uiSound(k)}
           campaign={campaign.progress}
           platform={platform}
@@ -824,11 +825,20 @@ export const Race = ({ platform: given, flavour = 'studio', exit, support: given
           {hud.disqualified !== null && !showResult && (
             <div className="pointer-events-none absolute inset-x-0 top-1/3 z-20 -translate-y-1/2" role="alert" style={{ animation: 'fadeIn 0.2s ease-out both' }}>
               <div className="bg-orange/95 text-ink-deep w-full px-4 py-3 text-center shadow-2xl">
-                <div className="font-display text-2xl sm:text-5xl">
-                  {hud.dqWhy?.kind === 'car' ? 'YOU HIT A CAR' : hud.dqWhy?.kind === 'obstacle' ? `YOU HIT ${hud.dqWhy.what.toUpperCase()}` : 'YOU HIT A PEDESTRIAN'}
-                </div>
-                <div className="font-display text-lg tracking-widest sm:text-3xl">DISQUALIFIED</div>
-                {hud.dqWhy?.kind === 'car' && <div className="text-sm font-semibold tracking-wide sm:text-xl">{hud.dqWhy.what}</div>}
+                {lvHud?.solo && hud.dqWhy && hud.dqKmh !== null ? (
+                  <>
+                    <div className="font-display text-2xl sm:text-5xl">YOU HIT {hud.dqWhy.what.toUpperCase()}</div>
+                    <div className="font-display mt-1 text-lg tracking-widest text-white sm:text-3xl">TOO FAST: {hud.dqKmh} KM/H</div>
+                  </>
+                ) : (
+                  <>
+                    <div className="font-display text-2xl sm:text-5xl">
+                      {hud.dqWhy?.kind === 'car' ? 'YOU HIT A CAR' : hud.dqWhy?.kind === 'obstacle' ? `YOU HIT ${hud.dqWhy.what.toUpperCase()}` : 'YOU HIT A PEDESTRIAN'}
+                    </div>
+                    <div className="font-display text-lg tracking-widest sm:text-3xl">DISQUALIFIED</div>
+                    {hud.dqWhy?.kind === 'car' && <div className="text-sm font-semibold tracking-wide sm:text-xl">{hud.dqWhy.what}</div>}
+                  </>
+                )}
               </div>
             </div>
           )}
@@ -843,10 +853,10 @@ export const Race = ({ platform: given, flavour = 'studio', exit, support: given
             />
           )}
           {hud.callout && !showResult && (
-            <div key={`c${hud.callout.id}`} className="pointer-events-none absolute inset-x-0 top-[38%] z-20 flex justify-center" role="status">
+            <div key={`c${hud.callout.id}`} className={`pointer-events-none absolute inset-x-0 z-20 flex justify-center ${hud.callout.at === 'high' ? 'top-[28%]' : 'top-[38%]'}`} role="status">
               <div
                 className={`fx-motion font-display px-4 text-center text-4xl drop-shadow-[0_4px_0_#0a0d18] sm:text-6xl ${hud.callout.tone === 'good' ? 'text-gold' : hud.callout.tone === 'bad' ? 'text-orange' : 'text-cream'}`}
-                style={{ animation: 'calloutPop 1.6s ease-out both', WebkitTextStroke: '2px #0a0d18' }}
+                style={{ animation: `calloutPop ${hud.callout.secs}s ease-out both`, WebkitTextStroke: '2px #0a0d18' }}
               >
                 {hud.callout.text}
               </div>

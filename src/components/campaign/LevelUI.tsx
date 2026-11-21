@@ -247,7 +247,7 @@ export const PrecisionMeter = ({ hud }: { hud: HudState }) => {
   );
 };
 
-const FAIL_TITLE: Record<string, string> = { time: 'Out of time', crash: 'Too hard a hit', pedestrian: 'You hit a shopper', lost: 'Beaten to it' };
+const FAIL_TITLE: Record<string, string> = { time: 'Out of time', crash: 'Bumped it', pedestrian: 'You hit a shopper', lost: 'Beaten to it' };
 
 /** The level's result: the stars land one by one, each goal is ticked or not, then Next, Retry and the map. */
 export const LevelResult = ({
@@ -315,6 +315,7 @@ export const LevelResult = ({
             {news.newBest && !news.opened && <span>New best time.</span>}
           </div>
         )}
+        {run.failed === 'crash' && lv.solo && lv.failKmh > 0 && <p className="text-lilac mt-2 text-xs">Under {lv.failKmh} km/h is a scrape. Ease in slowly.</p>}
         {ok && run.stars < 3 && (
           <p className="text-lilac mt-2 text-xs">
             {run.hinted && run.goals.par && run.goals.clean ? 'Find the bay without a hint for the third star.' : !run.goals.par ? `Beat ${lv.par} s for the second star.` : lv.scoresPrecision ? `Park clean and ${PRECISION_STAR}% straight for the third.` : 'Touch nothing for the third star.'}
@@ -328,7 +329,7 @@ export const LevelResult = ({
         <div className="mt-2 flex flex-col gap-2 sm:flex-row [@media(max-height:420px)]:flex-row">
           {next && (
             <button type="button" autoFocus onClick={onNext} className="panel-cut bg-gold font-display text-ink-deep flex min-w-0 flex-[1.4] items-center justify-center px-4 py-3 text-base whitespace-nowrap transition hover:brightness-110 active:scale-95 sm:text-lg [@media(max-height:420px)]:py-2">
-              Next <span className="ml-1">→</span>
+              {lv.type === 'race' ? 'Next' : 'Next level'} <span className="ml-1">→</span>
             </button>
           )}
           <button
