@@ -98,15 +98,6 @@ export const LevelIntro = ({ hud, touch, compact }: { hud: HudState; touch: bool
             </li>
           ))}
         </ul>
-        {lv.waiting ? (
-          <div className="font-display text-green mt-1 text-base tracking-wide sm:text-lg" style={{ animation: 'glowPulse 1.4s ease-in-out infinite' }}>
-            {touch ? 'Press GAS to start' : 'Press gas to start'}
-          </div>
-        ) : hud.countdown > 0 ? (
-          <div key={hud.countdown} className="font-display text-gold text-5xl leading-none sm:text-7xl" style={{ animation: 'countPop 1s ease-out both' }}>
-            {hud.countdown}
-          </div>
-        ) : null}
         {lv.facing === 'tail' && <div className="text-blue text-xs font-bold sm:text-sm">Back in: the arrow shows where the nose must point.</div>}
       </div>
     </div>

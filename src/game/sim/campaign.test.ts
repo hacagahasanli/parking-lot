@@ -18,11 +18,11 @@ import {
   totalStars,
 } from './campaign';
 import { collide, nearShape } from './collide';
-import { DT } from './constants';
+import { DT, RACE } from './constants';
 import { levelY } from './levels';
 import { buildLot } from './lot';
 import { locate, shortestPath } from './nav';
-import { carShape, createRound, drive, emptyBay, makeCar, step } from './step';
+import { carShape, createRound, drive, emptyBay, inIntro, makeCar, skipIntro, step } from './step';
 import { memoryStore } from '~/platform/web';
 import { SCRIPTS, driveScript } from './drive';
 
@@ -53,7 +53,6 @@ const holdIn = (state: GameState, world: World, pose: { x: number; z: number; h:
   // A car pulling out of the bay has gone.
   if (state.leaver) Object.assign(state.leaver, { phase: 'gone' });
   if (state.leaver) Object.assign(state.leaver.car, { x: 9999, z: 9999 });
-  state.waiting = false;
   state.phase = 'race';
   state.t = 5;
   const events: string[] = [];
@@ -77,7 +76,7 @@ const botLeg = (state: GameState, world: World, maxTime: number) => {
   const leg = state.leg ?? 0;
   for (let i = 0; i < maxTime / DT; i++) {
     const input = botInput(state, world, me, brain);
-    step(state, world, [state.waiting ? { ...input, throttle: 1 } : input]);
+    step(state, world, [input]);
     if (state.phase === 'done' || (state.leg ?? 0) > leg) return state.clock;
   }
   return null;
@@ -235,8 +234,7 @@ describe('every level is playable', () => {
       expect(out.edge === at.edge || shortestPath(g, e.to, g.edges[at.edge].from, true) !== null).toBe(true);
       // Driving into the circle finishes the level.
       Object.assign(me, { x: exit.x, z: exit.z, y: levelY(exit.lvl), vx: 2, vz: 0 });
-      state.waiting = false;
-      state.phase = 'race';
+          state.phase = 'race';
       step(state, world, [press({ throttle: 1 })]);
       expect(state.winner).toBe(0);
     });
@@ -247,7 +245,6 @@ describe('every level is playable', () => {
       const { state } = createRound(lot, { seed: 4, bots: [false], level: l });
       expect(state.cars).toHaveLength(1 + l.bots!.n);
       expect(state.cars.slice(1).every((c) => c.bot)).toBe(true);
-      expect(state.waiting).toBe(false);
       expect(state.maxTime).toBe(l.limit);
       expect(state.target).toBeGreaterThanOrEqual(0);
     }
@@ -257,15 +254,41 @@ describe('every level is playable', () => {
 describe('the rules of a level', () => {
   const first = levelById('first-bay')!;
 
-  it('waits on the line until you press gas or brake (no countdown), then starts the clock', () => {
+  it('counts down 3-2-1 like the race: no moving and no clock before GO, even with the pedal down', () => {
     const { state, world } = round(first);
-    for (let i = 0; i < 120; i++) step(state, world, [press({ steer: 1 })]);
-    expect(state.phase).toBe('countdown');
+    const me = state.cars[0];
+    const start = { x: me.x, z: me.z };
+    const counts: number[] = [];
+    let go = 0;
+    while (state.phase === 'countdown') {
+      step(state, world, [press({ throttle: 1 })]);
+      for (const e of state.events) if (e.type === 'count') counts.push(e.n);
+      else if (e.type === 'go') go++;
+    }
+    expect(counts).toEqual([3, 2, 1]);
+    expect(go).toBe(1);
+    expect(Math.hypot(me.x - start.x, me.z - start.z)).toBeLessThan(0.05);
     expect(state.clock).toBe(0);
-    step(state, world, [press({ throttle: 1 })]);
-    expect(state.phase).toBe('race');
     for (let i = 0; i < 60; i++) step(state, world, [press({ throttle: 1 })]);
     expect(state.clock).toBeGreaterThan(0.9);
+    expect(Math.hypot(me.x - start.x, me.z - start.z)).toBeGreaterThan(0.5);
+  });
+
+  it('the lead-in before the 3 can be skipped, the 3-2-1 cannot', () => {
+    const { state, world } = round(first);
+    expect(inIntro(state)).toBe(true);
+    expect(skipIntro(state)).toBe(true);
+    // The very next step calls the 3, and from then on it cannot be skipped.
+    step(state, world, [press({ throttle: 1 })]);
+    expect(state.events).toEqual([{ type: 'count', n: RACE.count }]);
+    expect(inIntro(state)).toBe(false);
+    expect(skipIntro(state)).toBe(false);
+    let steps = 1;
+    while (state.phase === 'countdown') {
+      step(state, world, [press({ throttle: 1 })]);
+      steps++;
+    }
+    expect(steps * DT).toBeCloseTo(RACE.count, 1);
   });
 
   it('only the bays the level names are free: the others hold what the level put there', () => {
@@ -290,8 +313,7 @@ describe('the rules of a level', () => {
       const { state, world } = round(vans);
       const van = world.lot.bays[157];
       const me = state.cars[0];
-      state.waiting = false;
-      state.phase = 'race';
+          state.phase = 'race';
       // Drive straight into the van's back from the aisle, 5 cm away.
       const gap = 0.12 + 4.95 / 2 + 4.45 / 2 + 0.05;
       Object.assign(me, { x: van.x - van.ax * (gap - 0.12 * 2), z: van.z - van.az * (gap - 0.12 * 2), h: van.h, vx: van.ax * speed, vz: van.az * speed, w: 0 });
@@ -316,10 +338,9 @@ describe('the rules of a level', () => {
     expect(me.dq).not.toBeNull();
   });
 
-  it('times out at the level limit', () => {
+  it('times out at the level limit (counted from GO)', () => {
     const { state, world } = round(first);
-    step(state, world, [press({ brake: 1 })]);
-    for (let i = 0; i < (first.limit + 1) / DT; i++) step(state, world, [press({ handbrake: true })]);
+    for (let i = 0; i < (RACE.countdown + first.limit + 1) / DT; i++) step(state, world, [press({ handbrake: true })]);
     expect(state.phase).toBe('done');
     expect(state.winner).toBeNull();
   });

@@ -8,6 +8,7 @@ import { useApplySettings, useSettings } from '~/components/menu/useSettings';
 import { useMenuNav, usePadNav } from '~/components/menu/ui';
 import { Onboarding } from '~/components/Onboarding';
 import { TouchControls, useTouch } from '~/components/TouchControls';
+import { Countdown } from '~/components/Countdown';
 import { LoadingScreen, Wipe } from '~/components/Transitions';
 import { useSession } from '~/components/useSession';
 import { useCampaign } from '~/components/useCampaign';
@@ -141,8 +142,8 @@ const StageDots = ({ hud }: { hud: HudState }) => (
 );
 
 /**
- * The card before each countdown: which stage this is and what is new in it, with the countdown number at its foot (one column,
- * so the number can never land on the text). On a phone it sits between the standings and the right-hand buttons.
+ * The card before each round: which stage this is and what is new in it (the 3-2-1 itself is `Countdown`, in the middle of the
+ * screen). On a phone it sits between the standings and the right-hand buttons.
  */
 const Intro = ({ hud, touch, onboard }: { hud: HudState; touch: boolean; onboard: boolean }) => (
   <div
@@ -169,11 +170,6 @@ const Intro = ({ hud, touch, onboard }: { hud: HudState; touch: boolean; onboard
       </div>
     )}
     {hud.stage.n > 0 && <StageDots hud={hud} />}
-    {hud.countdown > 0 && (
-      <div key={hud.countdown} className="font-display text-gold mt-1 text-6xl leading-none drop-shadow-lg sm:mt-4 sm:text-9xl [@media(max-height:420px)]:text-4xl" style={{ animation: 'countPop 1s ease-out both' }}>
-        {hud.countdown}
-      </div>
-    )}
   </div>
 );
 
@@ -772,11 +768,7 @@ export const Race = ({ platform: given, flavour = 'studio', exit, support, credi
               </div>
             </div>
           )}
-          {hud.phase === 'race' && hud.clock < 1 && (
-            <div className="pointer-events-none absolute inset-0 z-10 flex items-center justify-center">
-              <div className="font-display text-green text-8xl drop-shadow-lg" style={{ animation: 'countPop 1s ease-out both' }}>GO</div>
-            </div>
-          )}
+          <Countdown hud={hud} touch={touch} />
 
 
           <div

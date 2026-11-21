@@ -18,7 +18,7 @@ import { LEVELS, LEVEL_COLOR, LEVEL_H, levelName, levelOf, levelY } from '../sim
 import { BAY, CONE_R, CORRAL, bayCones, buildLot, parkedSpot } from '../sim/lot';
 import { radio } from '../sim/radio';
 import { hasNext, isShut, newProgress, next, pick, stageDef, STAGE_COUNT, won } from '../sim/stages';
-import { createRound, distanceToTarget, forwardSpeed, standings, step } from '../sim/step';
+import { createRound, distanceToTarget, forwardSpeed, inIntro, skipIntro, standings, step } from '../sim/step';
 import { NO_INPUT } from '../sim/types';
 import { MANUAL, band, gearName } from '../sim/gearbox';
 import { DEFAULT_BINDINGS, keyMap } from '../settings';
@@ -80,7 +80,10 @@ export interface ChatBubble {
 
 export interface HudState {
   phase: GameState['phase'];
+  /** Whole seconds to GO (the big numbers show for the last three). */
   countdown: number;
+  /** The lead-in before the 3-2-1: the camera comes down onto your car (gas or brake skips it). */
+  intro: boolean;
   clock: number;
   speed: number;
   gear: string;
@@ -158,10 +161,8 @@ export interface LevelHud {
   par: number;
   limit: number;
   goals: [string, string, string];
-  /** Solo: no rivals, the bay outlined, the clock starts on your first press. */
+  /** Solo: no rivals, the bay outlined. */
   solo: boolean;
-  /** On the line, waiting for your first press. */
-  waiting: boolean;
   /** Which bay of a chain you are on (0-based), and how many. */
   leg: number;
   legs: number;
@@ -509,6 +510,8 @@ export class Game {
   private disposed = false;
   private minimap: HTMLCanvasElement | null = null;
   private roundNo = 0;
+  /** What the last lead-in was for (a level id, or the stage): the same again (a retry) skips straight to the 3-2-1. */
+  private introKey = '';
   /** How far this visit has got (in memory only: a page load starts at stage 1). */
   private progress: Progress = newProgress();
   /** How far the exit barrier is lifted (0..1), eased. */
@@ -667,6 +670,10 @@ export class Game {
     this.shiftQ = 0;
     this.state = state;
     this.world = world;
+    // Every round counts down; a retry of the same level or stage skips the lead-in and goes straight to the 3.
+    const introKey = racing && !this.menu ? (level ? level.id : `stage${stage}`) : '';
+    if (introKey && introKey === this.introKey) skipIntro(state);
+    this.introKey = introKey;
     this.brains = state.cars.map((c) => (c.bot || (c.id === 0 && this.autopilot) ? createBrain(world, c, seed) : null));
     this.prev = this.allCars().map((c) => ({ x: c.x, y: c.y, z: c.z, h: c.h }));
     this.slope = this.allCars().map(() => 0);
@@ -958,6 +965,7 @@ export class Game {
     this.level = def;
     this.menu = false;
     this.hidden = false;
+    this.introKey = '';
     this.onBlur();
     this.newRound();
     this.emitHud(true);
@@ -1009,6 +1017,7 @@ export class Game {
     this.menu = false;
     this.level = null;
     this.hidden = false;
+    this.introKey = '';
     if (stage !== undefined) this.progress = pick(this.progress, stage);
     this.newRound();
     this.emitHud(true);
@@ -1235,6 +1244,8 @@ export class Game {
       }
       return this.racing && i === 0 ? this.playerInput() : NO_INPUT;
     });
+    // Gas or brake during the lead-in skips it (straight to the 3; the cars still hold until GO).
+    if (this.racing && !this.menu && inIntro(s) && (inputs[0].throttle > 0 || inputs[0].brake > 0)) skipIntro(s);
     step(s, this.world, inputs);
     const me = s.cars[0];
     if (this.racing && me.shifted) {
@@ -1760,6 +1771,19 @@ export class Game {
       want = new THREE.Vector3(x - Math.sin(this.cam.yaw) * dist, y + height, z - Math.cos(this.cam.yaw) * dist);
       look = new THREE.Vector3(x + Math.sin(h) * 2.4, y + 1.05, z + Math.cos(h) * 2.4);
     }
+    // The lead-in before the 3-2-1: the camera comes down onto your car from high up and round to the side, and lands on its
+    // usual place as the 3 is called (inside the car park it only swings round, under the decks). Reduced motion: no move.
+    const lead = this.racing && !this.menu && !this.shot && !this.calm && inIntro(s);
+    if (lead) {
+      const u = Math.min(1, s.t / (RACE.countdown - RACE.count));
+      const far = 1 - u * u * (3 - 2 * u);
+      const ox = want.x - x;
+      const oz = want.z - z;
+      const a = far * 1.1;
+      const r = 1 + far * (inside ? 0.3 : 1.5);
+      want.set(x + (ox * Math.cos(a) - oz * Math.sin(a)) * r, want.y + far * (inside ? 0 : 18), z + (ox * Math.sin(a) + oz * Math.cos(a)) * r);
+      look.lerp(new THREE.Vector3(x, y + 0.5, z), far);
+    }
     // Inside the car park: keep under the ceiling, and pull in so the camera never ends up inside a wall, a column or a ramp's side.
     if (!showcase && inside && this.cameraMode === 'chase') {
       want.y = Math.min(want.y, ceil);
@@ -1776,11 +1800,12 @@ export class Game {
         want.y = y + 1.6 + (want.y - y - 1.6) * Math.max(0.5, t);
       }
     }
-    const k = Math.min(1, dt * (showcase ? 1.5 : this.cameraMode === 'park' ? 6 : 8));
+    // The lead-in is a path in time: followed exactly. After it (or a skip) the usual easing takes over from where it stands.
+    const k = lead ? 1 : Math.min(1, dt * (showcase ? 1.5 : this.cameraMode === 'park' ? 6 : 8));
     this.cam.x += (want.x - this.cam.x) * k;
     this.cam.y += (want.y - this.cam.y) * k;
     this.cam.z += (want.z - this.cam.z) * k;
-    this.cam.look.lerp(look, Math.min(1, dt * 10));
+    this.cam.look.lerp(look, lead ? 1 : Math.min(1, dt * 10));
     // Shake from crashes: trauma squared, smooth noise, fades in about a second.
     const shake = this.shakeOn && !this.calm ? this.trauma * this.trauma : 0;
     const n = (f: number, p: number) => Math.sin(this.time * f + p) * 0.6 + Math.sin(this.time * f * 2.3 + p) * 0.4;
@@ -2092,7 +2117,8 @@ export class Game {
       : null;
     cb({
       phase: s.phase,
-      countdown: s.waiting ? 0 : Math.max(0, Math.ceil(RACE.countdown - s.t)),
+      countdown: Math.max(0, Math.ceil(RACE.countdown - s.t)),
+      intro: inIntro(s),
       clock: s.clock,
       speed: Math.abs(vF) * 3.6,
       gear: me.parkedAt !== null ? 'P' : me.box === 'manual' ? gearName(me.mgear) : me.gear === -1 ? 'R' : 'D',
@@ -2187,7 +2213,6 @@ export class Game {
       limit: l.limit,
       goals: goalLines(l),
       solo: l.type !== 'race',
-      waiting: !!s.waiting,
       leg: Math.min(s.leg ?? 0, legs - 1),
       legs,
       precision: inside && bay ? precisionOf(me, bay, rules.facing) : null,

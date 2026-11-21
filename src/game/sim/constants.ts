@@ -132,7 +132,13 @@ export const PED = {
 } as const;
 
 export const RACE = {
+  /**
+   * From the start of a round to GO (s): first the lead-in (the camera comes down onto your car, the level card), then the
+   * last `count` seconds are the big 3-2-1. Every round has it, solo levels too; the cars hold on the brake until GO.
+   */
   countdown: 5,
+  /** The numbers called (3, 2, 1, then GO). The lead-in before them can be skipped (`skipIntro`). */
+  count: 3,
   /** After the winner parks, how long the others get before the round ends (they can still finish 2nd, 3rd). */
   afterWin: 6,
   /** Hard limit on a round (seconds from GO): two minutes, so a lost round never drags. */

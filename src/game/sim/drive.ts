@@ -74,6 +74,8 @@ export const driveScript = (lot: Lot, level: LevelDef, script: Script, seed = 3)
       push(I(v < 0 ? 1 : 0, v > 0 ? 1 : 0, steer));
     }
   };
+  // The countdown first (the car holds on the brake until GO).
+  while (state.phase === 'countdown') push({ throttle: 0, brake: 0, steer: 0, handbrake: false, horn: false });
   const lim = 60 * 40;
   const bay = state.target >= 0 ? world.lot.bays[state.target] : null;
   if (script.kind === 'segments') {

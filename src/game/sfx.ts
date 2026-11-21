@@ -735,7 +735,18 @@ export const createSfx = (): Sfx => {
     shout,
     toot,
     // Countdown: soft sine pips, the GO a little brighter. Race only.
-    beep: (high) => cue('beep') && tone(cueBus, high ? 880 : 440, 0, high ? 0.4 : 0.15, high ? 0.08 : 0.06, 'sine'),
+    // The start lights: each of 3-2-1 a short square pip with its octave (it cuts through the engines), GO a bright two-note chord.
+    beep: (high) => {
+      if (!cue('beep')) return;
+      if (high) {
+        tone(cueBus, 880, 0, 0.45, 0.07, 'sawtooth', 2400);
+        tone(cueBus, 1320, 0, 0.45, 0.05, 'square', 2400);
+        tone(cueBus, 1760, 0.02, 0.3, 0.035, 'sine');
+      } else {
+        tone(cueBus, 523, 0, 0.16, 0.06, 'square', 1800);
+        tone(cueBus, 1046, 0, 0.12, 0.03, 'sine');
+      }
+    },
     win: () => {
       if (!cue('win')) return;
       duck();

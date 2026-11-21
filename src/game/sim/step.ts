@@ -267,8 +267,8 @@ const makeLeaver = (bay: Lot['bays'][number], at: number): Leaver => {
 };
 
 /**
- * A campaign level's round. You start where the level says (a solo level waits for your first press, no countdown; a race
- * starts at the gate after the countdown), the bays it names are free and nothing else is, its rules judge the park, and only
+ * A campaign level's round. You start where the level says (near the bay, or at the gate for a race) and go at GO after the
+ * countdown, like the race, the bays it names are free and nothing else is, its rules judge the park, and only
  * the shoppers whose walks pass nearest the bay are out.
  */
 const createLevelRound = (fullLot: Lot, level: LevelDef, opts: RoundOptions): { state: GameState; world: World } => {
@@ -304,7 +304,6 @@ const createLevelRound = (fullLot: Lot, level: LevelDef, opts: RoundOptions): { 
     world.trolley = keep.map((i) => world.trolley[i]);
   }
   if (level.bots) world.pace = level.bots.pace;
-  const solo = rules.solo;
   const target = targets[0] ?? -1;
   const state: GameState = {
     t: 0,
@@ -332,7 +331,6 @@ const createLevelRound = (fullLot: Lot, level: LevelDef, opts: RoundOptions): { 
     leg: 0,
     legPrecision: [],
     exit: level.exit,
-    waiting: solo,
   };
   return { state, world };
 };
@@ -796,23 +794,28 @@ const stepLeaver = (state: GameState, world: World): Input => {
 // The step
 // ---------------------------------------------------------------------------
 
+/** Still in the lead-in before the 3-2-1 (the camera comes down onto the car; a press of gas or brake skips it). */
+export const inIntro = (state: GameState) => state.phase === 'countdown' && state.t < RACE.countdown - RACE.count;
+
+/**
+ * Skip the lead-in: straight to the 3 of the countdown (a retry starts here; so does a press during the lead-in). The 3-2-1
+ * itself always runs, so everyone still starts together at GO. It stops half a step short, so the next step calls the 3.
+ */
+export const skipIntro = (state: GameState) => {
+  if (!inIntro(state)) return false;
+  state.t = Math.max(state.t, RACE.countdown - RACE.count - DT / 2);
+  return true;
+};
+
 /** Advances the round by one fixed step. `inputs[i]` drives car i. Events of this step land in `state.events`. */
 export const step = (state: GameState, world: World, inputs: Input[]) => {
   state.events = [];
-  // A solo level holds on the line until you press gas or brake: then the clock starts at once.
-  if (state.waiting && state.phase === 'countdown') {
-    const i = inputs[0];
-    if (i && (i.throttle > 0 || i.brake > 0)) {
-      state.waiting = false;
-      state.phase = 'race';
-      state.t = RACE.countdown;
-    }
-  }
   const before = Math.ceil(RACE.countdown - state.t);
-  if (!state.waiting) state.t += DT;
+  state.t += DT;
   if (state.phase === 'countdown') {
+    // The lead-in is quiet; the last three seconds are called: 3, 2, 1, then GO.
     const now = Math.ceil(RACE.countdown - state.t);
-    if (now !== before && now > 0) state.events.push({ type: 'count', n: now });
+    if (now !== before && now > 0 && now <= RACE.count) state.events.push({ type: 'count', n: now });
     if (state.t >= RACE.countdown) {
       state.phase = 'race';
       state.events.push({ type: 'go' });

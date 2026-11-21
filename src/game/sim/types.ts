@@ -218,8 +218,6 @@ export interface GameState {
   legPrecision?: number[];
   /** An unpark level: drive into this circle. */
   exit?: { x: number; z: number; r: number; lvl: number };
-  /** A solo level waits on the start line until you press gas or brake (no countdown); false once you have. */
-  waiting?: boolean;
 }
 
 /** Fixed per round: the lot and the colliders (the parked cars with the target bay left empty). */
