@@ -3,6 +3,7 @@ import { Bungee, Chakra_Petch } from 'next/font/google';
 import type { Metadata, Viewport } from 'next';
 import type { ReactNode } from 'react';
 
+import { TelemetryInit } from '~/components/TelemetryInit';
 import { GAME_TITLE, STUDIO_NAME } from '~/lib/studio';
 
 import './globals.css';
@@ -41,7 +42,10 @@ export const viewport: Viewport = {
 
 const RootLayout = ({ children }: { children: ReactNode }) => (
   <html lang="en" className={`${display.variable} ${ui.variable}`}>
-    <body className="min-h-screen font-sans">{children}</body>
+    <body className="min-h-screen font-sans">
+      <TelemetryInit />
+      {children}
+    </body>
   </html>
 );
 

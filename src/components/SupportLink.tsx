@@ -1,4 +1,5 @@
 import { SUPPORT_URL } from '~/lib/links';
+import { track } from '~/lib/telemetry';
 
 /*
  * Site only: the portal build has its own entry (portal/main.tsx) that never imports this file, so no outbound link
@@ -26,6 +27,7 @@ export const SupportLink = ({ className = '' }: { className?: string }) => (
     href={SUPPORT_URL}
     target="_blank"
     rel="noopener"
+    onClick={() => track('support_click', { where: 'game' })}
     className={`group text-gold inline-flex items-center gap-1.5 rounded-full border border-gold/50 bg-gold/10 py-1 pr-3.5 pl-2 text-sm font-semibold transition hover:bg-gold hover:text-ink-deep focus-visible:bg-gold focus-visible:text-ink-deep motion-reduce:transition-none ${className}`}
   >
     <Cup className="h-6 w-6 transition group-hover:-rotate-6 motion-reduce:transition-none" />
@@ -43,6 +45,7 @@ export const SupportCard = () => (
     href={SUPPORT_URL}
     target="_blank"
     rel="noopener"
+    onClick={() => track('support_click', { where: 'home' })}
     className="group relative flex w-full max-w-md -rotate-1 items-stretch overflow-hidden rounded-xl bg-paper text-ink-deep shadow-[0_12px_32px_rgba(0,0,0,0.45)] transition duration-300 hover:-translate-y-1 hover:rotate-0 hover:shadow-[0_18px_40px_rgba(255,210,63,0.25)] focus-visible:-translate-y-1 focus-visible:rotate-0 focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-gold motion-reduce:transition-none motion-reduce:hover:translate-y-0"
   >
     <span aria-hidden className="relative flex w-24 shrink-0 flex-col items-center justify-center gap-1 border-r-2 border-dashed border-ink-deep/25 bg-[#1f5fd1] text-paper sm:w-28">

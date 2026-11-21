@@ -7,6 +7,8 @@
  */
 import { useCallback, useEffect, useRef, useState } from 'react';
 
+import { useTelemetry } from '~/components/useTelemetry';
+import { loadDone } from '~/lib/telemetry';
 import { BreakScheduler } from '~/platform/breaks';
 
 import type { Game, HudState } from '~/game/render/game';
@@ -49,8 +51,12 @@ export const useSession = (game: Game | null, hud: HudState | null, platform: Pl
     if (hud && !loaded.current) {
       loaded.current = true;
       platform.loadingStop();
+      loadDone();
     }
   }, [hud, platform]);
+
+  // Anonymous usage events: a no-op unless the site started counting (never on a portal build).
+  useTelemetry(hud, showResult);
 
   // gameplayStart/Stop follow what is on screen (the adapter forwards only changes).
   useEffect(() => {
