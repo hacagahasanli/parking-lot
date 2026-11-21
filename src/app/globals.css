@@ -181,16 +181,6 @@
   }
 }
 
-@keyframes ledBlink {
-  0%,
-  70% {
-    opacity: 1;
-  }
-  85% {
-    opacity: 0.25;
-  }
-}
-
 @keyframes keyWait {
   50% {
     background: rgba(255, 210, 63, 0.35);

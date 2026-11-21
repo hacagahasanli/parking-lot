@@ -30,14 +30,6 @@ const Lock = () => (
   </svg>
 );
 
-/** The LED sign over the gate, as a small chip above the logo. */
-const Led = () => (
-  <div className="inline-flex items-center gap-2 bg-black/60 px-2.5 py-1 font-mono text-[11px] font-bold tracking-[0.25em] text-[#ffb02e] ring-1 ring-[#ffb02e]/25">
-    <span className="h-1.5 w-1.5 rounded-full bg-[#ff3b2e] shadow-[0_0_8px_#ff3b2e]" style={{ animation: 'ledBlink 1.6s steps(1) infinite' }} />
-    FREE SPACES: <span style={{ animation: 'ledBlink 1.2s steps(1) infinite' }}>1</span>
-  </div>
-);
-
 const Item = ({ id, label, sub, onPick, primary = false, delay, autoFocus = false, badge }: { id: string; label: string; sub?: string; onPick: () => void; primary?: boolean; delay: number; autoFocus?: boolean; badge?: string }) => (
   <li data-id={id} style={{ animation: `menuIn 0.45s cubic-bezier(0.2,0.8,0.2,1) ${delay}s both` }}>
     <button
@@ -231,10 +223,7 @@ export const MainMenu = ({ hud, settings, store, touch, tier, portalMuted, logoS
       >
         <div className="flex flex-1 flex-col justify-center px-6 pt-6 sm:px-10 [@media(max-height:500px)]:pt-3 portrait:max-sm:justify-between portrait:max-sm:pt-[calc(16px+env(safe-area-inset-top))]">
           <header style={{ animation: 'menuIn 0.6s cubic-bezier(0.2,0.8,0.2,1) both' }}>
-            <div className="[@media(max-height:500px)]:hidden">
-              <Led />
-            </div>
-            <h1 className="mt-4 [@media(max-height:500px)]:mt-2">
+            <h1>
               {logoSrc ? (
                 <img src={logoSrc} alt={GAME_TITLE} className="h-auto w-full max-w-[460px] drop-shadow-[0_12px_30px_rgba(0,0,0,0.6)] [@media(max-height:500px)]:max-w-[210px] portrait:max-sm:max-w-[300px]" draggable={false} />
               ) : (
