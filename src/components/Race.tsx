@@ -804,7 +804,7 @@ export const Race = ({ platform: given, flavour = 'studio', exit, support: given
           {/* What to do, in words, while you drive a solo level (the first two levels keep it up the whole time). */}
           {lvHud?.solo && hud.phase === 'race' && !hud.result && hud.disqualified === null && (lvHud.n <= 2 || hud.clock < 8) && (
             <div
-              className={`pointer-events-none absolute left-1/2 z-10 -translate-x-1/2 ${touch ? 'portrait:top-[calc(204px+env(safe-area-inset-top))] portrait:max-w-[92vw] landscape:top-[calc(60px+env(safe-area-inset-top))] landscape:max-w-[calc(100vw-22rem)]' : 'top-[calc(56px+env(safe-area-inset-top))] max-w-[92vw]'}`}
+              className={`pointer-events-none absolute left-1/2 z-10 -translate-x-1/2 ${touch ? 'portrait:top-[calc(204px+env(safe-area-inset-top))] portrait:max-w-[92vw] landscape:top-[calc(60px+env(safe-area-inset-top))] landscape:max-w-[calc(100vw-22rem)] landscape:[@media(max-height:420px)]:top-[calc(104px+env(safe-area-inset-top))]' : 'top-[calc(56px+env(safe-area-inset-top))] max-w-[92vw]'}`}
               style={{ animation: 'fadeIn 0.4s ease-out both' }}
               role="status"
             >
