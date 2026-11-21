@@ -12,7 +12,7 @@ import { followRoute, routeToNode } from './nav';
 import type { Flavour } from './flavour';
 import { buildWalks, createPeds, pedLimit, stepPeds } from './ped';
 import { roundCap, stageLot } from './stages';
-import { RACE_RULES, angleOff, applyLevel, precisionOf, rulesOf } from './campaign';
+import { RACE_RULES, angleOff, applyLevel, limitTime, precisionOf, rulesOf } from './campaign';
 import { levelY } from './levels';
 
 import type { LevelDef } from './campaign';
@@ -308,7 +308,7 @@ const createLevelRound = (fullLot: Lot, level: LevelDef, opts: RoundOptions): { 
   const state: GameState = {
     t: 0,
     clock: 0,
-    maxTime: opts.maxTime ?? level.limit,
+    maxTime: opts.maxTime ?? limitTime(level),
     flavour: opts.flavour ?? 'studio',
     phase: 'countdown',
     cars,

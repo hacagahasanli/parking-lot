@@ -33,7 +33,7 @@ import { CAMERA_MODES, parkFollow, parkPose, precisionPose, styleFov } from './v
 import { NEAR_MISS, REVEAL, revealOf } from './reveal';
 import { buildFreeBayPaint, buildTargetMarker, buildWorld } from './world';
 import { buildBayGuide, buildExitGuide, buildNextGuides, buildPathGuide } from './guide';
-import { goalLines, goalsOf, levelById, precisionOf, scoresPrecision, starsFor } from '../sim/campaign';
+import { goalLines, goalsOf, levelById, limitTime, parTime, precisionOf, scoresPrecision, starsFor } from '../sim/campaign';
 import { aligned } from '../sim/step';
 
 import type { LevelDef, RunResult, StarGoals } from '../sim/campaign';
@@ -168,6 +168,9 @@ export interface LevelHud {
   facing: LevelDef['facing'];
   par: number;
   limit: number;
+  /** The times the stars are judged against (a solo level's par and limit plus the reaction to GO). */
+  parAt: number;
+  limitAt: number;
   goals: [string, string, string];
   /** Solo: no rivals, the bay outlined. */
   solo: boolean;
@@ -2220,6 +2223,8 @@ export class Game {
       facing: l.facing,
       par: l.par,
       limit: l.limit,
+      parAt: parTime(l),
+      limitAt: limitTime(l),
       goals: goalLines(l),
       solo: l.type !== 'race',
       leg: Math.min(s.leg ?? 0, legs - 1),

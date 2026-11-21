@@ -182,9 +182,6 @@ const Intro = ({ hud, touch, onboard }: { hud: HudState; touch: boolean; onboard
     role="group"
     aria-label={`Stage ${hud.stage.n}: ${hud.stage.name}`}
   >
-    <div className="text-green/90 font-mono text-[10px] tracking-[0.3em] sm:text-xs">
-      ONE SPACE LEFT{hud.stage.n > 0 && <> · STAGE {hud.stage.n} OF {hud.stage.total}</>}
-    </div>
     <div className="font-display text-gold text-2xl leading-none drop-shadow-[0_4px_24px_rgba(0,0,0,0.85)] sm:text-6xl [@media(max-height:420px)]:text-xl" style={{ animation: 'riseIn 0.5s ease-out both' }}>
       {hud.stage.n > 0 ? hud.stage.name : 'ONE SPACE LEFT'}
     </div>

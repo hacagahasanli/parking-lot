@@ -115,8 +115,8 @@ export const StarTrack = ({ hud, touch }: { hud: HudState; touch: boolean }) => 
   const race = lv.type === 'race';
   const out = hud.disqualified !== null;
   const stars = [
-    { label: race ? '1st' : `${lv.limit} s`, fill: out || (race && hud.place.now > 1) ? 0 : Math.max(0, 1 - t / lv.limit), what: race ? 'park first' : `park inside ${lv.limit} seconds` },
-    { label: `${lv.par} s`, fill: out ? 0 : Math.max(0, 1 - t / lv.par), what: `under ${lv.par} seconds` },
+    { label: race ? '1st' : `${lv.limit} s`, fill: out || (race && hud.place.now > 1) ? 0 : Math.max(0, 1 - t / lv.limitAt), what: race ? 'park first' : `park inside ${lv.limit} seconds` },
+    { label: `${lv.par} s`, fill: out ? 0 : Math.max(0, 1 - t / lv.parAt), what: `under ${lv.par} seconds` },
     { label: 'clean', fill: out || lv.grazes > 0 ? 0 : 1, what: race ? 'touch nothing' : 'no grazes' },
   ];
   const lit = stars.filter((x) => x.fill > 0).length;

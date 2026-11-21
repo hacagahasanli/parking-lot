@@ -3,6 +3,7 @@ import {
   CAMPAIGN,
   CHAPTERS,
   CAMPAIGN_KEY,
+  GO_GRACE,
   continueLevel,
   emptyProgress,
   endlessOpen,
@@ -369,6 +370,17 @@ describe('precision and stars', () => {
     // A race and an unpark do not score precision.
     const race = levelById('first-race')!;
     expect(starsFor(race, { finished: true, time: 10, grazes: 0, precision: 0 })).toBe(3);
+  });
+
+  it('gives a solo level 0.4 s on top of its par and limit for the reaction to GO (a race keeps its own times)', () => {
+    const l = levelById('first-bay')!;
+    expect(GO_GRACE).toBeCloseTo(0.4);
+    expect(goalsOf(l, { finished: true, time: l.par + 0.35, grazes: 0, precision: 90 }).par).toBe(true);
+    expect(goalsOf(l, { finished: true, time: l.par + 0.45, grazes: 0, precision: 90 }).par).toBe(false);
+    expect(round(l).state.maxTime).toBeCloseTo(l.limit + 0.4);
+    const race = levelById('first-race')!;
+    expect(goalsOf(race, { finished: true, time: race.par + 0.2, grazes: 0, precision: 100 }).par).toBe(false);
+    expect(createRound(lot, { seed: 4, bots: [false], level: race }).state.maxTime).toBe(race.limit);
   });
 });
 

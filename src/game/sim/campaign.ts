@@ -242,6 +242,17 @@ export const CAMPAIGN: LevelDef[] = [
 export const levelById = (id: string): LevelDef | undefined => CAMPAIGN.find((l) => l.id === id);
 export const isRace = (l: LevelDef) => l.type === 'race';
 
+/**
+ * A solo clock starts at GO (it used to start on your first press), so every solo par and limit has this much (s) on top for
+ * the reaction to GO. The cards still show the round number ("Under 18 s"); a race's clock always started at GO.
+ */
+export const GO_GRACE = 0.4;
+const grace = (l: LevelDef) => (isRace(l) ? 0 : GO_GRACE);
+/** The time (s) the second star is judged against. */
+export const parTime = (l: LevelDef) => l.par + grace(l);
+/** The time (s) the level ends at. */
+export const limitTime = (l: LevelDef) => l.limit + grace(l);
+
 // ---------------------------------------------------------------------------
 // Rules of a level, as the sim reads them
 // ---------------------------------------------------------------------------
@@ -355,7 +366,7 @@ export const scoresPrecision = (l: LevelDef) => l.type !== 'race' && l.type !== 
 
 export const goalsOf = (l: LevelDef, r: RunResult): StarGoals => ({
   finish: r.finished,
-  par: r.finished && r.time <= l.par,
+  par: r.finished && r.time <= parTime(l),
   clean: r.finished && r.grazes === 0 && (!scoresPrecision(l) || r.precision >= PRECISION_STAR),
 });
 
