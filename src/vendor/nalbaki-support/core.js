@@ -1,20 +1,17 @@
 /**
- * Nalbaki Support: the pure parts (no DOM). Tiers, the world-data boundary, amounts, payment boundary and copy.
+ * Nalbaki Support: the pure parts (no DOM). Tiers, amounts, the supporter-data boundary, the payment boundary and copy.
  * Everything here is unit-tested in test/core.test.mjs.
  */
 
-/** The highest world stage. 0 is the starting stage (a rock with one sprout); 4 is fully grown. */
-export const MAX_STAGE = 4;
-
 /**
- * The support tiers. `amount` is in US dollars; the custom tier has none. `suggested` marks the one we suggest: it is
- * labelled "Our pick", never "most popular" (we have no such numbers), and it is never pre-selected.
+ * The support tiers. `amount` is in US dollars; the custom tier has none. `suggested` marks the one we suggest; it is
+ * never pre-selected and never called "most popular" (we have no such numbers).
  */
 export const TIERS = Object.freeze([
-  { id: 'spark', amount: 3, name: 'Tiny spark', line: 'A small hello that keeps us going.', mood: 'spark' },
-  { id: 'power', amount: 5, name: 'Power-up', line: 'Helps build the next level.', mood: 'power', suggested: true },
-  { id: 'super', amount: 10, name: 'Super supporter', line: 'Helps keep the game servers running.', mood: 'super' },
-  { id: 'custom', amount: null, name: 'Your call', line: 'Any amount you like, from $1.', mood: 'custom' },
+  { id: 'spark', amount: 3, name: 'Tiny spark' },
+  { id: 'power', amount: 5, name: 'Power-up', suggested: true },
+  { id: 'super', amount: 10, name: 'Super supporter' },
+  { id: 'custom', amount: null, name: 'Your own amount' },
 ]);
 
 export const tierById = (id) => TIERS.find((t) => t.id === id) ?? null;
@@ -36,11 +33,13 @@ export const parseAmount = (raw) => {
   return n;
 };
 
+/** Kept for the data file's `stage` field (no longer drawn). */
+export const MAX_STAGE = 4;
+
 /**
- * The world-data boundary. The site keeps a small JSON file, updated by hand from real supporters:
+ * The supporter-data boundary. The site keeps a small JSON file, updated by hand from real supporters:
  *   { "supporters": number | null, "stage": 0..4, "updatedAt": "YYYY-MM-DD" | null }
- * Anything missing, broken or unknown falls back to the starting stage with no count. When `supporters` is null or 0
- * the stage is always 0: the world never grows without real support behind it.
+ * Anything missing, broken or unknown means "no count". Only a positive whole number of supporters is ever shown.
  */
 export const normalizeWorld = (raw) => {
   const r = raw && typeof raw === 'object' ? raw : {};
@@ -50,15 +49,6 @@ export const normalizeWorld = (raw) => {
   const updatedAt = typeof r.updatedAt === 'string' && !Number.isNaN(Date.parse(r.updatedAt)) ? r.updatedAt : null;
   return { supporters, stage, updatedAt };
 };
-
-/** What each stage of the world looks like, in one short line (shown under the world). */
-export const STAGES = Object.freeze([
-  { name: 'A rock and a sprout', line: 'Our little world is a rock with one sprout. It grows as real support comes in.' },
-  { name: 'Grass and a tree', line: 'Grass, flowers and a first tree. Thank you to everyone who chipped in.' },
-  { name: 'A tiny studio', line: 'A tiny studio with the lights on. Something is being built in there.' },
-  { name: 'Lights and a moon', line: 'String lights, a waterfall and its own moon. It feels like home.' },
-  { name: 'Fully grown', line: 'Fully grown. Fireworks, because you made this happen.' },
-]);
 
 /** A real count, or nothing. Never invents a number. */
 export const supportersLine = (world) => {
@@ -77,7 +67,7 @@ export const updatedLine = (world) => {
 /**
  * The payment boundary. A provider turns an amount into where the Support button goes. Today the only provider is a plain
  * link to the studio's real support page; it cannot pre-fill an amount (itch.io has no URL parameter for one), so
- * `prefillsAmount` is false and the copy tells the visitor to type the amount on the next page. A future provider (a
+ * `prefillsAmount` is false and the copy tells the visitor which amount to choose on the next page. A future provider (a
  * checkout with preset amounts) sets `prefillsAmount: true` and returns a URL per amount, or handles the
  * `nalbaki-support:intent` event itself.
  */
@@ -101,28 +91,33 @@ export const providerLabel = (href) => {
 /** The Support button's words. */
 export const ctaLabel = (amount) => (amount ? `Support with $${amount}` : 'Support us');
 
-/** The honest line under the button: where it goes and who picks the amount. */
+/** The honest line under the button: where it goes and exactly what to do there. */
 export const ctaNote = (amount, provider) => {
   const where = provider.name;
-  const site = where === 'itch.io' ? 'itch.io' : 'it';
   if (provider.prefillsAmount && amount) return `Opens ${where} in a new tab with $${amount} filled in.`;
-  if (amount) return `Opens ${where} in a new tab. Choose $${amount} there; ${site} handles card and PayPal.`;
+  if (amount) return `Opens ${where} in a new tab. Choose $${amount} there and pay by card or PayPal.`;
   return `Opens ${where} in a new tab, where you choose the amount.`;
 };
 
-/** What the mascot says (visual bubble) and what a screen reader hears, per mood. */
-export const MOODS = Object.freeze({
-  idle: { say: "Hi, I'm Baki!", sr: '' },
-  spark: { say: 'Ooh, a spark!', sr: 'Baki’s eyes light up.' },
-  power: { say: 'Boosters on!', sr: 'Baki fires up the boosters.' },
-  super: { say: 'Wheee!', sr: 'Baki does a happy loop.' },
-  custom: { say: 'Any amount is lovely.', sr: 'Baki tilts its head, curious.' },
-  thanks: { say: 'Thank you for thinking of us!', sr: '' },
-});
+/** The small print under the note (itch.io only; another provider gets none). */
+export const finePrint = (provider) => (provider.name === 'itch.io' ? 'Pay what you want, from $1. Payments are handled securely by itch.io.' : '');
 
-/** The status line a screen reader hears after picking a tier. */
+/** The note after a click: a thank-you for thinking of us, never a claim that a payment went through. */
+export const thanksNote = (amount, provider) => {
+  const where = provider.name === 'itch.io' ? 'itch.io' : 'The next page';
+  return amount ? `${where} opened in a new tab. Choose $${amount} there. Thank you!` : `${where} opened in a new tab. Thank you!`;
+};
+
+/** The status line a screen reader hears after picking an amount. */
 export const selectionStatus = (tier, amount, provider) => {
   if (!tier) return '';
-  const what = amount ? `$${amount}, ${tier.name}` : tier.name;
-  return `${what} selected. ${MOODS[tier.mood]?.sr ?? ''} ${ctaNote(amount, provider)}`.replace(/\s+/g, ' ').trim();
+  const what = amount ? `$${amount}` : tier.name;
+  return `${what} selected. ${ctaNote(amount, provider)}`;
 };
+
+/** What support pays for: three honest lines. */
+export const PAYS = Object.freeze([
+  { id: 'servers', title: 'Servers', line: 'for quick online duels in Floor 42, and Last Commit Standing rooms next.', short: 'for quick online duels' },
+  { id: 'games', title: 'New games', line: 'from the first sketch to the first round you can play.', short: 'from sketch to playable' },
+  { id: 'polish', title: 'Late-night polish', line: 'on the bugs and little details that make you hit Play again.', short: 'on the little details' },
+]);

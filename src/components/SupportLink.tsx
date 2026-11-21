@@ -11,7 +11,7 @@ import { track } from '~/lib/telemetry';
  * (scripts/portal-report.mjs checks it).
  *
  * The support UI itself is the studio's shared module, vendored in src/vendor/nalbaki-support (synced by
- * scripts/sync-nalbaki-support.mjs): Baki the mascot, $3 / $5 / $10 chips and a button to the real itch.io page. It is a
+ * scripts/sync-nalbaki-support.mjs): a flat "Support us" card, $3 / $5 / $10 chips and a button to the real itch.io page. It is a
  * web component, so it is loaded on the client only, after the page has painted. A click on any of its links (the Support
  * button, or the pause line to /support) counts as a support click; picking an amount does not.
  */

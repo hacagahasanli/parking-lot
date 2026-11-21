@@ -1,7 +1,7 @@
 /** Types for the plain-JS <nalbaki-support> module (src/nalbaki-support.js). */
 export type SupportVariant = 'home' | 'page' | 'menu' | 'pause' | 'results';
 
-/** The world data file: updated by hand from real supporters. null or 0 supporters always means stage 0. */
+/** The supporter data file, updated by hand from real supporters. Only a positive whole count is ever shown (page variant). */
 export interface SupportWorld {
   supporters: number | null;
   stage: number;
@@ -21,8 +21,11 @@ export interface MountOptions {
   href?: string;
   /** The studio's /support page (pause line, and the home section's "How support works" link). */
   pageHref?: string;
-  /** URL of the world JSON (SupportWorld). */
+  /** URL of the supporter JSON (SupportWorld). */
   dataSrc?: string;
+  /** Thank-you pack previews (home shows the desktop one, page shows both). */
+  packDesktop?: string;
+  packPhone?: string;
   headingLevel?: 1 | 2 | 3 | 4 | 5 | 6;
   /** Pre-pick a tier by amount (3, 5 or 10). */
   amount?: number;
@@ -52,4 +55,4 @@ export declare function normalizeWorld(raw: unknown): SupportWorld;
 export declare function parseAmount(raw: unknown): number | null;
 export declare function linkProvider(href: string): SupportProvider;
 export declare const MAX_STAGE: number;
-export declare const TIERS: ReadonlyArray<{ id: string; amount: number | null; name: string; line: string; mood: string; suggested?: boolean }>;
+export declare const TIERS: ReadonlyArray<{ id: string; amount: number | null; name: string; suggested?: boolean }>;
