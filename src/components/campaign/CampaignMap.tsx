@@ -12,7 +12,7 @@
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 
 import { drawLotMap, mapProjection } from '~/game/render/lotmap';
-import { CAMPAIGN, CHAPTERS, chapterOpen, continueLevel, levelOpen, starsIn, totalStars } from '~/game/sim/campaign';
+import { ALL_LEVELS, CAMPAIGN, CHAPTERS, RACES, chapterOpen, continueLevel, levelOpen, starsIn, totalStars } from '~/game/sim/campaign';
 import { LEVEL_COLOR, levelName } from '~/game/sim/levels';
 import { buildLot } from '~/game/sim/lot';
 
@@ -32,6 +32,8 @@ const DECKS = [2, 1, 0, -1];
 
 /** Where a level's pin stands: its first bay, an unpark level's start, or the gate for a race whose bay is drawn at random. */
 const pinSpot = (lot: Lot, l: LevelDef) => {
+  // Race 1 stands beside level 3 (the result card of level 3 offers it): its pin starts on level 3's and is nudged apart.
+  if (l.id === RACES[0].id) return pinSpot(lot, CAMPAIGN[2]);
   if (l.target.length) {
     const b = lot.bays[l.target[0]];
     return { x: b.x, z: b.z, deck: b.garage ? b.lvl : 0 };
@@ -83,7 +85,9 @@ export const CampaignMap = ({ progress, onPlay, onBack, focus, onSound }: Campai
   const total = totalStars(progress);
   const def = CHAPTERS[chapter - 1];
   const levels = CAMPAIGN.filter((l) => l.chapter === chapter);
-  const selected = CAMPAIGN.find((l) => l.id === sel) ?? levels[0];
+  const selected = ALL_LEVELS.find((l) => l.id === sel) ?? levels[0];
+  /** Chapter 1 also shows Race 1 as a node beside level 3 (same data as Race mode; not on the route). */
+  const nodes = useMemo(() => (chapter === 1 ? [...levels, RACES[0]] : levels), [chapter, levels]);
   const chOpen = chapterOpen(progress, chapter);
 
   useLayoutEffect(() => {
@@ -131,7 +135,7 @@ export const CampaignMap = ({ progress, onPlay, onBack, focus, onSound }: Campai
 
   // Pins in screen space, nudged apart where two would overlap.
   const pins = useMemo(() => {
-    const out = levels.map((l) => {
+    const out = nodes.map((l) => {
       const s = pinSpot(lot, l);
       const panel = panels.find((p) => p.deck === s.deck) ?? panels[0];
       const at = panel ? mapProjection(panel.view, panel.screen, panel.turn).at(s.x, s.z) : { x: 0, y: 0 };
@@ -159,7 +163,7 @@ export const CampaignMap = ({ progress, onPlay, onBack, focus, onSound }: Campai
       p.y = Math.max(18, Math.min(size.h - 30, p.y));
     }
     return out;
-  }, [levels, lot, panels, size]);
+  }, [nodes, lot, panels, size]);
 
   const go = useCallback(
     (l: LevelDef) => {
@@ -211,7 +215,8 @@ export const CampaignMap = ({ progress, onPlay, onBack, focus, onSound }: Campai
   }, [chapter, go, levels, onBack, onSound, pickChapter, sel, selected]);
 
   // The route: pin to pin in play order (on the car park's decks, only between pins on the same deck).
-  const legs = pins.slice(1).map((p, i) => ({ a: pins[i], b: p, done: !!progress.levels[p.l.id] })).filter((s) => def.view !== 'garage' || s.a.deck === s.b.deck);
+  const route = pins.filter((p) => p.l.type !== 'race');
+  const legs = route.slice(1).map((p, i) => ({ a: route[i], b: p, done: !!progress.levels[p.l.id] })).filter((s) => def.view !== 'garage' || s.a.deck === s.b.deck);
   const rec = progress.levels[selected.id];
   const selOpen = levelOpen(progress, selected);
 
@@ -296,7 +301,7 @@ export const CampaignMap = ({ progress, onPlay, onBack, focus, onSound }: Campai
                 }}
                 className="absolute flex -translate-x-1/2 -translate-y-1/2 flex-col items-center outline-none"
                 style={{ left: p.x, top: p.y }}
-                aria-label={`Level ${p.l.n}, ${p.l.name}${open ? `, ${stars} of 3 stars` : ', locked'}`}
+                aria-label={`${p.l.type === 'race' ? 'Race' : 'Level'} ${p.l.n}, ${p.l.name}${open ? `, ${stars} of 3 stars` : ', locked'}`}
                 aria-pressed={isSel}
               >
                 <span
@@ -305,7 +310,7 @@ export const CampaignMap = ({ progress, onPlay, onBack, focus, onSound }: Campai
                   } ${isSel ? 'ring-cream scale-110 ring-2 ring-offset-2 ring-offset-transparent' : ''} ${p.l.type === 'race' && open ? 'rounded-md' : ''}`}
                   style={isNext ? { animation: 'pinPulse 1.6s ease-out infinite' } : undefined}
                 >
-                  {open ? p.l.n : '🔒'}
+                  {open ? (p.l.type === 'race' ? `R${p.l.n}` : p.l.n) : '🔒'}
                 </span>
                 <span className="bg-ink-deep/85 mt-0.5 rounded-sm px-0.5">
                   <Stars n={stars} size="h-2.5 w-2.5 sm:h-3 sm:w-3" label={false} />
@@ -330,7 +335,7 @@ export const CampaignMap = ({ progress, onPlay, onBack, focus, onSound }: Campai
             Chapter {chapter} · {def.name}
           </div>
           <div className="flex items-baseline gap-2">
-            <span className="font-display text-gold text-3xl leading-none">{selected.n}</span>
+            <span className="font-display text-gold text-3xl leading-none">{selected.type === 'race' ? `R${selected.n}` : selected.n}</span>
             <span className="font-display text-cream text-xl leading-tight">{selected.name}</span>
           </div>
           <p className="text-cream/85 text-sm leading-snug">{selected.teaches}</p>

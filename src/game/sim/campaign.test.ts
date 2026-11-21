@@ -642,3 +642,19 @@ describe('momentum on the result card', () => {
     expect(starsToNextChapter(emptyProgress(), 4)).toBe(0);
   });
 });
+
+describe('a rival early: Race 1 from level 3', () => {
+  it('Race 1 is open from the start, and race 2 still needs a win in race 1', () => {
+    expect(levelOpen(emptyProgress(), RACES[0])).toBe(true);
+    expect(levelOpen(emptyProgress(), RACES[1])).toBe(false);
+    const won = recordRun(emptyProgress(), RACES[0], { finished: true, time: 30, grazes: 0, precision: 100 });
+    expect(levelOpen(won, RACES[1])).toBe(true);
+    expect(endlessOpen(won)).toBe(true);
+  });
+
+  it('level 3 is the level whose card offers it, and level 4 is where Race 1 sends you back', () => {
+    expect(CAMPAIGN[2].n).toBe(3);
+    expect(CAMPAIGN[3].n).toBe(4);
+    expect(RACES[0].id).toBe('first-race');
+  });
+});

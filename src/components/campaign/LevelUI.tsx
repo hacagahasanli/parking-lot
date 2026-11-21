@@ -290,6 +290,7 @@ export const LevelResult = ({
   onNext,
   onRetry,
   onMap,
+  onRace,
   support: Support,
 }: {
   hud: HudState;
@@ -303,6 +304,8 @@ export const LevelResult = ({
   onNext: () => void;
   onRetry: () => void;
   onMap: () => void;
+  /** After a park in level 3: a third button that opens Race 1. */
+  onRace?: () => void;
   /** Our own site's support module as a card under the buttons (portals pass nothing). */
   support?: ComponentType<{ variant?: 'pill' | 'card' | 'menu' }>;
 }) => {
@@ -391,6 +394,11 @@ export const LevelResult = ({
           >
             Retry
           </button>
+          {ok && onRace && (
+            <button type="button" onClick={onRace} className="panel-cut bg-cream/10 font-display text-cream flex flex-1 items-center justify-center px-4 py-3 text-base whitespace-nowrap transition hover:bg-cream/20 active:scale-95 sm:text-lg [@media(max-height:420px)]:py-2">
+              Race a rival
+            </button>
+          )}
           <button type="button" onClick={onMap} className="panel-cut bg-cream/10 font-display text-cream flex flex-1 items-center justify-center px-4 py-3 text-base transition hover:bg-cream/20 active:scale-95 sm:text-lg [@media(max-height:420px)]:py-2">
             {lv.type === 'race' ? 'Races' : 'Map'}
           </button>

@@ -15,7 +15,7 @@ import { useSession } from '~/components/useSession';
 import { useCampaign } from '~/components/useCampaign';
 import { CampaignMap } from '~/components/campaign/CampaignMap';
 import { HintButton, LevelBar, LevelIntro, LevelResult, PrecisionMeter, levelTag, objectiveOf } from '~/components/campaign/LevelUI';
-import { ALL_LEVELS, autoAdvances, isRace, levelById, nextOpenLevel, starsToNextChapter } from '~/game/sim/campaign';
+import { ALL_LEVELS, CAMPAIGN, autoAdvances, isRace, levelById, nextOpenLevel, starsToNextChapter } from '~/game/sim/campaign';
 import { deviceFacts } from '~/game/render/deviceFacts';
 import { resolveTier } from '~/game/render/quality';
 import { keyLabel } from '~/game/settings';
@@ -626,8 +626,11 @@ export const Race = ({ platform: given, flavour = 'studio', exit, support: given
   const session = useSession(game, hud, platform, showResult, testBreaks ? { hintEvery: 10, freeHintAfter: 3 } : undefined);
 
   const lvHud = !inMenu ? (hud?.campaign ?? null) : null;
-  const nextLevel = lvHud?.run?.failed === null ? nextOpenLevel(campaign.progress, levelById(lvHud.id)!) : null;
-  const playLevel = useCallback((id: string) => {
+  /** Race 1 reached from level 3's "Race a rival": its Next goes back to the campaign level that was waiting. */
+  const returnTo = useRef<string | null>(null);
+  const nextLevel = lvHud?.run?.failed === null ? (lvHud.id === 'first-race' && returnTo.current ? levelById(returnTo.current)! : nextOpenLevel(campaign.progress, levelById(lvHud.id)!)) : null;
+  const playLevel = useCallback((id: string, back: string | null = null) => {
+    returnTo.current = back;
     playWipe('level');
     setScreen(null);
     campaign.clearNews();
@@ -960,6 +963,7 @@ export const Race = ({ platform: given, flavour = 'studio', exit, support: given
               onNext={() => session.next(() => nextLevel && playLevel(nextLevel.id))}
               onRetry={() => session.next(() => (campaign.clearNews(), gameRef.current?.retry()))}
               onMap={() => session.next(() => openMap(lvHud.id))}
+              onRace={lvHud.id === CAMPAIGN[2].id ? () => session.next(() => playLevel('first-race', CAMPAIGN[3].id)) : undefined}
               support={support}
             />
           )}
