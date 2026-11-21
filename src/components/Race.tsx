@@ -21,7 +21,7 @@ import { resolveTier } from '~/game/render/quality';
 import { keyLabel } from '~/game/settings';
 import { createWebPlatform } from '~/platform/web';
 
-import type { ReactNode } from 'react';
+import type { ComponentType, ReactNode } from 'react';
 import type { Session } from '~/components/useSession';
 import type { ModesView } from '~/components/menu/Modes';
 import type { LoadStep, WipeKind } from '~/components/Transitions';
@@ -32,6 +32,9 @@ import type { Flavour } from '~/game/sim/flavour';
 import type { Platform } from '~/platform/types';
 
 
+/** The site's support module (SupportLink): `pill` is one line, `card` the result-screen card. */
+export type SupportSlot = ComponentType<{ variant?: 'pill' | 'card' }>;
+
 export interface RaceProps {
   /** The page the game runs on (a portal SDK or the plain web). Default: the plain web, every call a no-op. */
   platform?: Platform;
@@ -39,8 +42,8 @@ export interface RaceProps {
   flavour?: Flavour;
   /** Our own site's way out to the home page (portals pass nothing: the game is the whole page, no outbound links). */
   exit?: (p: { className: string; label: string }) => ReactNode;
-  /** Our own site's support link (portals pass nothing). */
-  support?: ReactNode;
+  /** Our own site's support module (portals pass nothing: no outbound links): `pill` in the pause menu, `card` on the result screens. */
+  support?: SupportSlot;
   /** A small credit line in the pause menu ("A game by …"). */
   credit?: string;
   /** Esc pauses (default true). Portals reserve Esc for leaving fullscreen; P always pauses. */
@@ -302,7 +305,7 @@ const Stat = ({ label, value }: { label: string; value: string }) => (
   </div>
 );
 
-const Result = ({ hud, game, session, exit, support, onMenu }: { hud: HudState; game: Game | null; session: Session; exit?: RaceProps['exit']; support?: ReactNode; onMenu?: () => void }) => {
+const Result = ({ hud, game, session, exit, support: Support, onMenu }: { hud: HudState; game: Game | null; session: Session; exit?: RaceProps['exit']; support?: SupportSlot; onMenu?: () => void }) => {
   const r = hud.result!;
   const st = hud.stage;
   const unlockedNow = r.won && st.hasNext;
@@ -365,10 +368,10 @@ const Result = ({ hud, game, session, exit, support, onMenu }: { hud: HudState; 
           {exit?.({ className: 'panel-cut bg-cream/10 font-display text-cream flex flex-1 items-center justify-center px-4 py-3 text-base transition hover:bg-cream/20 active:scale-95 sm:text-lg', label: 'Home' })}
         </div>
         <p className="text-lilac mt-3 hidden text-xs sm:block"><Key k="Enter" /> {unlockedNow ? 'goes to the next stage' : 'tries again'}</p>
-        {support && (
-          <p className="text-lilac mt-3 flex flex-wrap items-center justify-center gap-x-2 text-sm">
-            Enjoyed it? {support}
-          </p>
+        {Support && (
+          <div className="mt-4">
+            <Support variant="card" />
+          </div>
         )}
       </div>
     </div>
@@ -385,7 +388,7 @@ const PauseMenu = ({
   onSettings,
   onQuit,
   exit,
-  support,
+  support: Support,
   credit,
   onRetry,
   onMap,
@@ -398,7 +401,7 @@ const PauseMenu = ({
   onRetry?: () => void;
   onMap?: () => void;
   exit?: RaceProps['exit'];
-  support?: ReactNode;
+  support?: SupportSlot;
   credit?: string;
 }) => {
   const ref = useRef<HTMLDivElement>(null);
@@ -448,10 +451,9 @@ const PauseMenu = ({
             <StageChips hud={hud} game={game} />
           </div>
         )}
-        {support && (
-          <div className="mt-5 flex flex-col items-start gap-1.5">
-            <span className="text-lilac text-sm">Having fun? A coffee helps us build the next level.</span>
-            {support}
+        {Support && (
+          <div className="mt-5">
+            <Support />
           </div>
         )}
         {credit && <div className="text-lilac mt-6 text-[11px] tracking-wide">A game by {credit}</div>}
@@ -941,6 +943,7 @@ export const Race = ({ platform: given, flavour = 'studio', exit, support, credi
               onNext={() => void session.next(() => nextLevel && playLevel(nextLevel.id))}
               onRetry={() => void session.next(() => (campaign.clearNews(), gameRef.current?.retry()))}
               onMap={() => void session.next(() => openMap(lvHud.id), { noBreak: true })}
+              support={support}
             />
           )}
           {showResult && !lvHud?.run && <Result hud={hud} game={gameRef.current} session={session} exit={exit} support={support} onMenu={menu ? () => (playWipe('menu'), gameRef.current?.enterMenu()) : openModes} />}

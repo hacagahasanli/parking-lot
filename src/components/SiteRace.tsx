@@ -22,7 +22,7 @@ export const SiteRace = () => {
           {label}
         </Link>
       )}
-      support={<SupportLink />}
+      support={SupportLink}
     />
   );
 };

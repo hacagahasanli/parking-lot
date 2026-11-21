@@ -3,7 +3,7 @@
 import Link from 'next/link';
 import { useEffect, useRef, useState } from 'react';
 
-import { SupportCard } from '~/components/SupportLink';
+import { Support } from '~/components/SupportLink';
 import type { Game } from '~/game/render/game';
 import { STUDIO_NAME } from '~/lib/studio';
 
@@ -70,9 +70,7 @@ export const Home = () => {
           <span className="text-lilac text-sm">You against three bots. Online with friends is next.</span>
         </div>
 
-        <div className="mt-6">
-          <SupportCard />
-        </div>
+        <Support variant="menu" className="mt-6 w-full max-w-md" />
 
         <ol className="mt-12 grid max-w-5xl gap-3 sm:grid-cols-2 lg:grid-cols-4">
           {STEPS.map(([title, text], i) => (

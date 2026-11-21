@@ -452,7 +452,9 @@ Zip the contents of `dist/portal/` (index.html at the root of the zip) to upload
 What differs from the site:
 
 - **No home page and no links.** `portal/main.tsx` renders `<Race>` straight away (players land in the countdown). `Race` only
-  shows a Home/Leave button and the support link when the page passes them (`SiteRace` does; the portal does not).
+  shows a Home/Leave button and the support module when the page passes them (`SiteRace` does; the portal does not). The
+  support UI is the studio's shared `<nalbaki-support>` web component, vendored in `src/vendor/nalbaki-support/` (refresh it
+  with `node scripts/sync-nalbaki-support.mjs`) and loaded on the client only by `src/components/SupportLink.tsx`.
 - **Neutral words.** `src/game/sim/flavour.ts` has two flavours. The portal passes `flavour="neutral"` and Vite also swaps
   `copy/studio.ts` for `copy/neutral.ts`, so the studio's jokes are not even in the bundle. The studio credit is
   `STUDIO_NAME` in `src/lib/studio.ts` (rename the studio there).

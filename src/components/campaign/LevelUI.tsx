@@ -6,6 +6,8 @@
  */
 import { CHAPTERS, PRECISION_STAR, RACES } from '~/game/sim/campaign';
 
+import type { ComponentType } from 'react';
+
 import type { HudState, LevelHud } from '~/game/render/game';
 import type { RunNews } from '~/components/useCampaign';
 
@@ -255,6 +257,7 @@ export const LevelResult = ({
   onNext,
   onRetry,
   onMap,
+  support: Support,
 }: {
   hud: HudState;
   news: RunNews | null;
@@ -263,6 +266,8 @@ export const LevelResult = ({
   onNext: () => void;
   onRetry: () => void;
   onMap: () => void;
+  /** Our own site's support module as a card under the buttons (portals pass nothing). */
+  support?: ComponentType<{ variant?: 'pill' | 'card' }>;
 }) => {
   const lv = hud.campaign!;
   const run = lv.run!;
@@ -341,6 +346,11 @@ export const LevelResult = ({
         <p className="text-lilac mt-3 hidden text-xs sm:block">
           <kbd className="font-bold">Enter</kbd> {next ? (lv.type === 'race' ? 'plays the next race' : 'plays the next level') : 'tries again'} · <kbd className="font-bold">R</kbd> restarts any time
         </p>
+        {Support && (
+          <div className="mt-4">
+            <Support variant="card" />
+          </div>
+        )}
       </div>
     </div>
   );
