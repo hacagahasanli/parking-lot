@@ -7,11 +7,13 @@
 import { useEffect, useRef, useState } from 'react';
 
 import { AUTO_NEXT_SECS, CHAPTERS, PRECISION_STAR, RACES } from '~/game/sim/campaign';
+import { DAILY_ID, msToNextLot, nextLotLine } from '~/game/sim/daily';
 
 import type { ComponentType } from 'react';
 
 import type { HudState, LevelHud } from '~/game/render/game';
 import type { RunNews } from '~/components/useCampaign';
+import type { DailyView } from '~/components/useDaily';
 
 const fmt = (s: number) => `${Math.floor(s / 60)}:${(s % 60).toFixed(1).padStart(4, '0')}`;
 
@@ -38,7 +40,10 @@ export const Stars = ({ n, size = 'h-4 w-4', label = true }: { n: number; size?:
 const chapterName = (n: number) => CHAPTERS[n - 1]?.name ?? '';
 
 /** "Level 3" in the campaign, "Race 2" in Race mode. */
-export const levelTag = (lv: Pick<LevelHud, 'type' | 'n'>) => (lv.type === 'race' ? `Race ${lv.n}` : `Level ${lv.n}`);
+export const levelTag = (lv: Pick<LevelHud, 'type' | 'n' | 'id'>) => (lv.id === DAILY_ID ? 'Daily lot' : lv.type === 'race' ? `Race ${lv.n}` : `Level ${lv.n}`);
+
+/** The tag and the name for a card's small line: the Daily Lot's name is its tag, so it is said once. */
+export const levelTitle = (lv: Pick<LevelHud, 'type' | 'n' | 'id' | 'name'>) => (lv.id === DAILY_ID ? lv.name : `${levelTag(lv)} · ${lv.name}`);
 
 /** What to do in this level, in one plain sentence (the core idea first: the lot has one free bay, find it and park in it). */
 export const objectiveOf = (lv: LevelHud): string =>
@@ -88,7 +93,7 @@ export const LevelIntro = ({ hud, touch, compact, keyHints }: { hud: HudState; t
     >
       <div className="panel-cut bg-ink-deep/80 flex max-w-lg flex-col items-center gap-1.5 px-5 py-3 backdrop-blur-sm sm:px-7 sm:py-4">
         <div className="text-lilac text-xs font-semibold sm:text-sm">
-          {lv.type === 'race' ? `Race ${lv.n} of ${RACES.length}` : `Level ${lv.n} · ${chapterName(lv.chapter)}`}
+          {lv.id === DAILY_ID ? 'Two rivals' : lv.type === 'race' ? `Race ${lv.n} of ${RACES.length}` : `Level ${lv.n} · ${chapterName(lv.chapter)}`}
         </div>
         <div className="font-display text-gold text-2xl leading-none sm:text-4xl [@media(max-height:420px)]:text-xl" style={{ animation: 'riseIn 0.4s ease-out both' }}>
           {lv.name}
@@ -199,7 +204,7 @@ export const LevelBar = ({ hud, touch }: { hud: HudState; touch: boolean }) => {
   return (
     <div className="flex items-stretch gap-1.5" role="status" aria-label={`${levelTag(lv)}, ${fmt(t)}`}>
       <div className="panel-cut bg-ink-deep/75 font-display text-gold flex items-center px-2 text-xs whitespace-nowrap sm:px-3 sm:text-sm">
-        {lv.n}
+        {lv.id === DAILY_ID ? 'D' : lv.n}
         <span className={`text-cream/80 pl-1.5 ${touch ? 'hidden' : 'hidden lg:inline'}`}>{lv.name}</span>
         {lv.legs > 1 && <span className="text-blue pl-1.5">{`Bay ${lv.leg + 1}/${lv.legs}`}</span>}
       </div>
@@ -278,6 +283,30 @@ const useAutoNext = (on: boolean, go: () => void) => {
   return on && live;
 };
 
+/** The Daily Lot's lines under the stars: your best today, the streak, and when the next lot opens (live). */
+const DailyLine = ({ daily }: { daily: DailyView }) => {
+  const [ms, setMs] = useState(() => msToNextLot());
+  useEffect(() => {
+    const t = window.setInterval(() => setMs(msToNextLot()), 15_000);
+    return () => window.clearInterval(t);
+  }, []);
+  return (
+    <div className="mt-2 flex flex-col gap-0.5 text-sm">
+      <div className="text-cream flex items-center justify-center gap-2">
+        {daily.best ? (
+          <>
+            <span className="text-lilac">Best today</span>
+            <Stars n={daily.best.stars} size="h-3.5 w-3.5" />
+            <span className="font-display tabular-nums">{fmt(daily.best.time)}</span>
+          </>
+        ) : null}
+        {daily.streak > 0 && <span className="text-gold font-semibold">{daily.streak} {daily.streak === 1 ? 'day' : 'days'}</span>}
+      </div>
+      <div className="text-lilac text-xs" role="timer">{nextLotLine(ms)}</div>
+    </div>
+  );
+};
+
 const FAIL_TITLE: Record<string, string> = { time: 'Out of time', crash: 'Bumped it', pedestrian: 'You hit a shopper', lost: 'Beaten to it' };
 
 /** The level's result: the stars land one by one, each goal is ticked or not, then Next, Retry and the map. */
@@ -291,6 +320,7 @@ export const LevelResult = ({
   onRetry,
   onMap,
   onRace,
+  daily,
   support: Support,
 }: {
   hud: HudState;
@@ -306,6 +336,8 @@ export const LevelResult = ({
   onMap: () => void;
   /** After a park in level 3: a third button that opens Race 1. */
   onRace?: () => void;
+  /** The Daily Lot's result card: the best of today and the streak, with the countdown to the next lot. */
+  daily?: DailyView;
   /** Our own site's support module as a card under the buttons (portals pass nothing). */
   support?: ComponentType<{ variant?: 'pill' | 'card' | 'menu' }>;
 }) => {
@@ -324,7 +356,7 @@ export const LevelResult = ({
     <div className="bg-ink-deep/70 absolute inset-0 z-30 flex items-center justify-center p-3 backdrop-blur-sm" style={{ animation: 'fadeIn 0.3s ease-out both' }} role="dialog" aria-label="Result">
       <div className="panel-cut bg-ink border-blue/20 max-h-[calc(100dvh-16px)] w-full max-w-md overflow-y-auto border p-4 text-center sm:p-6" style={{ animation: 'riseIn 0.4s ease-out both' }}>
         <div className="text-lilac text-sm font-semibold">
-          {levelTag(lv)} · {lv.name}
+          {levelTitle(lv)}
         </div>
         <div className={`font-display text-3xl sm:text-4xl ${ok ? 'text-green' : 'text-orange'}`}>{title}</div>
         <div className="my-2 flex items-end justify-center gap-2 sm:my-3 [@media(max-height:420px)]:my-1" role="img" aria-label={`${run.stars} of 3 stars`}>
@@ -362,6 +394,7 @@ export const LevelResult = ({
             {run.hinted && run.goals.par && run.goals.clean ? 'Find the bay without a hint for the third star.' : !run.goals.par ? `Beat ${lv.par} s for the second star.` : lv.scoresPrecision ? `Park clean and ${PRECISION_STAR}% straight for the third.` : 'Touch nothing for the third star.'}
           </p>
         )}
+        {daily && <DailyLine daily={daily} />}
         {next && (
           <p className="text-cream/70 mt-3 text-sm [@media(max-height:420px)]:mt-1 [@media(max-height:420px)]:text-xs">
             Up next: <b className="text-cream">{next.name}</b>
@@ -400,7 +433,7 @@ export const LevelResult = ({
             </button>
           )}
           <button type="button" onClick={onMap} className="panel-cut bg-cream/10 font-display text-cream flex flex-1 items-center justify-center px-4 py-3 text-base transition hover:bg-cream/20 active:scale-95 sm:text-lg [@media(max-height:420px)]:py-2">
-            {lv.type === 'race' ? 'Races' : 'Map'}
+            {daily ? 'Menu' : lv.type === 'race' ? 'Races' : 'Map'}
           </button>
         </div>
         <p className="text-lilac mt-3 hidden text-xs sm:block">

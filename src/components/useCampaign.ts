@@ -37,7 +37,8 @@ export const useCampaign = (platform: Platform) => {
       if (!hud.run || seen.current === key) return;
       seen.current = key;
       const level = levelById(hud.id);
-      if (!level) return;
+      // The Daily Lot keeps its own save (useDaily), not a campaign level's.
+      if (!level || hud.id === 'daily') return;
       setProgress((old) => {
         const next = recordRun(old, level, hud.run!);
         const before = old.levels[level.id];

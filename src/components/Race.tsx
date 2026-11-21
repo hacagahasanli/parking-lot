@@ -13,6 +13,8 @@ import { Countdown } from '~/components/Countdown';
 import { LoadingScreen, Wipe } from '~/components/Transitions';
 import { useSession } from '~/components/useSession';
 import { useCampaign } from '~/components/useCampaign';
+import { useDaily } from '~/components/useDaily';
+import { DAILY_ID } from '~/game/sim/daily';
 import { CampaignMap } from '~/components/campaign/CampaignMap';
 import { HintButton, LevelBar, LevelIntro, LevelResult, PrecisionMeter, levelTag, objectiveOf } from '~/components/campaign/LevelUI';
 import { ALL_LEVELS, CAMPAIGN, autoAdvances, isRace, levelById, nextOpenLevel, starsToNextChapter } from '~/game/sim/campaign';
@@ -540,6 +542,7 @@ export const Race = ({ platform: given, flavour = 'studio', exit, support: given
   /** Rounds started this visit: the rule card shows on the first stage-1 rounds. */
   const [roundsSeen, setRoundsSeen] = useState(0);
   const campaign = useCampaign(platform);
+  const daily = useDaily(platform);
   /**
    * A screen over the game: the game modes (over the live lot in the portal's menu), or the campaign's level map (the game is
    * not drawn behind it). Our own site opens on the modes.
@@ -628,7 +631,8 @@ export const Race = ({ platform: given, flavour = 'studio', exit, support: given
   const lvHud = !inMenu ? (hud?.campaign ?? null) : null;
   /** Race 1 reached from level 3's "Race a rival": its Next goes back to the campaign level that was waiting. */
   const returnTo = useRef<string | null>(null);
-  const nextLevel = lvHud?.run?.failed === null ? (lvHud.id === 'first-race' && returnTo.current ? levelById(returnTo.current)! : nextOpenLevel(campaign.progress, levelById(lvHud.id)!)) : null;
+  const isDaily = lvHud?.id === DAILY_ID;
+  const nextLevel = lvHud?.run?.failed === null && !isDaily ? (lvHud.id === 'first-race' && returnTo.current ? levelById(returnTo.current)! : nextOpenLevel(campaign.progress, levelById(lvHud.id)!)) : null;
   const playLevel = useCallback((id: string, back: string | null = null) => {
     returnTo.current = back;
     playWipe('level');
@@ -646,6 +650,15 @@ export const Race = ({ platform: given, flavour = 'studio', exit, support: given
       if (menu) gameRef.current?.enterMenu();
     } else setScreen({ kind: 'map', focus });
   }, [playWipe, menu]);
+  /** Today's Daily Lot: the UTC date's round, the same for everyone. */
+  const playDaily = useCallback(() => {
+    const d = daily.start();
+    playWipe('level');
+    setScreen(null);
+    campaign.clearNews();
+    returnTo.current = null;
+    gameRef.current?.playDaily(d.level, d.seed);
+  }, [campaign, daily, playWipe]);
   const openModes = useCallback(() => (playWipe('menu'), setScreen({ kind: 'modes' })), [playWipe]);
   confirmRef.current = () => {
     if (lvHud?.run) session.next(() => (nextLevel ? playLevel(nextLevel.id) : (campaign.clearNews(), gameRef.current?.retry())));
@@ -657,8 +670,8 @@ export const Race = ({ platform: given, flavour = 'studio', exit, support: given
   }, [showResult, playWipe]);
   // A level's result: record it (once per attempt) as soon as the card shows.
   useEffect(() => {
-    if (showResult && lvHud?.run) campaign.record(`${lvHud.id}:${lvHud.round}`, lvHud);
-  }, [showResult, lvHud, campaign]);
+    if (showResult && lvHud?.run) (campaign.record(`${lvHud.id}:${lvHud.round}`, lvHud), daily.record(`${lvHud.id}:${lvHud.round}`, lvHud));
+  }, [showResult, lvHud, campaign, daily]);
   // The first attempt at a level gets the full intro card; a retry the short one.
   if (lvHud && attempts.current.id !== lvHud.id) attempts.current = { id: lvHud.id, n: lvHud.round };
   const firstTry = !!lvHud && attempts.current.n === lvHud.round;
@@ -714,6 +727,8 @@ export const Race = ({ platform: given, flavour = 'studio', exit, support: given
           logoSrc={logoSrc}
           onPlay={playLevel}
           onModes={openModes}
+          onDaily={playDaily}
+          daily={daily.view}
           onSound={(k) => gameRef.current?.uiSound(k)}
           campaign={campaign.progress}
           platform={platform}
@@ -947,7 +962,7 @@ export const Race = ({ platform: given, flavour = 'studio', exit, support: given
               support={support}
               credit={credit}
               onRetry={lvHud ? () => gameRef.current?.retry() : undefined}
-              onMap={lvHud ? () => (gameRef.current?.setPaused(false), openMap(lvHud.id)) : undefined}
+              onMap={lvHud && !isDaily ? () => (gameRef.current?.setPaused(false), openMap(lvHud.id)) : undefined}
             />
           )}
           {hud.paused && pauseSettings && (
@@ -962,7 +977,8 @@ export const Race = ({ platform: given, flavour = 'studio', exit, support: given
               more={lvHud.type === 'race' ? 0 : starsToNextChapter(campaign.progress, lvHud.chapter)}
               onNext={() => session.next(() => nextLevel && playLevel(nextLevel.id))}
               onRetry={() => session.next(() => (campaign.clearNews(), gameRef.current?.retry()))}
-              onMap={() => session.next(() => openMap(lvHud.id))}
+              onMap={() => session.next(() => (isDaily ? (playWipe('menu'), gameRef.current?.enterMenu()) : openMap(lvHud.id)))}
+              daily={isDaily ? daily.view : undefined}
               onRace={lvHud.id === CAMPAIGN[2].id ? () => session.next(() => playLevel('first-race', CAMPAIGN[3].id)) : undefined}
               support={support}
             />

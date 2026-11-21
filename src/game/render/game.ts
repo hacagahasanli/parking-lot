@@ -684,7 +684,7 @@ export class Game {
   newRound = (opts: { hint?: boolean } = {}) => {
     this.hinted = opts.hint === true;
     this.roundNo++;
-    const seed = this.seed + this.roundNo * 101;
+    const seed = this.dailySeed ?? this.seed + this.roundNo * 101;
     const racing = this.racing;
     const level = racing ? this.level : null;
     const bots = level ? [false] : racing ? [false, true, true, true] : [true, true, true, true];
@@ -989,10 +989,26 @@ export class Game {
 
   // ----- menu -----
 
+  /** The Daily Lot's seed while it is being played: every retry is the same lot, bay and rivals. */
+  private dailySeed: number | null = null;
+
   /** Play a campaign level (by id): straight onto its start line, no menu. */
   playLevel = (id: string) => {
     const def = levelById(id);
     if (!def) return;
+    this.dailySeed = null;
+    this.level = def;
+    this.menu = false;
+    this.hidden = false;
+    this.introKey = '';
+    this.onBlur();
+    this.newRound();
+    this.emitHud(true);
+  };
+
+  /** Play today's Daily Lot (`def` from `activateDaily`): the date's seed, so everyone gets the same round. */
+  playDaily = (def: LevelDef, seed: number) => {
+    this.dailySeed = seed;
     this.level = def;
     this.menu = false;
     this.hidden = false;
@@ -1035,6 +1051,7 @@ export class Game {
 
   /** Back to the menu: the race is dropped and the bots idle the lot. Progress (unlocked stages) is kept. */
   enterMenu = () => {
+    this.dailySeed = null;
     this.level = null;
     this.menu = true;
     this.paused = false;
@@ -1045,6 +1062,7 @@ export class Game {
 
   /** Leave the menu and start a round: of `stage` if given (and unlocked), else of the current stage. */
   startRace = (stage?: number) => {
+    this.dailySeed = null;
     this.menu = false;
     this.level = null;
     this.hidden = false;

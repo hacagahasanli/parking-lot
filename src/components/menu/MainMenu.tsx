@@ -11,7 +11,9 @@ import { keyLabel } from '~/game/settings';
 import { CAMPAIGN, continueLevel, totalStars } from '~/game/sim/campaign';
 
 import type { CampaignProgress } from '~/game/sim/campaign';
+import type { DailyView } from '~/components/useDaily';
 import { GAME_TITLE, GAME_VERSION, STUDIO_NAME } from '~/lib/studio';
+import { Stars } from '~/components/campaign/LevelUI';
 
 import { MenuBanner } from './MenuBanner';
 import { SettingsPanel } from './SettingsPanel';
@@ -24,9 +26,11 @@ import type { Tier } from '~/game/render/quality';
 import type { Settings, SettingsStore } from '~/game/settings';
 import type { Platform } from '~/platform/types';
 
+const fmtBest = (s: number) => `${Math.floor(s / 60)}:${Math.floor(s % 60).toString().padStart(2, '0')}`;
+
 export type MenuView = 'root' | 'settings' | 'how' | 'credits';
 
-const Item = ({ id, label, sub, onPick, primary = false, delay, autoFocus = false, badge }: { id: string; label: string; sub?: string; onPick: () => void; primary?: boolean; delay: number; autoFocus?: boolean; badge?: string }) => (
+const Item = ({ id, label, sub, onPick, primary = false, delay, autoFocus = false, badge }: { id: string; label: string; sub?: React.ReactNode; onPick: () => void; primary?: boolean; delay: number; autoFocus?: boolean; badge?: string }) => (
   <li data-id={id} style={{ animation: `menuIn 0.45s cubic-bezier(0.2,0.8,0.2,1) ${delay}s both` }}>
     <button
       type="button"
@@ -134,6 +138,9 @@ export interface MainMenuProps {
   onPlay: (levelId: string) => void;
   /** Modes: the game modes screen (campaign map, Race, Endless). */
   onModes: () => void;
+  /** Daily lot: today's round (the state of the day sits on the right of the item). */
+  onDaily: () => void;
+  daily: DailyView;
   onSound: (kind: 'move' | 'pick' | 'back') => void;
   /** The saved progress (Play shows where the campaign continues). */
   campaign?: CampaignProgress;
@@ -148,7 +155,7 @@ export interface MainMenuProps {
   initialTab?: Tab;
 }
 
-export const MainMenu = ({ hud, settings, store, touch, tier, portalMuted, logoSrc, onPlay, onModes, onSound, initialView = 'root', initialTab, campaign, platform, shown = true, support: Support }: MainMenuProps) => {
+export const MainMenu = ({ hud, settings, store, touch, tier, portalMuted, logoSrc, onPlay, onModes, onDaily, daily, onSound, initialView = 'root', initialTab, campaign, platform, shown = true, support: Support }: MainMenuProps) => {
   const hover = useHoverSound(() => onSound('move'));
   const [view, setViewState] = useState<MenuView>(initialView);
   const root = useRef<HTMLDivElement>(null);
@@ -203,6 +210,14 @@ export const MainMenu = ({ hud, settings, store, touch, tier, portalMuted, logoS
             <div className="kerb mb-3 hidden h-1 portrait:max-sm:block" aria-hidden="true" />
             <ul className="flex flex-col gap-1.5 [@media(max-height:500px)]:gap-0.5">
               <Item id="play" label="Play" sub={`Level ${cont.n}${stars ? ` · ${stars}★` : ''}`} primary delay={0.08} autoFocus={initialView === 'root'} onPick={() => (onSound('pick'), onPlay(cont.id))} />
+              <Item
+                id="daily"
+                label="Daily lot"
+                sub={daily.best ? <span className="inline-flex items-center gap-1.5 tabular-nums"><Stars n={daily.best.stars} size="h-3 w-3" label={false} />{fmtBest(daily.best.time)}</span> : 'New'}
+                badge={daily.streak > 0 ? `${daily.streak} ${daily.streak === 1 ? 'day' : 'days'}` : undefined}
+                delay={0.1}
+                onPick={() => (onSound('pick'), onDaily())}
+              />
               <Item id="modes" label="Modes" delay={0.11} onPick={() => (onSound('pick'), onModes())} />
               <Item id="settings" label="Settings" delay={0.14} onPick={open('settings')} badge={settings.controls.transmission === 'manual' ? 'MANUAL' : undefined} />
               <Item id="how" label="How to play" delay={0.2} onPick={open('how')} />
