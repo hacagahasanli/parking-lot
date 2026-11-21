@@ -343,6 +343,10 @@ html.pl-calm *::after {
   60% { transform: scale(1.25) rotate(8deg); opacity: 1; }
   100% { transform: scale(1) rotate(0); opacity: 1; }
 }
+@keyframes ringFill {
+  from { stroke-dashoffset: 100; }
+  to { stroke-dashoffset: 0; }
+}
 @keyframes pinPulse {
   0%, 100% { box-shadow: 0 0 0 0 rgba(255, 210, 63, 0.7); }
   70% { box-shadow: 0 0 0 14px rgba(255, 210, 63, 0); }

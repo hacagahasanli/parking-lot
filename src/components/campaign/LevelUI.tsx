@@ -4,7 +4,9 @@
  * The campaign level's screens over the game: the intro card on the start line, the top bar (the clock and the three stars still
  * in reach, each with a bar that drains), the parking meter with precision, and the result card with the stars landing one by one.
  */
-import { CHAPTERS, PRECISION_STAR, RACES } from '~/game/sim/campaign';
+import { useEffect, useRef, useState } from 'react';
+
+import { AUTO_NEXT_SECS, CHAPTERS, PRECISION_STAR, RACES } from '~/game/sim/campaign';
 
 import type { ComponentType } from 'react';
 
@@ -247,6 +249,35 @@ export const PrecisionMeter = ({ hud }: { hud: HudState }) => {
   );
 };
 
+/**
+ * The result card's auto-advance: true while the ring is filling. Enter, or a tap on the Next level button, still go at once; any
+ * other key or tap cancels it and the card stays.
+ */
+const useAutoNext = (on: boolean, go: () => void) => {
+  const [live, setLive] = useState(on);
+  const goRef = useRef(go);
+  goRef.current = go;
+  useEffect(() => {
+    if (!on) return;
+    setLive(true);
+    const t = window.setTimeout(() => goRef.current(), AUTO_NEXT_SECS * 1000);
+    const cancel = (e: Event) => {
+      if (e instanceof KeyboardEvent && e.key === 'Enter') return;
+      if (e.target instanceof Element && e.target.closest('[data-auto-next]')) return;
+      window.clearTimeout(t);
+      setLive(false);
+    };
+    window.addEventListener('keydown', cancel, true);
+    window.addEventListener('pointerdown', cancel, true);
+    return () => {
+      window.clearTimeout(t);
+      window.removeEventListener('keydown', cancel, true);
+      window.removeEventListener('pointerdown', cancel, true);
+    };
+  }, [on]);
+  return on && live;
+};
+
 const FAIL_TITLE: Record<string, string> = { time: 'Out of time', crash: 'Bumped it', pedestrian: 'You hit a shopper', lost: 'Beaten to it' };
 
 /** The level's result: the stars land one by one, each goal is ticked or not, then Next, Retry and the map. */
@@ -254,6 +285,8 @@ export const LevelResult = ({
   hud,
   news,
   next,
+  auto = false,
+  more = 0,
   onNext,
   onRetry,
   onMap,
@@ -263,6 +296,10 @@ export const LevelResult = ({
   news: RunNews | null;
   /** The next level's name when it is open now. */
   next: { n: number; name: string } | null;
+  /** After a park the next level starts by itself once the ring on the Next level button has filled. */
+  auto?: boolean;
+  /** Stars still needed to open the next chapter, when that is close (0: say nothing). */
+  more?: number;
   onNext: () => void;
   onRetry: () => void;
   onMap: () => void;
@@ -272,6 +309,7 @@ export const LevelResult = ({
   const lv = hud.campaign!;
   const run = lv.run!;
   const ok = run.failed === null;
+  const ring = useAutoNext(auto && ok && !!next, onNext);
   const rows: [string, boolean, string][] = [
     [lv.goals[0], run.goals.finish, ok ? fmt(run.time) : run.failed === 'crash' ? `hit ${hud.result?.hit ?? 'something'}` : FAIL_TITLE[run.failed!]],
     [lv.goals[1], run.goals.par, ok ? `${run.time.toFixed(1)} s / ${lv.par} s` : '–'],
@@ -326,10 +364,23 @@ export const LevelResult = ({
             Up next: <b className="text-cream">{next.name}</b>
           </p>
         )}
+        {ok && more > 0 && CHAPTERS[lv.chapter] && (
+          <p className="text-gold mt-2 text-sm font-semibold">
+            {more} more ★ opens {CHAPTERS[lv.chapter].name}
+          </p>
+        )}
         <div className="mt-2 flex flex-col gap-2 sm:flex-row [@media(max-height:420px)]:flex-row">
           {next && (
-            <button type="button" autoFocus onClick={onNext} className="panel-cut bg-gold font-display text-ink-deep flex min-w-0 flex-[1.4] items-center justify-center px-4 py-3 text-base whitespace-nowrap transition hover:brightness-110 active:scale-95 sm:text-lg [@media(max-height:420px)]:py-2">
-              {lv.type === 'race' ? 'Next' : 'Next level'} <span className="ml-1">→</span>
+            <button type="button" autoFocus data-auto-next onClick={onNext} className="panel-cut bg-gold font-display text-ink-deep flex min-w-0 flex-[1.4] items-center justify-center px-4 py-3 text-base whitespace-nowrap transition hover:brightness-110 active:scale-95 sm:text-lg [@media(max-height:420px)]:py-2">
+              {lv.type === 'race' ? 'Next' : 'Next level'}
+              {ring ? (
+                <svg viewBox="0 0 24 24" className="ml-2 h-5 w-5 -rotate-90" aria-hidden="true">
+                  <circle cx="12" cy="12" r="9" fill="none" stroke="currentColor" strokeOpacity="0.25" strokeWidth="3" />
+                  <circle cx="12" cy="12" r="9" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" pathLength="100" strokeDasharray="100" style={{ animation: `ringFill ${AUTO_NEXT_SECS}s linear both` }} />
+                </svg>
+              ) : (
+                <span className="ml-1">→</span>
+              )}
             </button>
           )}
           <button

@@ -10,6 +10,9 @@ import {
   CAMPAIGN_KEY,
   GO_GRACE,
   GRAZE_SPEED,
+  AUTO_NEXT_SECS,
+  autoAdvances,
+  starsToNextChapter,
   failSpeedOf,
   continueLevel,
   emptyProgress,
@@ -615,5 +618,27 @@ describe('one tap to drive: where Play and Next level go', () => {
     const p = park(emptyProgress(), CAMPAIGN[0]);
     expect(nextOpenLevel(p, CAMPAIGN[0])?.id).toBe(CAMPAIGN[1].id);
     expect(nextOpenLevel(emptyProgress(), CAMPAIGN[0])).toBeNull();
+  });
+});
+
+describe('momentum on the result card', () => {
+  it('the next level starts by itself after 4 s, except after the last level of a chapter and in races', () => {
+    expect(AUTO_NEXT_SECS).toBe(4);
+    expect(autoAdvances(CAMPAIGN[0])).toBe(true);
+    expect(autoAdvances(CAMPAIGN[6])).toBe(true);
+    for (const n of [8, 16, 24, 30]) expect(autoAdvances(CAMPAIGN[n - 1]), `level ${n}`).toBe(false);
+    expect(autoAdvances(RACES[0])).toBe(false);
+  });
+
+  it('says how many stars open the next chapter only when that is close', () => {
+    const star = (ids: string[], n: number) => ({ levels: Object.fromEntries(ids.map((id) => [id, { stars: n, best: 1, precision: 1 }])), unlocked: [] as string[] });
+    expect(starsToNextChapter(emptyProgress(), 1)).toBe(0);
+    // Seven levels at one star = 7, so 3 more open chapter 2 (gate 10).
+    expect(starsToNextChapter(star(CAMPAIGN.slice(0, 7).map((l) => l.id), 1), 1)).toBe(3);
+    expect(starsToNextChapter(star(CAMPAIGN.slice(0, 8).map((l) => l.id), 1), 1)).toBe(2);
+    // Already open: nothing to say.
+    expect(starsToNextChapter(star(CAMPAIGN.slice(0, 8).map((l) => l.id), 3), 1)).toBe(0);
+    // The last chapter has nothing after it.
+    expect(starsToNextChapter(emptyProgress(), 4)).toBe(0);
   });
 });

@@ -15,7 +15,7 @@ import { useSession } from '~/components/useSession';
 import { useCampaign } from '~/components/useCampaign';
 import { CampaignMap } from '~/components/campaign/CampaignMap';
 import { HintButton, LevelBar, LevelIntro, LevelResult, PrecisionMeter, levelTag, objectiveOf } from '~/components/campaign/LevelUI';
-import { ALL_LEVELS, isRace, levelById, nextOpenLevel } from '~/game/sim/campaign';
+import { ALL_LEVELS, autoAdvances, isRace, levelById, nextOpenLevel, starsToNextChapter } from '~/game/sim/campaign';
 import { deviceFacts } from '~/game/render/deviceFacts';
 import { resolveTier } from '~/game/render/quality';
 import { keyLabel } from '~/game/settings';
@@ -812,7 +812,7 @@ export const Race = ({ platform: given, flavour = 'studio', exit, support: given
             </div>
           )}
           {/* The card: through the countdown on a desktop (it sits to the side); on a phone only in the lead-in, so the 3-2-1 has the middle. */}
-          {hud.phase === 'countdown' && (!touch || hud.intro) && (lvHud ? <LevelIntro hud={hud} touch={touch} keyHints={settings.access.showKeyHints} compact={!firstTry} /> : <Intro hud={hud} touch={touch} onboard={onboard} />)}
+          {hud.phase === 'countdown' && (!touch || hud.intro) && (lvHud ? firstTry && <LevelIntro hud={hud} touch={touch} keyHints={settings.access.showKeyHints} compact={false} /> : <Intro hud={hud} touch={touch} onboard={onboard} />)}
           {hud.phase === 'race' && !hud.result && !lvHud?.solo && (
             // On a phone held upright the top edge has no room between the standings and the buttons: the board goes under the
             // stage and clock on the right (and the speed moves down to make way).
@@ -955,6 +955,8 @@ export const Race = ({ platform: given, flavour = 'studio', exit, support: given
               hud={hud}
               news={campaign.news}
               next={nextLevel ? { n: nextLevel.n, name: nextLevel.name } : null}
+              auto={autoAdvances(levelById(lvHud.id)!)}
+              more={lvHud.type === 'race' ? 0 : starsToNextChapter(campaign.progress, lvHud.chapter)}
               onNext={() => session.next(() => nextLevel && playLevel(nextLevel.id))}
               onRetry={() => session.next(() => (campaign.clearNews(), gameRef.current?.retry()))}
               onMap={() => session.next(() => openMap(lvHud.id))}

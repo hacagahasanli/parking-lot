@@ -587,3 +587,17 @@ export const nextOpenLevel = (p: CampaignProgress, l: LevelDef): LevelDef | null
 
 /** The endless race (the six random stages) opens once the first race of Race mode is won. */
 export const endlessOpen = (p: CampaignProgress) => (p.levels['first-race']?.stars ?? 0) > 0;
+
+/** Seconds the result card waits on a park before the next level starts by itself. */
+export const AUTO_NEXT_SECS = 4;
+
+/** A park in this campaign level may roll on into the next one by itself: not a race, and not the last level of its chapter. */
+export const autoAdvances = (l: LevelDef): boolean => !isRace(l) && CAMPAIGN[l.n]?.chapter === l.chapter;
+
+/** How many more stars open the next chapter, when that is within `within` stars (and not yet open), else 0. */
+export const starsToNextChapter = (p: CampaignProgress, chapter: number, within = 5): number => {
+  const next = CHAPTERS[chapter];
+  if (!next) return 0;
+  const need = next.gate - totalStars(p);
+  return need > 0 && need <= within ? need : 0;
+};
