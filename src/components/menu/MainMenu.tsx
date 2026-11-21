@@ -14,7 +14,7 @@ import type { CampaignProgress } from '~/game/sim/campaign';
 import { GAME_TITLE, GAME_VERSION, STUDIO_NAME } from '~/lib/studio';
 
 import { SettingsPanel } from './SettingsPanel';
-import { Kbd, Panel, useMenuNav, usePadNav } from './ui';
+import { Kbd, Panel, useMenuNav, usePadNav, useHoverSound } from './ui';
 
 import type { Tab } from './SettingsPanel';
 import type { HudState } from '~/game/render/game';
@@ -138,6 +138,7 @@ export interface MainMenuProps {
 }
 
 export const MainMenu = ({ hud, settings, store, touch, tier, portalMuted, logoSrc, onPlay, onSound, initialView = 'root', initialTab, campaign }: MainMenuProps) => {
+  const hover = useHoverSound(() => onSound('move'));
   const [view, setViewState] = useState<MenuView>(initialView);
   const root = useRef<HTMLDivElement>(null);
   const lastFocus = useRef<string>('play');
@@ -162,7 +163,7 @@ export const MainMenu = ({ hud, settings, store, touch, tier, portalMuted, logoS
   };
 
   return (
-    <div className="absolute inset-0 z-30 select-none" onFocusCapture={(e) => (e.target as HTMLElement).hasAttribute('data-nav') && onSound('move')}>
+    <div className="absolute inset-0 z-30 select-none" onPointerOver={hover} onFocusCapture={(e) => (e.target as HTMLElement).hasAttribute('data-nav') && onSound('move')}>
       {/* Shade: dark down the left for the column, a vignette round the edges, a fade at the foot. */}
       <div className="pointer-events-none absolute inset-0 bg-[linear-gradient(90deg,rgba(10,13,24,0.94)_0%,rgba(10,13,24,0.82)_26%,rgba(10,13,24,0.25)_48%,transparent_62%)] portrait:max-sm:bg-[linear-gradient(180deg,rgba(10,13,24,0.7)_0%,transparent_30%,transparent_42%,rgba(10,13,24,0.92)_62%)]" />
       <div className="pointer-events-none absolute inset-0 shadow-[inset_0_0_180px_rgba(0,0,0,0.65)]" />

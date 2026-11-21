@@ -9,6 +9,21 @@ import { useEffect, useRef } from 'react';
 
 import type { ReactNode, RefObject } from 'react';
 
+/**
+ * Hover sound for a menu container: the same "focus moved" blip as the keyboard, once each time the mouse enters a
+ * different `[data-nav]` item (moving inside one item, or over a disabled one, stays quiet). Mouse and pen only.
+ */
+export const useHoverSound = (play: () => void, selector = '[data-nav]') => {
+  const last = useRef<Element | null>(null);
+  return (e: { target: EventTarget; pointerType?: string }) => {
+    if (e.pointerType === 'touch') return;
+    const item = (e.target as Element).closest?.(selector) ?? null;
+    if (item === last.current) return;
+    last.current = item;
+    if (item && !item.hasAttribute('disabled') && item.getAttribute('aria-disabled') !== 'true') play();
+  };
+};
+
 /** Move focus to the next / previous `[data-nav]` element inside `root` (wrapping). */
 export const moveFocus = (root: HTMLElement, dir: 1 | -1) => {
   const items = Array.from(root.querySelectorAll<HTMLElement>('[data-nav]')).filter((el) => !el.hasAttribute('disabled') && el.offsetParent !== null);

@@ -14,7 +14,7 @@ import { STAGES } from '~/game/sim/stages';
 import { CAMPAIGN, RACES, continueLevel, continueRace, endlessOpen, levelOpen, raceStars, racesWon, totalStars } from '~/game/sim/campaign';
 
 import { Stars } from '~/components/campaign/LevelUI';
-import { Panel, moveFocus, useMenuNav, usePadNav } from './ui';
+import { Panel, moveFocus, useMenuNav, usePadNav, useHoverSound } from './ui';
 
 import type { ReactNode } from 'react';
 import type { CampaignProgress } from '~/game/sim/campaign';
@@ -231,6 +231,7 @@ export interface ModesProps {
 }
 
 export const Modes = ({ progress, stage, onCampaign, onRace, onEndless, onBack, home, onSound, initialView = 'root', focus, solid = false }: ModesProps) => {
+  const hover = useHoverSound(() => onSound('move'));
   const [view, setViewState] = useState<ModesView>(initialView);
   const root = useRef<HTMLDivElement>(null);
   const last = useRef<number>(initialView === 'races' ? 2 : initialView === 'endless' ? 3 : 1);
@@ -279,7 +280,7 @@ export const Modes = ({ progress, stage, onCampaign, onRace, onEndless, onBack, 
   }, [view]);
 
   return (
-    <div className="absolute inset-0 z-40 select-none" role="dialog" aria-label="Game modes" data-keys-capture onFocusCapture={(e) => (e.target as HTMLElement).hasAttribute('data-nav') && onSound('move')}>
+    <div className="absolute inset-0 z-40 select-none" role="dialog" aria-label="Game modes" data-keys-capture onPointerOver={hover} onFocusCapture={(e) => (e.target as HTMLElement).hasAttribute('data-nav') && onSound('move')}>
       <div className={`pointer-events-none absolute inset-0 ${solid ? 'bg-ink-deep bay-lines' : 'bg-[linear-gradient(180deg,rgba(10,13,24,0.88)_0%,rgba(10,13,24,0.7)_45%,rgba(10,13,24,0.92)_100%)]'}`} />
       <div
         ref={root}

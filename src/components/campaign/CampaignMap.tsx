@@ -17,6 +17,7 @@ import { LEVEL_COLOR, levelName } from '~/game/sim/levels';
 import { buildLot } from '~/game/sim/lot';
 
 import { StarIcon, Stars } from './LevelUI';
+import { useHoverSound } from '../menu/ui';
 
 import type { MapRect, Screen } from '~/game/render/lotmap';
 import type { CampaignProgress, LevelDef } from '~/game/sim/campaign';
@@ -214,8 +215,10 @@ export const CampaignMap = ({ progress, onPlay, onBack, focus, onSound }: Campai
   const rec = progress.levels[selected.id];
   const selOpen = levelOpen(progress, selected);
 
+  const hover = useHoverSound(() => onSound?.('move'), 'button');
+
   return (
-    <div className="bg-ink-deep absolute inset-0 z-40 flex flex-col select-none" role="dialog" aria-label="Level map" data-keys-capture style={{ animation: 'zoomIn 0.35s cubic-bezier(0.2,0.8,0.2,1) both' }}>
+    <div className="bg-ink-deep absolute inset-0 z-40 flex flex-col select-none" role="dialog" aria-label="Level map" data-keys-capture onPointerOver={hover} style={{ animation: 'zoomIn 0.35s cubic-bezier(0.2,0.8,0.2,1) both' }}>
       {/* Top: back, chapter tabs, the star total. */}
       <header className="flex items-center gap-2 px-3 pt-2 pb-1.5 sm:gap-3 sm:px-5 sm:pt-3" style={{ paddingTop: 'max(8px, env(safe-area-inset-top))', paddingLeft: 'max(12px, env(safe-area-inset-left))', paddingRight: 'max(12px, env(safe-area-inset-right))' }}>
         <button type="button" onClick={() => (onSound?.('back'), onBack())} className="panel-cut bg-cream/10 font-display text-cream hover:bg-cream/20 flex min-h-10 items-center px-3 text-sm sm:text-base" aria-label="Back to the menu">
