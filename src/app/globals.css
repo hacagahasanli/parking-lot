@@ -383,7 +383,7 @@ html.pl-calm *::after {
   box-shadow: 0 0 12px rgba(255, 210, 63, 0.55);
 }
 
-/* The wipe: a skewed band of colour shoots across with three light streaks, 450 ms, and the screen change happens under it. */
+/* The wipe: a dark band slides across from left to right, 450 ms, and the screen change happens under it (no bright streaks). */
 .wipe-band {
   position: absolute;
   top: -10%;
@@ -391,11 +391,11 @@ html.pl-calm *::after {
   width: 70%;
   left: -80%;
   transform: skewX(-18deg);
-  background: linear-gradient(90deg, transparent, rgba(62, 197, 255, 0.35) 8%, rgba(10, 13, 24, 0.9) 22%, rgba(10, 13, 24, 0.9) 82%, #ffd23f 95%, rgba(255, 255, 255, 0.9) 97%, transparent);
-  box-shadow: 0 0 60px rgba(255, 210, 63, 0.35);
+  background: linear-gradient(90deg, transparent, rgba(10, 13, 24, 0.95) 14%, rgba(10, 13, 24, 0.95) 86%, transparent);
   animation: wipeAcross 0.45s cubic-bezier(0.6, 0, 0.3, 1) both;
 }
 .wipe-streak {
+  display: none;
   position: absolute;
   height: 3px;
   width: 45%;
