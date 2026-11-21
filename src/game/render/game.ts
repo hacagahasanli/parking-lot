@@ -1193,10 +1193,11 @@ export class Game {
     const W = el.parentElement?.clientWidth ?? window.innerWidth;
     const H = el.parentElement?.clientHeight ?? window.innerHeight;
     const v = new THREE.Vector3(spot.x, spot.y + 1, spot.z).project(this.camera);
-    const behind = v.z > 1;
+    // Behind the camera (not merely past its far plane, which also projects beyond 1).
+    const behind = new THREE.Vector3(spot.x, spot.y + 1, spot.z).applyMatrix4(this.camera.matrixWorldInverse).z > 0;
     let nx = behind ? -v.x : v.x;
     let ny = behind ? -v.y : v.y;
-    const onScreen = !behind && Math.abs(nx) < 0.92 && Math.abs(ny) < 0.88;
+    const onScreen = !behind && v.z < 1 && Math.abs(nx) < 0.92 && Math.abs(ny) < 0.88;
     let ang = Math.PI / 2;
     let px: number;
     let py: number;

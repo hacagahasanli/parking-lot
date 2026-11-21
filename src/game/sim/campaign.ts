@@ -98,25 +98,30 @@ const at = (x: number, z: number, h: number, lvl = 0): Pose => ({ x, z, h, lvl }
 
 /** Every level, in order. Bay ids are the lot's (`buildLot()`); the comments say where they are. */
 export const CAMPAIGN: LevelDef[] = [
+  // The curve: the bay starts down the aisle you are in (level 1), then round a corner, then on the far side of the lot, then
+  // on another deck. From level 8 on, coned-off bays look like spaces from a distance (decoys); later chapters add vans that
+  // hide the gaps, cones in the aisles and shoppers, and wait longer before the first hint pulse (guidance.ts).
+
   // ---- Chapter 1: Learner's lot (the open lot, no shoppers) -------------------------------------------------------------
   {
-    // EA aisle, the south row: the end bay of the EV row, a car on one side only, a wide left turn from the far lane.
-    id: 'first-bay', n: 1, chapter: 1, name: 'First bay', teaches: 'Gas, steer, stop inside the lines and hold still.',
-    type: 'solo', stage: 1, spawn: at(10, -8.7, E), target: [93], facing: 'any', slack: 0.3, par: 18, limit: 60,
+    // EA aisle: the bay is near the far end of the south row, forty metres on. Drive down and look.
+    id: 'first-bay', n: 1, chapter: 1, name: 'First bay', teaches: 'Drive down the aisle, spot the empty space, stop inside the lines and hold still.',
+    type: 'solo', stage: 1, spawn: at(4, -8.7, E), target: [101], facing: 'any', slack: 0.3, par: 28, limit: 70,
   },
   {
-    id: 'neighbours', n: 2, chapter: 1, name: 'Neighbours', teaches: 'The same turn with cars on both sides. Leave room each side.',
-    type: 'solo', stage: 1, spawn: at(28, -8.7, E), target: [100], facing: 'any', slack: 0.25, par: 18, limit: 60,
+    // Up the connector, then east into the EB aisle: the bay is in the south row, cars on both sides.
+    id: 'neighbours', n: 2, chapter: 1, name: 'Round the corner', teaches: 'The bay is in the next aisle. Turn in, look both sides, leave room each side.',
+    type: 'solo', stage: 1, spawn: at(-2, -22, N), target: [126], facing: 'any', slack: 0.25, par: 36, limit: 80,
   },
   {
-    // The angled row north of the main road, from the westbound lane.
+    // The angled row north of the main road, from the westbound lane, well along it.
     id: 'angled', n: 3, chapter: 1, name: 'Angled bay', teaches: 'Angled bays lean the way the traffic flows. Turn in with them.',
-    type: 'solo', stage: 1, spawn: at(-8, -32, W), target: [6], facing: 'nose', par: 15, limit: 50,
+    type: 'solo', stage: 1, spawn: at(-8, -32, W), target: [2], facing: 'nose', par: 24, limit: 60,
   },
   {
-    // EB aisle, the north row on your near side: the bay mouth is right beside your lane.
+    // EB aisle, the north row on your near side, far down: the bay mouth is right beside your lane.
     id: 'swing', n: 4, chapter: 1, name: 'The wide swing', teaches: 'A bay on your own side: swing out first, then turn in square.',
-    type: 'solo', stage: 1, spawn: at(10, 10.7, E), target: [144], facing: 'any', par: 18, limit: 60,
+    type: 'solo', stage: 1, spawn: at(10, 10.7, E), target: [148], facing: 'any', par: 24, limit: 60,
   },
   {
     id: 'back-in', n: 5, chapter: 1, name: 'Back it in', teaches: 'Drive past the bay, stop, then reverse in. Nose out.',
@@ -130,35 +135,40 @@ export const CAMPAIGN: LevelDef[] = [
     id: 'trial', n: 7, chapter: 1, name: 'Time trial', teaches: 'Three bays in a row against the clock. Keep it flowing.',
     type: 'timeTrial', stage: 1, spawn: at(4, 30, E), target: [170, 163, 182], facing: 'any', par: 50, limit: 110,
   },
+  {
+    // EA aisle again, but the space is in the other row near the far end, and a coned-off bay across the aisle looks free first.
+    id: 'coned-off', n: 8, chapter: 1, name: 'Coned off', teaches: 'Not every gap is a bay: cones mean closed. Look on both sides.',
+    type: 'solo', stage: 1, spawn: at(4, -8.7, E), target: [116], facing: 'any', bays: { 95: 'cones' }, par: 28, limit: 70,
+  },
 
   // ---- Chapter 2: Busy Saturday (the open lot, with shoppers) ------------------------------------------------------------
   {
-    // Up the avenue over the zebra at z = 22, then into the EC aisle.
-    id: 'crossing', n: 8, chapter: 2, name: 'Crossing', teaches: 'Shoppers on the zebra go first. Stop and let them cross.',
-    type: 'solo', stage: 1, spawn: at(-2, 12, N), target: [153], facing: 'any', peds: 14, par: 28, limit: 75,
+    // Up the connector over the zebra at z = 22, then east into the EC aisle; the bay is halfway along the south row.
+    id: 'crossing', n: 9, chapter: 2, name: 'Crossing', teaches: 'Shoppers on the zebra go first. Stop, let them cross, then find the bay.',
+    type: 'solo', stage: 1, spawn: at(-2, -2, N), target: [160], facing: 'any', peds: 14, bays: { 154: 'cones' }, par: 40, limit: 90,
   },
   {
-    id: 'pulling-out', n: 9, chapter: 2, name: 'Pulling out', teaches: 'A car is leaving. Wait for it to back out, then take its bay.',
+    id: 'pulling-out', n: 10, chapter: 2, name: 'Pulling out', teaches: 'A car is leaving. Wait for it to back out, then take its bay.',
     type: 'solo', stage: 1, spawn: at(-52, -10.7, E), target: [30], facing: 'nose', leaver: { bay: 30, at: 2.5 }, par: 26, limit: 75,
   },
   {
     // The first of the parallel bays along the west road: nothing parks behind it, so you can drive in forwards.
-    id: 'kerbside', n: 10, chapter: 2, name: 'Kerbside', teaches: 'The first parallel bay, with room behind: drive in at an angle, then straighten.',
+    id: 'kerbside', n: 11, chapter: 2, name: 'Kerbside', teaches: 'The first parallel bay, with room behind: drive in at an angle, then straighten.',
     type: 'solo', stage: 1, spawn: at(-58, -31, N), target: [240], facing: 'nose', slack: 0.3, par: 15, limit: 60,
   },
   {
-    id: 'parallel', n: 11, chapter: 2, name: 'Proper parallel', teaches: 'Pull up past the gap and reverse in: the S-turn.',
+    id: 'parallel', n: 12, chapter: 2, name: 'Proper parallel', teaches: 'Pull up past the gap and reverse in: the S-turn.',
     type: 'solo', stage: 1, spawn: at(-58, 2, N), target: [245], facing: 'nose', bays: { 244: 'car', 246: 'suv' }, par: 25, limit: 80,
   },
   {
     // Parked nose-in in the dead-end pocket between two vans; out to the main road.
-    id: 'dead-end', n: 12, chapter: 2, name: 'Dead end', teaches: 'Back out into a narrow pocket, turn round, and drive out.',
+    id: 'dead-end', n: 13, chapter: 2, name: 'Dead end', teaches: 'Back out into a narrow pocket, turn round, and drive out.',
     type: 'unpark', stage: 1, spawn: at(-47.92, -45.1, W), target: [], exit: { x: -42, z: -31.5, r: 3.2, lvl: 0 }, facing: 'any', bays: { 236: 'free' }, par: 20, limit: 60,
   },
   {
     // The WB aisle (one way, westbound) narrowed by cones; the bay is beyond them.
-    id: 'trolleys', n: 13, chapter: 2, name: 'Trolley run', teaches: 'Cones and trolleys narrow the aisle. Watch your corners.',
-    type: 'solo', stage: 1, spawn: at(-3, 8.7, W), target: [51], facing: 'nose', peds: 6, bays: { 53: 'corral', 45: 'corral' },
+    id: 'trolleys', n: 14, chapter: 2, name: 'Trolley run', teaches: 'Cones and trolleys narrow the aisle. Watch your corners.',
+    type: 'solo', stage: 1, spawn: at(-3, 8.7, W), target: [51], facing: 'nose', peds: 6, bays: { 53: 'corral', 45: 'corral', 57: 'cones' },
     cones: [
       { x: -10, z: 12.2 }, { x: -10, z: 11.5 }, { x: -10, z: 10.8 },
       { x: -17.5, z: 5.2 }, { x: -17.5, z: 5.9 }, { x: -17.5, z: 6.6 },
@@ -167,54 +177,81 @@ export const CAMPAIGN: LevelDef[] = [
     par: 26, limit: 70,
   },
   {
-    id: 'shuffle', n: 14, chapter: 2, name: 'Shuffle', teaches: 'Park, back out, park again, with shoppers about.',
+    id: 'shuffle', n: 15, chapter: 2, name: 'Shuffle', teaches: 'Park, back out, park again, with shoppers about.',
     type: 'chain', stage: 1, spawn: at(-54, -10.7, E), target: [16, 31], facing: 'any', peds: 16, par: 40, limit: 90,
+  },
+  {
+    // From the main road east, up the far side and back along the EC aisle: the bay is in the north row, past two decoys.
+    id: 'saturday-search', n: 16, chapter: 2, name: 'Saturday search', teaches: 'The whole east lot, shoppers everywhere, two coned-off decoys. Search it aisle by aisle.',
+    type: 'solo', stage: 1, spawn: at(8, -28, E), target: [175], facing: 'any', peds: 16, bays: { 133: 'cones', 179: 'cones', 174: 'van', 176: 'van' }, par: 70, limit: 130,
   },
 
   // ---- Chapter 3: The car park (one more deck each level) ----------------------------------------------------------------
   {
-    // P0, the south row of the east-bound aisle, across from your lane.
-    id: 'ground-floor', n: 15, chapter: 3, name: 'Ground floor', teaches: 'Under a deck: walls, columns and parked cars all count. Easy does it.',
-    type: 'solo', stage: 2, spawn: at(77, 8.7, E), target: [292], facing: 'any', par: 18, limit: 60,
+    // P0: in along the north lane, round the east end of the ring, and the bay is in the south row.
+    id: 'ground-floor', n: 17, chapter: 3, name: 'Ground floor', teaches: 'Under a deck: walls, columns and parked cars all count. Go round the ring and look.',
+    type: 'solo', stage: 2, spawn: at(77, 8.7, E), target: [307], facing: 'any', bays: { 292: 'cones' }, par: 34, limit: 80,
   },
   {
-    id: 'column-reverse', n: 16, chapter: 3, name: 'Column reverse', teaches: 'Reverse in beside a column: watch the rear swing.',
+    id: 'column-reverse', n: 18, chapter: 3, name: 'Column reverse', teaches: 'Reverse in beside a column: watch the rear swing.',
     type: 'solo', stage: 2, spawn: at(108, -9.5, W), target: [299], facing: 'tail', par: 28, limit: 75,
   },
   {
-    id: 'ramp', n: 17, chapter: 3, name: 'Up the ramp', teaches: 'Climb to P1 and take the first bay after the ramp.',
-    type: 'solo', stage: 3, spawn: at(96, 8.7, E), target: [339], facing: 'any', par: 35, limit: 90,
+    id: 'ramp', n: 19, chapter: 3, name: 'Up the ramp', teaches: 'Climb to P1. The bay is round the back, past a coned-off space.',
+    type: 'solo', stage: 3, spawn: at(96, 8.7, E), target: [339], facing: 'any', bays: { 317: 'cones' }, par: 42, limit: 90,
   },
   {
-    id: 'roof', n: 18, chapter: 3, name: 'The roof', teaches: 'A long run to the top. Arrive quick, stop exactly.',
-    type: 'solo', stage: 4, spawn: at(96, 8.7, E, 1), target: [370], facing: 'any', par: 40, limit: 90,
+    id: 'roof', n: 20, chapter: 3, name: 'The roof', teaches: 'A long run to the top. Two decoys up there; arrive quick, stop exactly.',
+    type: 'solo', stage: 4, spawn: at(96, 8.7, E, 1), target: [370], facing: 'any', bays: { 354: 'cones', 362: 'cones' }, par: 42, limit: 90,
   },
   {
-    id: 'underground', n: 19, chapter: 3, name: 'Underground', teaches: 'Down into the dark, with people about. Slow down.',
-    type: 'solo', stage: 5, spawn: at(109.6, 4, S), target: [274], facing: 'any', peds: 6, par: 50, limit: 110,
+    id: 'underground', n: 21, chapter: 3, name: 'Underground', teaches: 'Down into the dark, with people about. Slow down and read the rows.',
+    type: 'solo', stage: 5, spawn: at(109.6, 4, S), target: [274], facing: 'any', peds: 6, bays: { 268: 'cones' }, par: 50, limit: 110,
   },
   {
     // P0, nose-in between two vans; out along the one-way aisle to the ramp junction.
-    id: 'boxed-in', n: 20, chapter: 3, name: 'Boxed in', teaches: 'Vans both sides: reverse out straight before you turn.',
+    id: 'boxed-in', n: 22, chapter: 3, name: 'Boxed in', teaches: 'Vans both sides: reverse out straight before you turn.',
     type: 'unpark', stage: 2, spawn: at(88.05, 15.32, N), target: [], exit: { x: 107, z: 8.7, r: 3.2, lvl: 0 }, facing: 'any', bays: { 280: 'van', 281: 'free', 282: 'van' }, par: 18, limit: 60,
   },
   {
-    id: 'two-decks', n: 21, chapter: 3, name: 'Two decks', teaches: 'One bay on the ground floor, one upstairs. Plan the route.',
+    id: 'two-decks', n: 23, chapter: 3, name: 'Two decks', teaches: 'One bay on the ground floor, one upstairs. Plan the route.',
     type: 'chain', stage: 3, spawn: at(77, 8.7, E), target: [292, 338], facing: 'any', par: 60, limit: 120,
+  },
+  {
+    // From the open lot into the car park: the bay is on P1, in the row behind the island, past decoys on both decks.
+    id: 'decoy-deck', n: 24, chapter: 3, name: 'Decoy deck', teaches: 'Two decks open, three spaces that are not. Only the one without cones counts.',
+    type: 'solo', stage: 3, spawn: at(60, 10.7, E), target: [329], facing: 'any', peds: 4, bays: { 296: 'cones', 313: 'cones', 333: 'cones', 328: 'van', 330: 'van' }, par: 52, limit: 110,
   },
 
   // ---- Chapter 4: Closing time (the whole site) --------------------------------------------------------------------------
   {
-    id: 'last-space', n: 22, chapter: 4, name: 'Last space', teaches: 'Reverse in between an SUV and a van, dead straight.',
+    id: 'last-space', n: 25, chapter: 4, name: 'Last space', teaches: 'Reverse in between an SUV and a van, dead straight.',
     type: 'solo', stage: 6, spawn: at(14, 10.7, E), target: [146], facing: 'tail', slack: 0.12, maxAngleDeg: 10, bays: { 147: 'van' }, par: 26, limit: 80,
   },
   {
-    id: 'parallel-pressure', n: 23, chapter: 4, name: 'Parallel, quick', teaches: 'A tight parallel bay against a short clock.',
+    // In from the gate: the bay is tucked in the short row by the shop, at the far side of the lot, with decoys on the way.
+    id: 'corner-pocket', n: 26, chapter: 4, name: 'Corner pocket', teaches: 'In from the gate. The space is tucked away by the shop; the obvious gaps are coned off.',
+    type: 'solo', stage: 6, spawn: at(-2, -24, N), target: [188], facing: 'any', peds: 14, bays: { 63: 'cones', 122: 'cones', 196: 'cones', 187: 'van', 189: 'van' },
+    cones: [{ x: -4.6, z: -16 }, { x: -4.6, z: -16.7 }, { x: -4.6, z: 16 }, { x: -4.6, z: 16.7 }, { x: 4.6, z: 33 }, { x: 4.6, z: 33.7 }],
+    par: 36, limit: 100,
+  },
+  {
+    // Out of the EC aisle, down the east road and back along the main road: the bay is in the south strip, between vans.
+    id: 'full-house', n: 27, chapter: 4, name: 'Full house', teaches: 'Every aisle full, decoys in three rows, shoppers out. Keep searching, keep calm.',
+    type: 'solo', stage: 6, spawn: at(20, 30, E), target: [221], facing: 'any', peds: 16, bays: { 98: 'cones', 165: 'cones', 225: 'cones', 220: 'van', 222: 'van' }, par: 44, limit: 110,
+  },
+  {
+    id: 'parallel-pressure', n: 28, chapter: 4, name: 'Parallel, quick', teaches: 'A tight parallel bay against a short clock.',
     type: 'solo', stage: 6, spawn: at(-58, 4, N), target: [246], facing: 'nose', peds: 10, bays: { 245: 'suv' }, par: 22, limit: 60,
   },
   {
-    id: 'grand-tour', n: 24, chapter: 4, name: 'Grand tour', teaches: 'The open lot, the roof, then underground. One run.',
+    id: 'grand-tour', n: 29, chapter: 4, name: 'Grand tour', teaches: 'The open lot, the roof, then underground. One run.',
     type: 'chain', stage: 6, spawn: at(22, 10.7, E), target: [149, 370, 274], facing: 'any', peds: 12, par: 150, limit: 300,
+  },
+  {
+    // The last space on the whole site: P-1, the far corner of the north row, a van beside it and decoys on every deck.
+    id: 'closing-time', n: 30, chapter: 4, name: 'Closing time', teaches: 'The whole site, one space left, decoys on every deck. Find it before the shutters come down.',
+    type: 'solo', stage: 6, spawn: at(-2, -24, N), target: [248], facing: 'any', peds: 10, bays: { 249: 'van', 252: 'cones', 306: 'cones', 360: 'cones', 160: 'cones' }, par: 90, limit: 170,
   },
 ];
 

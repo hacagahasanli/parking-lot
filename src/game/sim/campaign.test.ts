@@ -28,6 +28,7 @@ import { DT, RACE } from './constants';
 import { levelY } from './levels';
 import { buildLot } from './lot';
 import { locate, shortestPath } from './nav';
+import { GUIDE, hintDelay } from './guidance';
 import { carShape, createRound, drive, emptyBay, inIntro, makeCar, skipIntro, step } from './step';
 import { memoryStore } from '~/platform/web';
 import { SCRIPTS, driveScript } from './drive';
@@ -96,7 +97,8 @@ const toDock = (me: Car, world: World, bay: number) => {
 };
 
 describe('the campaign data', () => {
-  it('has its solo levels in order, in four chapters, and no races (those are their own mode)', () => {
+  it('has thirty solo levels in order, in four chapters, and no races (those are their own mode)', () => {
+    expect(CAMPAIGN).toHaveLength(30);
     CAMPAIGN.forEach((l, i) => expect(l.n).toBe(i + 1));
     expect(new Set(ALL_LEVELS.map((l) => l.id)).size).toBe(ALL_LEVELS.length);
     for (const ch of CHAPTERS) {
@@ -115,6 +117,36 @@ describe('the campaign data', () => {
       expect(keys.has(key), l.id).toBe(false);
       keys.add(key);
     }
+  });
+
+  it('makes finding the bay harder over the campaign: farther from the start, more decoys and obstacles, later hints', () => {
+    const dist = (l: LevelDef) => {
+      if (l.spawn === 'gate' || !l.target.length) return 0;
+      const b = lot.bays[l.target[0]];
+      return Math.hypot(b.x - l.spawn.x, b.z - l.spawn.z) + Math.abs(b.y - levelY(l.spawn.lvl)) * 4;
+    };
+    // Level 1: the bay is not right in front of you; its marking cannot be seen from the start.
+    expect(dist(CAMPAIGN[0])).toBeGreaterThan(GUIDE.fadeTo * 2);
+    const fills = (l: LevelDef, what: string[]) => Object.values(l.bays ?? {}).filter((f) => what.includes(f)).length;
+    const per = (f: (l: LevelDef) => number) => CHAPTERS.map((c) => {
+      const ls = CAMPAIGN.filter((l) => l.chapter === c.n);
+      return ls.reduce((a, l) => a + f(l), 0) / ls.length;
+    });
+    const rising = (xs: number[]) => xs.every((x, i) => i === 0 || x >= xs[i - 1]);
+    const decoys = per((l) => fills(l, ['cones']));
+    const obstacles = per((l) => fills(l, ['cones', 'van', 'suv', 'corral']) + (l.cones?.length ?? 0) / 3);
+    const hints = per((l) => hintDelay(l));
+    expect(rising(decoys), `decoys ${decoys}`).toBe(true);
+    expect(rising(obstacles), `obstacles ${obstacles}`).toBe(true);
+    expect(rising(hints), `hint delays ${hints}`).toBe(true);
+    expect(decoys[3]).toBeGreaterThan(decoys[0] * 4);
+    // Most levels start out of the bay marking's reach, so it has to be found (the short precision levels are the exceptions).
+    for (const c of CHAPTERS) {
+      const ls = CAMPAIGN.filter((l) => l.chapter === c.n && l.target.length);
+      expect(ls.filter((l) => dist(l) > GUIDE.fadeTo).length / ls.length, `chapter ${c.n}`).toBeGreaterThanOrEqual(0.6);
+    }
+    // A decoy is never the bay to park in.
+    for (const l of CAMPAIGN) for (const id of l.target) expect(l.bays?.[id], l.id).toBeUndefined();
   });
 
   it('uses only words that are fine on portals', () => {
@@ -301,11 +333,11 @@ describe('the rules of a level', () => {
     expect(world.lot.bays[157].variant).toBe(4);
     expect(world.lot.bays[159].use).toBe('car');
     const { world: w1 } = round(first);
-    expect(w1.lot.bays[93].use).toBe('free');
-    expect(w1.owner.includes(93)).toBe(false);
-    expect(w1.owner.includes(94)).toBe(true);
+    expect(w1.lot.bays[101].use).toBe('free');
+    expect(w1.owner.includes(101)).toBe(false);
+    expect(w1.owner.includes(102)).toBe(true);
     // The lot itself is untouched.
-    expect(lot.bays[93].use).toBe('car');
+    expect(lot.bays[101].use).toBe('car');
   });
 
   it('a light touch is a graze (the level goes on); a hard one fails it', () => {
