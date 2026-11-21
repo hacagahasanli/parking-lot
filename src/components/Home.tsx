@@ -70,7 +70,7 @@ export const Home = () => {
           <span className="text-lilac text-sm">You against three bots. Online with friends is next.</span>
         </div>
 
-        <Support variant="menu" className="mt-6 w-full max-w-md" />
+        <Support variant="menu" className="mt-6" />
 
         <ol className="mt-12 grid max-w-5xl gap-3 sm:grid-cols-2 lg:grid-cols-4">
           {STEPS.map(([title, text], i) => (

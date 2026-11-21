@@ -1,8 +1,6 @@
 'use client';
 
-import { useEffect, useRef } from 'react';
-
-import { SUPPORT_PAY_URL, SUPPORT_URL } from '~/lib/links';
+import { SUPPORT_URL } from '~/lib/links';
 import { track } from '~/lib/telemetry';
 
 /*
@@ -10,40 +8,25 @@ import { track } from '~/lib/telemetry';
  * `support` it is given (SiteRace passes SupportLink, the portal passes nothing), so no outbound link reaches dist/portal
  * (scripts/portal-report.mjs checks it).
  *
- * The support UI itself is the studio's shared module, vendored in src/vendor/nalbaki-support (synced by
- * scripts/sync-nalbaki-support.mjs): a flat "Support us" card, $3 / $5 / $10 chips and a button to the real itch.io page. It is a
- * web component, so it is loaded on the client only, after the page has painted. A click on any of its links (the Support
- * button, or the pause line to /support) counts as a support click; picking an amount does not.
+ * Support is one small "Support us" button that opens the studio's support page (nalbakigames.com/support) in a new tab.
  */
 
 type Variant = 'menu' | 'pause' | 'results';
 
-/** Space kept for each variant while the module loads, so nothing jumps. */
-const RESERVE: Record<Variant, string> = { menu: 'min-h-[214px]', results: 'min-h-[190px]', pause: 'min-h-11' };
+const VARIANT_WHERE: Record<Variant, string> = { menu: 'home', results: 'game', pause: 'game' };
 
-export const Support = ({ variant, className = '' }: { variant: Variant; className?: string }) => {
-  const host = useRef<HTMLDivElement>(null);
-  useEffect(() => {
-    const el = host.current;
-    const onClick = (e: MouseEvent) => {
-      if (e.composedPath().some((n) => n instanceof HTMLAnchorElement && n.href)) track('support_click', { where: variant === 'menu' ? 'home' : 'game' });
-    };
-    el?.addEventListener('click', onClick);
-    let gone = false;
-    let cleanup: (() => void) | undefined;
-    void import('~/vendor/nalbaki-support/nalbaki-support.js').then(({ mountSupport }) => {
-      if (gone || !host.current) return;
-      cleanup = mountSupport(host.current, { variant, href: SUPPORT_PAY_URL, pageHref: SUPPORT_URL });
-    });
-    return () => {
-      gone = true;
-      el?.removeEventListener('click', onClick);
-      cleanup?.();
-    };
-  }, [variant]);
-  return <div ref={host} className={`${RESERVE[variant]} ${className}`} />;
-};
+export const Support = ({ variant, className = '' }: { variant: Variant; className?: string }) => (
+  <a
+    href={SUPPORT_URL}
+    target="_blank"
+    rel="noopener"
+    onClick={() => track('support_click', { where: VARIANT_WHERE[variant] })}
+    className={`inline-flex items-center gap-2 self-start rounded-full border-[1.5px] border-[#FF4D2E] bg-black/50 px-4 py-2 text-sm font-bold text-[#F2EFE8] backdrop-blur transition hover:-translate-y-0.5 hover:bg-[#FF4D2E]/20 hover:shadow-[0_6px_22px_-6px_rgba(255,77,46,0.7)] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#F2EFE8] motion-reduce:transition-none motion-reduce:hover:translate-y-0 ${className}`}
+  >
+    <span aria-hidden="true" className="text-[#FF4D2E]">&hearts;</span> Support us
+  </a>
+);
 
 /** What Race is handed by SiteRace: `pill` in the pause menu (one line), `card` on the result screens. */
 export const SupportLink = ({ variant = 'pill' }: { variant?: 'pill' | 'card' }) =>
-  variant === 'card' ? <Support variant="results" className="w-full" /> : <Support variant="pause" />;
+  variant === 'card' ? <Support variant="results" /> : <Support variant="pause" />;
