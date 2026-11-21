@@ -359,77 +359,29 @@ html.pl-calm *::after {
 /* Loading screen and the screen-to-screen wipe (components/Transitions) */
 /* ------------------------------------------------------------------ */
 
-/* A neon lot rolling towards you: bay lines on a tilted plane, scrolling. */
-.load-grid {
-  position: absolute;
-  left: -50%;
-  right: -50%;
-  bottom: -30%;
-  height: 90%;
-  background-image:
-    linear-gradient(rgba(62, 197, 255, 0.35) 2px, transparent 2px),
-    linear-gradient(90deg, rgba(62, 197, 255, 0.35) 2px, transparent 2px);
-  background-size: 80px 120px;
-  transform: perspective(420px) rotateX(62deg);
-  transform-origin: 50% 0;
-  mask-image: linear-gradient(to top, black 30%, transparent 95%);
-  animation: gridRoll 1.1s linear infinite;
+/* The page behind the loader: dark asphalt with big faded bay lines, like the lot at dusk around the lit scene. */
+.load-screen {
+  background:
+    radial-gradient(ellipse at 50% 45%, rgba(255, 210, 63, 0.1), transparent 60%),
+    repeating-linear-gradient(90deg, transparent 0 118px, rgba(242, 242, 238, 0.06) 118px 122px),
+    linear-gradient(#25272d, #16171b);
 }
-@keyframes gridRoll {
-  to {
-    background-position: 0 120px;
-  }
+/* The free bay breathes. */
+.load-bay {
+  animation: bayGlow 1.6s ease-in-out infinite alternate;
 }
-/* A scan line sweeping down the screen. */
-.load-scan {
-  position: absolute;
-  inset: 0;
-  background: linear-gradient(to bottom, transparent 0%, rgba(255, 210, 63, 0.08) 48%, rgba(255, 210, 63, 0.22) 50%, transparent 52%);
-  background-size: 100% 220%;
-  animation: scanDown 2.4s linear infinite;
-}
-@keyframes scanDown {
+@keyframes bayGlow {
   from {
-    background-position: 0 100%;
+    opacity: 0.65;
   }
   to {
-    background-position: 0 -100%;
-  }
-}
-.load-car {
-  animation: carIdle 0.5s ease-in-out infinite alternate;
-}
-@keyframes carIdle {
-  to {
-    transform: translateY(-3px);
-  }
-}
-.load-beams {
-  transform-origin: 60px 62px;
-  animation: beamSweep 2.2s ease-in-out infinite alternate;
-}
-@keyframes beamSweep {
-  from {
-    transform: rotate(-9deg);
-    opacity: 0.7;
-  }
-  to {
-    transform: rotate(9deg);
     opacity: 1;
   }
 }
-/* The bar moves only on real steps; the sheen runs along it so it still looks alive. */
+/* The bar is drawn from the same value as the percentage (no CSS transition: a busy main thread would leave it behind). */
 .load-fill {
-  background: linear-gradient(90deg, #ffd23f, #3ec5ff, #ffd23f);
-  background-size: 200% 100%;
-  box-shadow: 0 0 14px rgba(255, 210, 63, 0.6);
-  transition: width 0.35s cubic-bezier(0.2, 0.8, 0.2, 1);
-  animation: sheen 1.4s linear infinite;
-}
-@keyframes sheen {
-  to {
-    background-position: -200% 0;
-  }
+  background: linear-gradient(90deg, #f59e0b, #ffd23f 70%, #fff09a);
+  box-shadow: 0 0 12px rgba(255, 210, 63, 0.55);
 }
 
 /* The wipe: a skewed band of colour shoots across with three light streaks, 450 ms, and the screen change happens under it. */
@@ -502,11 +454,7 @@ html.pl-calm *::after {
   }
 }
 @media (prefers-reduced-motion: reduce) {
-  .load-grid,
-  .load-scan,
-  .load-car,
-  .load-beams,
-  .load-fill {
+  .load-bay {
     animation: none;
   }
   .wipe .wipe-streak {

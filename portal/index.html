@@ -15,17 +15,16 @@
     <script src="https://sdk.crazygames.com/crazygames-sdk-v3.js"></script>
     <style>
       html,body{margin:0;height:100%;background:#0a0d18}
-      /* Before the script runs: the same screen the game's loader shows, at 0 % (nothing but the page has loaded). */
-      #boot{position:fixed;inset:0;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:16px;overflow:hidden;color:#ffd23f;font:400 44px Bungee,system-ui,sans-serif}
-      #boot:before{content:'';position:absolute;left:-50%;right:-50%;bottom:-30%;height:90%;background-image:linear-gradient(rgba(62,197,255,.35) 2px,transparent 2px),linear-gradient(90deg,rgba(62,197,255,.35) 2px,transparent 2px);background-size:80px 120px;transform:perspective(420px) rotateX(62deg);transform-origin:50% 0;-webkit-mask-image:linear-gradient(to top,#000 30%,transparent 95%);mask-image:linear-gradient(to top,#000 30%,transparent 95%);animation:g 1.1s linear infinite}
-      #boot b{position:relative;display:block;width:min(22rem,80vw);height:8px;border-radius:8px;background:rgba(230,235,245,.1)}
-      #boot small{position:relative;font:600 13px system-ui,sans-serif;color:rgba(230,235,245,.85)}
-      @keyframes g{to{background-position:0 120px}}
-      @media (prefers-reduced-motion:reduce){#boot:before{animation:none}}
+      /* Before the script runs: the loader's page at 0 % (the same asphalt, logo, bar and number; the lot scene comes with the script). */
+      #boot{position:fixed;inset:0;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:16px;overflow:hidden;background:radial-gradient(ellipse at 50% 45%,rgba(255,210,63,.1),transparent 60%),repeating-linear-gradient(90deg,transparent 0 118px,rgba(242,242,238,.06) 118px 122px),linear-gradient(#25272d,#16171b)}
+      #boot img{width:min(22rem,70vw);height:auto}
+      #boot div{width:min(34rem,92vw);display:flex;justify-content:space-between;align-items:flex-end;font:600 15px 'Chakra Petch',system-ui,sans-serif;color:rgba(230,235,245,.85)}
+      #boot div span{font:400 28px Bungee,system-ui,sans-serif;color:#ffd23f}
+      #boot b{display:block;width:min(34rem,92vw);height:12px;transform:skewX(-12deg);background:rgba(0,0,0,.45);box-shadow:0 0 0 1px rgba(255,255,255,.1)}
     </style>
   </head>
   <body>
-    <div id="root"><div id="boot" role="progressbar" aria-label="Loading" aria-valuenow="0"><span style="position:relative">Parking Lot</span><b></b><small>Loading the page</small></div></div>
+    <div id="root"><div id="boot" role="progressbar" aria-label="Loading" aria-valuenow="0"><img src="./public/brand/logo.svg" alt="Parking Lot" /><div>Loading the page<span>0%</span></div><b></b></div></div>
     <script type="module" src="./main.tsx"></script>
   </body>
 </html>

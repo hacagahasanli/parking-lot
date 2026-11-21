@@ -11,6 +11,7 @@ export const SiteRace = () => (
   <Race
     flavour="studio"
     credit={STUDIO_NAME}
+    logoSrc="/brand/logo.svg"
     exit={({ className, label }) => (
       <Link href="/" className={className}>
         {label}

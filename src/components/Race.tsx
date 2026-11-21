@@ -46,7 +46,7 @@ export interface RaceProps {
   testBreaks?: boolean;
   /** Open on the main menu (the portal build): PLAY starts the race, the pause menu can quit back to it. */
   menu?: boolean;
-  /** The game's logo for the menu (an image URL from the bundler). */
+  /** The game's logo for the loading screen and the menu (an image URL). */
   logoSrc?: string;
 }
 
@@ -516,8 +516,9 @@ export const Race = ({ platform: given, flavour = 'studio', exit, support, credi
   /** The level being played and the round of its first attempt (the intro card is shorter on a retry). */
   const attempts = useRef<{ id: string; n: number }>({ id: '', n: 0 });
 
-  /** How far the load has really got (the bar moves only on these steps), and the loading screen fading out. */
+  /** How far the load has really got (the bar eases only towards these checkpoints), the bar at 100, and the screen gone. */
   const [loadStep, setLoadStep] = useState<LoadStep>('page');
+  const [loadFull, setLoadFull] = useState(false);
   const [loadGone, setLoadGone] = useState(false);
   /** The light-streak wipe over a screen change (menu, map, level, result), with a whoosh. */
   const [wipe, setWipe] = useState<{ id: number; kind: WipeKind }>({ id: 0, kind: 'map' });
@@ -564,13 +565,13 @@ export const Race = ({ platform: given, flavour = 'studio', exit, support, credi
   }, [platform, flavour, escPause, menu, store]);
 
   useApplySettings(game, settings, platform);
-  // The first frame is drawn: the loading screen fades out, then goes.
+  // The first frame is drawn and the bar has run to 100: the loading screen fades out, then goes.
   const ready = !!hud;
   useEffect(() => {
-    if (!ready) return;
+    if (!loadFull) return;
     const t = window.setTimeout(() => setLoadGone(true), 350);
     return () => window.clearTimeout(t);
-  }, [ready]);
+  }, [loadFull]);
   // Nothing is drawn behind the map.
   useEffect(() => {
     game?.setHidden(!!map);
@@ -651,7 +652,7 @@ export const Race = ({ platform: given, flavour = 'studio', exit, support, credi
         <canvas ref={minimap} width={360} height={216} className={`border-cream/25 pointer-events-none border-2 ${touch ? 'h-[4.8rem] w-32' : 'h-28 w-[11.7rem] sm:h-44 sm:w-[18.3rem]'}`} aria-label="Minimap" />
       </div>
 
-      {!loadGone && <LoadingScreen step={hud ? 'ready' : loadStep} leaving={!!hud} />}
+      {!loadGone && <LoadingScreen step={ready ? 'ready' : loadStep} leaving={loadFull} logoSrc={logoSrc} onDone={() => setLoadFull(true)} />}
       <Wipe id={wipe.id} kind={wipe.kind} />
 
       {hud && inMenu && (
