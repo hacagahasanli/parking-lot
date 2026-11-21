@@ -289,7 +289,13 @@ export const RACES: LevelDef[] = [
 /** Every level of both modes (progress is saved under their ids). */
 export const ALL_LEVELS: LevelDef[] = [...CAMPAIGN, ...RACES];
 
-export const levelById = (id: string): LevelDef | undefined => ALL_LEVELS.find((l) => l.id === id);
+/** The Daily Lot's round of the day (set by `activateDaily` in daily.ts); it is not part of the saved campaign. */
+let activeDaily: LevelDef | null = null;
+export const setDaily = (l: LevelDef | null) => {
+  activeDaily = l;
+};
+
+export const levelById = (id: string): LevelDef | undefined => (id === 'daily' ? activeDaily ?? undefined : ALL_LEVELS.find((l) => l.id === id));
 export const isRace = (l: LevelDef) => l.type === 'race';
 
 /**
