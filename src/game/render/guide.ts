@@ -1,5 +1,6 @@
 /**
- * The campaign's ground guides, flat on the tarmac:
+ * The campaign's ground guides, flat on the tarmac. They are calm (sim/guidance.ts): each one fades in only as you come within
+ * about 16 m on its deck (`vis`), so from far away the bay is one more space between parked cars.
  *  - the bay outline of a solo level (white while you drive to it, green once you are inside and straight), with an arrow that
  *    says which way the nose must point when the level asks for one, and dim outlines for the bays still to come in a chain;
  *  - the exit circle of an unpark level;
@@ -54,6 +55,8 @@ export interface BayGuideState {
   status: 0 | 1 | 2;
   /** 0..1 of the hold, for the fill. */
   hold: number;
+  /** 0..1: how much of it shows (by distance; a hint pulse lights it up). */
+  vis: number;
 }
 
 /** The current bay's outline, fill and arrow. */
@@ -71,8 +74,8 @@ export const buildBayGuide = () => {
   group.visible = false;
   let built = { w: 1, d: 1 };
   const set = (s: BayGuideState | null, time: number) => {
-    group.visible = !!s;
-    if (!s) return;
+    group.visible = !!s && s.vis > 0.01;
+    if (!s || !group.visible) return;
     if (s.w !== built.w || s.d !== built.d) {
       lines.geometry.dispose();
       lines.geometry = outlineGeo(s.w, s.d, 0.14, 0.045);
@@ -86,11 +89,12 @@ export const buildBayGuide = () => {
     const c = s.status === 0 ? WHITE : GREEN;
     lineMat.color.copy(c);
     fillMat.color.copy(c);
-    lineMat.opacity = s.status === 0 ? 0.6 + 0.35 * pulse : 0.95;
-    fillMat.opacity = s.status === 0 ? 0.08 : 0.12 + s.hold * 0.25;
+    const v = s.status === 0 ? s.vis : 1;
+    lineMat.opacity = (s.status === 0 ? 0.6 + 0.35 * pulse : 0.95) * v;
+    fillMat.opacity = (s.status === 0 ? 0.08 : 0.12 + s.hold * 0.25) * v;
     arrow.visible = !!s.arrow;
     arrow.rotation.y = s.arrow === 'tail' ? Math.PI : 0;
-    arrowMat.opacity = s.status === 2 ? 0.35 : 0.85;
+    arrowMat.opacity = (s.status === 2 ? 0.35 : 0.85) * v;
   };
   return { group, set };
 };
@@ -105,11 +109,13 @@ export const buildNextGuides = () => {
     group.add(m);
     return m;
   });
-  const set = (bays: { x: number; y: number; z: number; h: number; w: number; d: number }[]) => {
+  const mats = meshes.map((m) => ((m.material = mat.clone()), m.material as THREE.MeshBasicMaterial));
+  const set = (bays: { x: number; y: number; z: number; h: number; w: number; d: number; vis: number }[]) => {
     meshes.forEach((m, i) => {
       const b = bays[i];
-      m.visible = !!b;
-      if (!b) return;
+      m.visible = !!b && b.vis > 0.01;
+      if (!b || !m.visible) return;
+      mats[i].opacity = 0.45 * b.vis;
       m.position.set(b.x, b.y, b.z);
       m.rotation.y = b.h;
       m.scale.set(b.w / 2.7, 1, b.d / 5.1);
@@ -128,12 +134,13 @@ export const buildExitGuide = () => {
   ring.renderOrder = fill.renderOrder = 3;
   group.add(fill, ring);
   group.visible = false;
-  const set = (e: { x: number; y: number; z: number; r: number } | null, time: number) => {
-    group.visible = !!e;
-    if (!e) return;
+  const set = (e: { x: number; y: number; z: number; r: number; vis: number } | null, time: number) => {
+    group.visible = !!e && e.vis > 0.01;
+    if (!e || !group.visible) return;
     group.position.set(e.x, e.y, e.z);
     group.scale.set(e.r, 1, e.r);
-    ringMat.opacity = 0.65 + Math.sin(time * 4) * 0.3;
+    ringMat.opacity = (0.65 + Math.sin(time * 4) * 0.3) * e.vis;
+    fillMat.opacity = 0.12 * e.vis;
   };
   return { group, set };
 };

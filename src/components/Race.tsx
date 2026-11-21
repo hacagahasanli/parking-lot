@@ -14,7 +14,7 @@ import { LoadingScreen, Wipe } from '~/components/Transitions';
 import { useSession } from '~/components/useSession';
 import { useCampaign } from '~/components/useCampaign';
 import { CampaignMap } from '~/components/campaign/CampaignMap';
-import { LevelBar, LevelIntro, LevelResult, PrecisionMeter, levelTag, objectiveOf } from '~/components/campaign/LevelUI';
+import { HintButton, LevelBar, LevelIntro, LevelResult, PrecisionMeter, levelTag, objectiveOf } from '~/components/campaign/LevelUI';
 import { ALL_LEVELS, isRace, levelById, nextOpenLevel } from '~/game/sim/campaign';
 import { deviceFacts } from '~/game/render/deviceFacts';
 import { resolveTier } from '~/game/render/quality';
@@ -666,7 +666,7 @@ export const Race = ({ platform: given, flavour = 'studio', exit, support, credi
   return (
     <main className="fixed inset-0 overflow-hidden bg-ink-deep select-none" onPointerDown={() => gameRef.current?.unlockAudio()}>
       <canvas ref={canvas} className="absolute inset-0 h-full w-full touch-none" />
-      {/* The edge arrow to the free bay: the game moves it every frame and hides it while the bay is on screen. */}
+      {/* The hint pulse's arrow (guidance.ts): shown for a few seconds only, over the bay or at the screen edge in its direction. */}
       <div ref={pointer} className="pointer-events-none absolute top-0 left-0 z-[12] flex flex-col items-center gap-0.5 transition-opacity duration-200" style={{ opacity: 0 }} aria-hidden="true">
         <div className="flex h-12 w-12 items-center justify-center rounded-full border-2 border-[#ffd23f] bg-[#0a0d18]/80 shadow-[0_0_18px_rgba(255,210,63,0.6)] sm:h-14 sm:w-14">
           <svg viewBox="0 0 24 24" className="h-7 w-7" fill="#ffd23f"><path d="M5 11h9.2l-3.6-3.6L12 6l6 6-6 6-1.4-1.4 3.6-3.6H5z" /></svg>
@@ -772,6 +772,9 @@ export const Race = ({ platform: given, flavour = 'studio', exit, support, credi
           >
             {!lvHud?.solo && hud.phase !== 'countdown' && <PlaceBadge hud={hud} />}
             {lvHud && <LevelBar hud={hud} touch={touch} />}
+            {lvHud && hud.phase === 'race' && !hud.result && (
+              <HintButton hud={hud} touch={touch} onHint={() => gameRef.current?.useHint()} keyName={settings.controls.bindings.hint[0] ? keyLabel(settings.controls.bindings.hint[0]) : null} />
+            )}
             {!lvHud && hud.stage.n > 0 && (
               <div className="panel-cut bg-ink-deep/75 font-display text-gold flex items-center px-2 text-xs tracking-wide whitespace-nowrap sm:px-3 sm:text-sm" aria-label={`Stage ${hud.stage.n} of ${hud.stage.total}: ${hud.stage.name}`}>
                 STAGE {hud.stage.n}<span className="text-cream/60 hidden pl-1.5 sm:inline">{hud.stage.name.split(' — ')[0]}</span>
@@ -881,6 +884,7 @@ export const Race = ({ platform: given, flavour = 'studio', exit, support, credi
                 {hud.manual && <span><BoundKeys b={settings.controls.bindings} a="shiftUp" /> <BoundKeys b={settings.controls.bindings} a="shiftDown" /> shift up/down</span>}
                 <span><BoundKeys b={settings.controls.bindings} a="horn" /> horn</span>
                 <span><BoundKeys b={settings.controls.bindings} a="camera" /> camera</span>
+                {lvHud && <span><BoundKeys b={settings.controls.bindings} a="hint" /> hint</span>}
                 <span>{escPause && <Key k="Esc" />} <BoundKeys b={settings.controls.bindings} a="pause" /> pause</span>
               </span>
             </div>

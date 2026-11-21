@@ -14,6 +14,7 @@ import { botInput, createBrain } from '../sim/bot';
 import { CAR, DT, PED, RACE } from '../sim/constants';
 import { COPY } from '../sim/flavour';
 import { hintArea, hintLines, hintOf } from '../sim/hint';
+import { GUIDE, autoPulseDue, hintDelay, markOpacity, pulseOn } from '../sim/guidance';
 import { LEVELS, LEVEL_COLOR, LEVEL_H, levelName, levelOf, levelY } from '../sim/levels';
 import { BAY, CONE_R, CORRAL, bayCones, buildLot, parkedSpot } from '../sim/lot';
 import { radio } from '../sim/radio';
@@ -145,6 +146,11 @@ export interface HudState {
   stage: { n: number; name: string; news: string; total: number; unlocked: number; hasNext: boolean; /** The stage PLAY starts (the last one picked). */ current: number };
   /** This round has the bonus hint (a circle on the minimap around the free bay). */
   hinted: boolean;
+  /**
+   * The calm guidance (guidance.ts): a pulse is showing the way now; the hint key can be used (a level, racing, not found or
+   * parked yet); it has been paid for in this run (one star); the next automatic pulse (s on the race clock, null when none).
+   */
+  guide: { pulsing: boolean; canHint: boolean; paid: boolean; costs: boolean };
   /** The quality tier being drawn, and whether the game is frozen for an ad. */
   tier: Tier;
   frozen: boolean;
@@ -235,11 +241,6 @@ interface Pressed {
 
 /** How long (s) the cars hold still where they touched when the touch puts you out, before the sim and the fail flow go on. */
 const CONTACT_HOLD = 0.4;
-/**
- * Guidance to the free bay: in a solo level the beacon (the light column and the P over the bay) and the edge arrow are on from
- * the start; in a race they come on after this many seconds (finding it first is still the race), or as soon as you have seen it.
- */
-export const RACE_GUIDE_AFTER = 12;
 
 const lerpAngle = (a: number, b: number, t: number) => a + Math.atan2(Math.sin(b - a), Math.cos(b - a)) * t;
 
@@ -473,6 +474,12 @@ export class Game {
   /** The free bays' yellow paint (the target, and the second bay when a car pulls out), lit only up close (reveal.ts). */
   private paints = [buildFreeBayPaint(), buildFreeBayPaint()];
   private found = [false, false];
+  /** The calm guidance's run state: when the last pulse started (race clock), how many came on their own, the hint paid for. */
+  private pulseAt: number | null = null;
+  private autoPulses = 0;
+  private hintPaid = false;
+  /** The bay `found[0]` is about (a chain's next leg is a new bay to find). */
+  private foundBay = -1;
   private fx: HudState['flash'] = null;
   private callout: HudState['callout'] = null;
   private fxId = 0;
@@ -694,6 +701,10 @@ export class Game {
     this.holdUntil = -1;
     this.paused = false;
     this.found = [false, false];
+    this.pulseAt = null;
+    this.autoPulses = 0;
+    this.hintPaid = false;
+    this.foundBay = state.target;
     this.fx = null;
     this.callout = null;
     this.rivalWarned = false;
@@ -854,6 +865,7 @@ export class Game {
       if (action === 'shiftUp') this.shift(1);
       if (action === 'shiftDown') this.shift(-1);
       if (action === 'retry' && this.level && !this.paused) this.retry();
+      if (action === 'hint') this.useHint();
     }
     if (down && !e.repeat && (action === 'pause' || (e.code === 'Escape' && this.opts.escPause !== false))) this.setPaused(!this.paused);
     if (down && e.code === 'Enter' && (this.state.phase === 'done' || this.state.cars[0].dq !== null)) {
@@ -1093,12 +1105,57 @@ export class Game {
     this.pointer = el;
   };
 
-  /** Where guidance points now: the bay to park in (or a level's exit), once guidance is on; null when it is off. */
-  private guideSpot(): { x: number; y: number; z: number } | null {
+  /** Guidance can run: racing (not the menu or a still shot), the round on, your car still looking. */
+  private guideLive() {
     const s = this.state;
-    if (!this.racing || this.menu || this.shot || this.paused || s.phase === 'done' || s.cars[0].dq !== null || s.cars[0].parkedAt !== null) return null;
-    const solo = !!this.level && this.level.type !== 'race';
-    if (!solo && !(s.phase === 'race' && (s.clock >= RACE_GUIDE_AFTER || this.found[0]))) return null;
+    return this.racing && !this.menu && !this.shot && !this.paused && s.phase === 'race' && s.cars[0].dq === null && s.cars[0].parkedAt === null;
+  }
+
+  /** The hint (H, or the touch button): a pulse at once. In a level the first one costs a star. */
+  useHint = () => {
+    if (!this.guideLive() || (this.state.target < 0 && !this.state.exit)) return;
+    if (!this.level) return;
+    if (pulseOn(this.state.clock, this.pulseAt)) return;
+    this.hintPaid = true;
+    this.pulseAt = this.state.clock;
+    this.sfx.ui(1);
+    this.emitHud(true);
+  };
+
+  /** The calm guidance's clock: found yet (close enough, on the same deck), and the automatic pulses while it is not. */
+  private updateHint() {
+    const s = this.state;
+    if (s.target !== this.foundBay) {
+      // A chain's next bay: a new search.
+      this.foundBay = s.target;
+      this.found[0] = false;
+      this.autoPulses = 0;
+      this.pulseAt = null;
+    }
+    if (!this.guideLive()) return;
+    const me = s.cars[0];
+    const spot = this.targetSpot();
+    if (!spot) return;
+    // In a solo level the bay (or exit) counts as found once you have been within reach of it; a race does this in updatePaint.
+    if (this.level && this.level.type !== 'race' && !this.found[0] && Math.hypot(spot.x - me.x, spot.z - me.z) <= REVEAL.near && Math.abs(spot.y - me.y) < GUIDE.sameDeck) {
+      this.found[0] = true;
+      if (s.target >= 0) {
+        this.sfx.found();
+        this.pop('found', 'FOUND IT!', 'good');
+      }
+    }
+    if (autoPulseDue(s.clock, hintDelay(this.level), this.autoPulses, this.found[0])) {
+      this.autoPulses++;
+      if (!pulseOn(s.clock, this.pulseAt)) {
+        this.pulseAt = s.clock;
+        this.sfx.ui(1);
+      }
+    }
+  }
+
+  /** The bay to park in now, or a level's exit. */
+  private targetSpot(): { x: number; y: number; z: number } | null {
+    const s = this.state;
     if (s.target >= 0) {
       const b = this.lot.bays[s.target];
       return { x: b.x, y: b.y, z: b.z };
@@ -1106,7 +1163,21 @@ export class Game {
     return s.exit ? { x: s.exit.x, y: levelY(s.exit.lvl), z: s.exit.z } : null;
   }
 
-  /** The edge arrow: off while the spot is in view, else pinned to the screen edge in its direction, with the distance. */
+  /** Where guidance points now: the bay to park in (or a level's exit) while a pulse is showing; null otherwise. */
+  private guideSpot(): { x: number; y: number; z: number } | null {
+    const s = this.state;
+    if (!this.guideLive() || !pulseOn(s.clock, this.pulseAt)) return null;
+    if (s.target >= 0) {
+      const b = this.lot.bays[s.target];
+      return { x: b.x, y: b.y, z: b.z };
+    }
+    return s.exit ? { x: s.exit.x, y: levelY(s.exit.lvl), z: s.exit.z } : null;
+  }
+
+  /**
+   * The hint pulse's arrow, only while a pulse shows (`GUIDE.pulse` seconds): over the spot pointing down when it is on screen,
+   * else pinned to the screen edge in its direction, with the distance (and the deck, when it is on another one).
+   */
   private updatePointer() {
     const el = this.pointer;
     if (!el) return;
@@ -1116,28 +1187,38 @@ export class Game {
       el.style.opacity = '0';
       return;
     }
+    // Fade in quickly, out over the last half second.
+    const age = this.state.clock - (this.pulseAt ?? 0);
+    const alpha = Math.min(1, age / 0.2, (GUIDE.pulse - age) / 0.5);
+    const W = el.parentElement?.clientWidth ?? window.innerWidth;
+    const H = el.parentElement?.clientHeight ?? window.innerHeight;
     const v = new THREE.Vector3(spot.x, spot.y + 1, spot.z).project(this.camera);
     const behind = v.z > 1;
     let nx = behind ? -v.x : v.x;
     let ny = behind ? -v.y : v.y;
     const onScreen = !behind && Math.abs(nx) < 0.92 && Math.abs(ny) < 0.88;
+    let ang = Math.PI / 2;
+    let px: number;
+    let py: number;
     if (onScreen) {
-      el.style.opacity = '0';
-      return;
+      // Over the bay, bobbing, pointing down at it.
+      px = ((nx + 1) / 2) * W;
+      const g = new THREE.Vector3(spot.x, spot.y, spot.z).project(this.camera);
+      px = ((g.x + 1) / 2) * W;
+      py = ((1 - g.y) / 2) * H - 40 - Math.abs(Math.sin(this.time * 5)) * 8;
+    } else {
+      // Push the direction out to the edge (a margin in from it, a deeper one at the top where the HUD sits), keeping its angle.
+      const k = 1 / Math.max(Math.abs(nx) / 0.86, ny > 0 ? ny / 0.6 : -ny / 0.72, 1e-6);
+      nx *= k;
+      ny *= k;
+      px = ((nx + 1) / 2) * W;
+      py = ((1 - ny) / 2) * H;
+      ang = Math.atan2(-ny, nx);
     }
-    // Push the direction out to the edge (a margin in from it, a deeper one at the top where the HUD sits), keeping its angle.
-    const k = 1 / Math.max(Math.abs(nx) / 0.86, ny > 0 ? ny / 0.6 : -ny / 0.72, 1e-6);
-    nx *= k;
-    ny *= k;
-    const W = el.parentElement?.clientWidth ?? window.innerWidth;
-    const H = el.parentElement?.clientHeight ?? window.innerHeight;
-    const px = ((nx + 1) / 2) * W;
-    const py = ((1 - ny) / 2) * H;
-    const ang = Math.atan2(-ny, nx);
-    el.style.opacity = '1';
+    el.style.opacity = String(Math.max(0, alpha));
     el.style.transform = `translate(${px}px, ${py}px) translate(-50%, -50%)`;
     const arrow = el.firstElementChild as HTMLElement | null;
-    if (arrow) arrow.style.transform = `rotate(${ang}rad)`;
+    if (arrow) arrow.style.transform = `rotate(${ang}rad) scale(${1 + Math.max(0, 0.25 - age) * 1.6})`;
     const label = el.querySelector('[data-dist]');
     const d = Math.hypot(spot.x - me.x, spot.z - me.z);
     const deck = Math.round((spot.y - me.y) / LEVEL_H);
@@ -1462,16 +1543,19 @@ export class Game {
     const me = s.cars[0];
     const bay = solo && s.target >= 0 && s.phase !== 'done' ? this.world.lot.bays[s.target] : null;
     const shown = (b: { x: number; y: number; z: number }) => this.worldView.garage.floorShown(b.x, b.y + 0.1, b.z);
+    // Calm: each guide shows only from close by; a hint pulse lights the one you are going for wherever it is.
+    const pulse = this.guideSpot() !== null ? 0.55 + 0.45 * Math.abs(Math.sin(t * 5)) : 0;
+    const vis = (b: { x: number; y: number; z: number }) => markOpacity(Math.hypot(b.x - me.x, b.z - me.z), b.y - me.y);
     if (bay && shown(bay)) {
       const rules = s.rules;
       const inside = me.inBay >= 0.999 && me.bay === bay.id;
       const straight = inside && !!rules && aligned(me.h, bay.h, rules);
-      this.bayGuide.set({ x: bay.x, y: bay.y, z: bay.z, h: bay.h, w: bay.w, d: bay.d, arrow: lv!.facing === 'any' ? null : lv!.facing, status: straight ? 2 : inside ? 1 : 0, hold: me.park }, t);
+      this.bayGuide.set({ x: bay.x, y: bay.y, z: bay.z, h: bay.h, w: bay.w, d: bay.d, arrow: lv!.facing === 'any' ? null : lv!.facing, status: straight ? 2 : inside ? 1 : 0, hold: me.park, vis: Math.max(vis(bay), pulse) }, t);
     } else this.bayGuide.set(null, t);
-    const rest = solo && s.targets && s.phase !== 'done' ? s.targets.slice((s.leg ?? 0) + 1).map((id) => this.world.lot.bays[id]).filter(shown) : [];
+    const rest = solo && s.targets && s.phase !== 'done' ? s.targets.slice((s.leg ?? 0) + 1).map((id) => this.world.lot.bays[id]).filter(shown).map((b) => ({ ...b, vis: vis(b) })) : [];
     this.nextGuides.set(rest);
     const e = solo && s.exit && s.phase !== 'done' ? { ...s.exit, y: levelY(s.exit.lvl) } : null;
-    this.exitGuide.set(e && shown(e) ? e : null, t);
+    this.exitGuide.set(e && shown(e) ? { ...e, vis: Math.max(vis(e), pulse) } : null, t);
     // The projected path, in precision levels, when slow enough for it to help (it fades out by 4 m/s).
     const rig = this.rigs[0];
     const v = forwardSpeed(me);
@@ -1592,22 +1676,22 @@ export class Game {
     const shotBay = this.shot?.bay;
     // The menu shows the prize: the free bay's beam and outline stand over the lot while the bots hunt for it.
     const menuBay = this.menu && s.phase !== 'done';
-    // While you drive, the beacon stands over the bay to park in once guidance is on (see `guideSpot`).
-    const guide = this.guideSpot() !== null && s.target >= 0 && this.worldView.garage.floorShown(this.lot.bays[s.target].x, this.lot.bays[s.target].y + 0.1, this.lot.bays[s.target].z);
-    const reveal = guide || ((shotBay !== undefined || menuBay || (s.phase === 'done' && this.time - this.endedAt < 6 && this.endedAt >= 0)) && (shotBay ?? (s.winBay >= 0 ? s.winBay : s.target)) >= 0 && !(this.level && this.level.type !== 'race' && shotBay === undefined));
+    // While you drive nothing stands over the bay: the guidance is calm (guidance.ts).
+    const reveal = ((shotBay !== undefined || menuBay || (s.phase === 'done' && this.time - this.endedAt < 6 && this.endedAt >= 0)) && (shotBay ?? (s.winBay >= 0 ? s.winBay : s.target)) >= 0 && !(this.level && this.level.type !== 'race' && shotBay === undefined));
     this.marker.group.visible = reveal;
     if (reveal) {
-      const bay = this.lot.bays[guide ? s.target : (shotBay ?? (s.winBay >= 0 ? s.winBay : s.target))];
+      const bay = this.lot.bays[shotBay ?? (s.winBay >= 0 ? s.winBay : s.target)];
       this.marker.group.position.set(bay.x, bay.y, bay.z);
       this.marker.group.rotation.y = bay.h;
       this.marker.group.scale.set(bay.w / BAY.width, 1, bay.d / BAY.depth);
-      const fade = guide || shotBay !== undefined || menuBay ? 1 : Math.min(1, (this.time - this.endedAt) * 2) * Math.min(1, (6 - (this.time - this.endedAt)) * 2);
+      const fade = shotBay !== undefined || menuBay ? 1 : Math.min(1, (this.time - this.endedAt) * 2) * Math.min(1, (6 - (this.time - this.endedAt)) * 2);
       this.marker.lineMat.opacity = 0.95 * fade;
       this.marker.fillMat.opacity = shotBay !== undefined ? 0.32 : menuBay ? 0.22 + Math.sin(t * 2.4) * 0.08 : (0.12 + Math.sin(t * 4) * 0.05) * fade;
       this.marker.beamMat.uniforms.uTime.value = t;
       this.marker.sign.position.y = 3.4 + Math.sin(t * 2) * 0.15;
       (this.marker.sign.material as THREE.SpriteMaterial).opacity = fade;
     }
+    this.updateHint();
     this.updatePaint(t);
     this.updateGuides(t);
     // Which decks are drawn first, then whatever stands on a hidden one goes with it (or it hangs in the sky).
@@ -1686,10 +1770,12 @@ export class Game {
     if (this.camStyle !== 'auto') return this.camStyle;
     if (!this.racing) return 'classic';
     const s = this.state;
-    if (this.level && this.level.type !== 'race') return 'precision';
-    // A race: the classic view to search, the precision view for the last metres to a bay you have found.
+    // The classic view to search, the precision view for the last metres to a bay you have found (a solo level's exit too).
     const me = s.cars[0];
-    const near = [s.target, s.extra].some((id, k) => id >= 0 && this.found[k] && Math.hypot(this.lot.bays[id].x - me.x, this.lot.bays[id].z - me.z) < 8 && Math.abs(this.lot.bays[id].y - me.y) < 1.5);
+    const solo = !!this.level && this.level.type !== 'race';
+    if (solo && (s.target < 0 || s.phase !== 'race')) return 'precision';
+    const reach = solo ? 12 : 8;
+    const near = [s.target, s.extra].some((id, k) => id >= 0 && this.found[k] && Math.hypot(this.lot.bays[id].x - me.x, this.lot.bays[id].z - me.z) < reach && Math.abs(this.lot.bays[id].y - me.y) < 1.5);
     return near ? 'precision' : 'classic';
   }
 
@@ -2038,37 +2124,6 @@ export class Game {
         g.fill();
       });
     }
-    // The bay guidance points at (a solo level's bay or exit from the start, a race's once guidance is on): a pulsing gold ring
-    // with a dot, and a label when it is on another level than the one shown.
-    const spot = this.guideSpot();
-    if (spot) {
-      const pulse = (this.time * 1.2) % 1;
-      if (here(spot.y)) {
-        g.save();
-        g.strokeStyle = `rgba(255,210,63,${1 - pulse})`;
-        g.lineWidth = 3;
-        g.beginPath();
-        g.arc(px(spot.x), pz(spot.z), 6 + pulse * 14, 0, Math.PI * 2);
-        g.stroke();
-        g.fillStyle = '#ffd23f';
-        g.strokeStyle = '#0a0d18';
-        g.lineWidth = 2;
-        g.beginPath();
-        g.arc(px(spot.x), pz(spot.z), 6, 0, Math.PI * 2);
-        g.fill();
-        g.stroke();
-        g.restore();
-      } else {
-        g.save();
-        g.font = 'bold 22px sans-serif';
-        g.textAlign = 'center';
-        g.fillStyle = 'rgba(10,13,24,0.8)';
-        g.fillRect(W / 2 - 90, 6, 180, 30);
-        g.fillStyle = '#ffd23f';
-        g.fillText(`Free bay on ${levelName(levelOf(spot.y + 0.1))}`, W / 2, 29);
-        g.restore();
-      }
-    }
     if (this.state.phase === 'done') {
       const bay = this.lot.bays[this.state.winBay >= 0 ? this.state.winBay : this.state.target];
       if (bay && here(bay.y)) {
@@ -2175,6 +2230,12 @@ export class Game {
       })(),
       mapLevel: this.mapShown,
       hinted: this.hinted,
+      guide: {
+        pulsing: this.guideSpot() !== null,
+        canHint: !!this.level && this.guideLive() && !this.found[0] && (s.target >= 0 || !!s.exit),
+        paid: this.hintPaid,
+        costs: !!this.level && !this.hintPaid,
+      },
       tier: this.tier,
       frozen: this.frozen,
       stage: (() => {
@@ -2204,7 +2265,7 @@ export class Game {
       const finished = s.winner === 0;
       const precs = s.legPrecision ?? [];
       const precision = scoresPrecision(l) ? (precs.length ? Math.round(precs.reduce((a, b) => a + b, 0) / precs.length) : 0) : 100;
-      const r: RunResult = { finished, time: me.parkedAt ?? s.clock, grazes: me.grazes, precision };
+      const r: RunResult = { finished, time: me.parkedAt ?? s.clock, grazes: me.grazes, precision, hinted: this.hintPaid };
       run = {
         ...r,
         stars: starsFor(l, r),

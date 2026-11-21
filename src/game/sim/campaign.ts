@@ -68,6 +68,8 @@ export interface LevelDef {
   par: number;
   /** Time (s) to finish at all. */
   limit: number;
+  /** When (s after GO) the first automatic hint pulse comes if the bay is not found (default: by chapter, see guidance.ts). */
+  hintAfter?: number;
 }
 
 export interface ChapterDef {
@@ -361,6 +363,8 @@ export interface RunResult {
   grazes: number;
   /** 0..100 (the mean over a chain's bays); 100 for an unpark or a race, where it is not scored. */
   precision: number;
+  /** The hint key was used in this run: it costs one star (never the one for finishing). */
+  hinted?: boolean;
 }
 
 /** The three goals of a level, each met or not. */
@@ -381,10 +385,15 @@ export const goalsOf = (l: LevelDef, r: RunResult): StarGoals => ({
   clean: r.finished && r.grazes === 0 && (!scoresPrecision(l) || r.precision >= PRECISION_STAR),
 });
 
-/** Stars for a run: one for finishing, plus one each for the par time and a clean, precise park (no stars without finishing). */
+/**
+ * Stars for a run: one for finishing, plus one each for the par time and a clean, precise park (no stars without finishing).
+ * Asking for a hint costs one of them, but a finished run always keeps at least the one star that opens the next level.
+ */
 export const starsFor = (l: LevelDef, r: RunResult): number => {
   const g = goalsOf(l, r);
-  return g.finish ? 1 + (g.par ? 1 : 0) + (g.clean ? 1 : 0) : 0;
+  if (!g.finish) return 0;
+  const earned = 1 + (g.par ? 1 : 0) + (g.clean ? 1 : 0);
+  return r.hinted ? Math.max(1, earned - 1) : earned;
 };
 
 /** The goals as short lines for the intro and result cards. */

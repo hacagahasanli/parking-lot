@@ -45,8 +45,8 @@ export const objectiveOf = (lv: LevelHud): string =>
       : lv.legs > 1
         ? `Park in each marked bay in turn (${lv.legs} bays)`
         : lv.facing === 'tail'
-          ? 'Find the free bay under the P and reverse into it'
-          : 'Find the free bay under the P and park in it';
+          ? 'Find the free bay and reverse into it'
+          : 'Find the free bay and park in it';
 
 /** The controls in a line, for the intro card: keys on a keyboard, the on-screen pads on a phone. */
 const ControlsLine = ({ touch }: { touch: boolean }) => (
@@ -122,12 +122,15 @@ export const StarTrack = ({ hud, touch }: { hud: HudState; touch: boolean }) => 
     { label: `${lv.par} s`, fill: out ? 0 : Math.max(0, 1 - t / lv.parAt), what: `under ${lv.par} seconds` },
     { label: 'clean', fill: out || lv.grazes > 0 ? 0 : 1, what: race ? 'touch nothing' : 'no grazes' },
   ];
-  const lit = stars.filter((x) => x.fill > 0).length;
+  // A hint costs one star (never the one for finishing): the chip after the stars says so.
+  const paid = hud.guide.paid;
+  const inReach = stars.filter((x) => x.fill > 0).length;
+  const lit = paid ? Math.max(Math.min(inReach, 1), inReach - 1) : inReach;
   return (
     <div
       className="panel-cut bg-ink-deep/75 flex items-center gap-2 px-2.5 py-1 sm:gap-3 sm:px-3"
       role="meter"
-      aria-label={`Stars in reach: ${lit} of 3. ${stars.map((x) => `${x.what}: ${x.fill > 0 ? 'in reach' : 'missed'}`).join(', ')}`}
+      aria-label={`Stars in reach: ${lit} of 3. ${stars.map((x) => `${x.what}: ${x.fill > 0 ? 'in reach' : 'missed'}`).join(', ')}${paid ? '. A hint was used: minus one star' : ''}`}
       aria-valuenow={lit}
       aria-valuemin={0}
       aria-valuemax={3}
@@ -147,7 +150,40 @@ export const StarTrack = ({ hud, touch }: { hud: HudState; touch: boolean }) => 
           </div>
         );
       })}
+      {paid && (
+        <div className="text-orange flex flex-col items-center leading-none" aria-hidden="true" style={{ animation: 'riseIn 0.3s ease-out both' }}>
+          <span className="font-display text-xs sm:text-sm">−1★</span>
+          <span className="text-[10px] font-bold">hint</span>
+        </div>
+      )}
     </div>
+  );
+};
+
+/**
+ * The hint button: a pulse shows the way to the bay for three seconds. The first use in a run costs a star (the button says so);
+ * after that it is free. Key H on a keyboard.
+ */
+export const HintButton = ({ hud, touch, onHint, keyName }: { hud: HudState; touch: boolean; onHint: () => void; keyName: string | null }) => {
+  const { canHint, costs, pulsing } = hud.guide;
+  if (!canHint) return null;
+  return (
+    <button
+      type="button"
+      onClick={onHint}
+      disabled={pulsing}
+      aria-label={costs ? 'Hint: show the way to the bay, costs one star' : 'Hint: show the way to the bay'}
+      className={`panel-cut bg-ink-deep/80 border-blue/50 pointer-events-auto flex items-center gap-1.5 border px-2 py-1 text-xs font-bold transition hover:bg-blue/20 active:scale-95 disabled:opacity-50 ${touch ? 'min-h-10 min-w-10 justify-center' : ''}`}
+    >
+      <svg viewBox="0 0 24 24" className="h-4 w-4 shrink-0" aria-hidden="true" fill="none" stroke="#3ec5ff" strokeWidth="2.4" strokeLinecap="round" strokeLinejoin="round">
+        <circle cx="12" cy="12" r="9" />
+        <path d="M12 7v6M9.5 10.5L12 13l2.5-2.5" />
+        <circle cx="12" cy="16.6" r="0.6" fill="#3ec5ff" />
+      </svg>
+      {!touch && <span className="text-cream">Hint</span>}
+      {!touch && keyName && <kbd className="bg-cream/10 border-cream/30 text-cream rounded-sm border border-b-2 px-1 text-[10px] leading-4">{keyName}</kbd>}
+      {costs && <span className="text-orange">−1★</span>}
+    </button>
   );
 };
 
@@ -236,6 +272,7 @@ export const LevelResult = ({
     [lv.goals[1], run.goals.par, ok ? `${run.time.toFixed(1)} s / ${lv.par} s` : '–'],
     [lv.goals[2], run.goals.clean, ok ? `${run.grazes === 0 ? 'no grazes' : `${run.grazes} ${run.grazes === 1 ? 'graze' : 'grazes'}`}${lv.scoresPrecision ? ` · ${run.precision}%` : ''}` : '–'],
   ];
+  if (run.hinted && ok) rows.push(['Hint used', false, '−1★']);
   const title = ok ? (run.stars === 3 ? 'Perfect' : lv.type === 'unpark' ? "You're out" : lv.type === 'race' ? 'Parked first' : 'Parked') : FAIL_TITLE[run.failed!];
   return (
     <div className="bg-ink-deep/70 absolute inset-0 z-30 flex items-center justify-center p-3 backdrop-blur-sm" style={{ animation: 'fadeIn 0.3s ease-out both' }} role="dialog" aria-label="Result">
@@ -275,7 +312,7 @@ export const LevelResult = ({
         )}
         {ok && run.stars < 3 && (
           <p className="text-lilac mt-2 text-xs">
-            {!run.goals.par ? `Beat ${lv.par} s for the second star.` : lv.scoresPrecision ? `Park clean and ${PRECISION_STAR}% straight for the third.` : 'Touch nothing for the third star.'}
+            {run.hinted && run.goals.par && run.goals.clean ? 'Find the bay without a hint for the third star.' : !run.goals.par ? `Beat ${lv.par} s for the second star.` : lv.scoresPrecision ? `Park clean and ${PRECISION_STAR}% straight for the third.` : 'Touch nothing for the third star.'}
           </p>
         )}
         {next && (

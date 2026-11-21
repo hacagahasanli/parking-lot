@@ -132,10 +132,10 @@ describe('settings: rebinding', () => {
   });
 
   it('a key another action uses is swapped: that action takes the old key', () => {
-    // Put the horn on W: Gas loses W and gets H.
+    // Put the horn on W: Gas loses W and gets B.
     const r = rebind(DEFAULT_BINDINGS, 'horn', 0, 'KeyW');
     expect(r.bindings.horn[0]).toBe('KeyW');
-    expect(r.bindings.up[0]).toBe('KeyH');
+    expect(r.bindings.up[0]).toBe('KeyB');
     expect(r.swapped).toEqual({ action: 'up', slot: 0 });
     const all = Object.values(r.bindings).flat().filter(Boolean);
     expect(new Set(all).size).toBe(all.length);
@@ -172,6 +172,17 @@ describe('settings: rebinding', () => {
     expect(s.controls.bindings.horn[0]).toBeNull();
   });
 
+  it('H is the hint key; an older save with the horn on H moves the horn to B', () => {
+    expect(DEFAULT_BINDINGS.hint[0]).toBe('KeyH');
+    const { hint: _drop, ...old } = { ...DEFAULT_BINDINGS, horn: ['KeyH', null] };
+    const s = sanitize({ controls: { bindings: old } });
+    expect(s.controls.bindings.horn).toEqual(['KeyB', null]);
+    expect(s.controls.bindings.hint).toEqual(['KeyH', null]);
+    // A horn the player put on H themselves (with the hint already known) stays there.
+    const mine = sanitize({ controls: { bindings: { ...DEFAULT_BINDINGS, horn: ['KeyH', null], hint: ['KeyJ', null] } } });
+    expect(mine.controls.bindings.horn).toEqual(['KeyH', null]);
+  });
+
   it('a saved reserved key is dropped', () => {
     const s = sanitize({ controls: { bindings: { pause: ['Escape', 'KeyP'] } } });
     expect(s.controls.bindings.pause).toEqual([null, 'KeyP']);
@@ -197,8 +208,8 @@ describe('settings: applying the bindings', () => {
   });
 
   it('a swap is applied both ways', () => {
-    const m = keyMap(rebind(DEFAULT_BINDINGS, 'camera', 0, 'KeyH').bindings);
-    expect(m.KeyH).toBe('camera');
+    const m = keyMap(rebind(DEFAULT_BINDINGS, 'camera', 0, 'KeyB').bindings);
+    expect(m.KeyB).toBe('camera');
     expect(m.KeyC).toBe('horn');
   });
 

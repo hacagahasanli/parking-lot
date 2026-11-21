@@ -54,6 +54,7 @@ const HowTo = ({ s, onBack, touch }: { s: Settings; onBack: () => void; touch: b
     ['Handbrake', k('handbrake')],
     ...(manual ? ([['Shift up / down', [...k('shiftUp'), ...k('shiftDown')]]] as [string, React.ReactNode][]) : []),
     ['Horn', k('horn')],
+    ['Hint (one star)', k('hint')],
     ['Camera', k('camera')],
     ['Pause', k('pause')],
   ];

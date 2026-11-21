@@ -16,7 +16,7 @@ export const SETTINGS_KEY = 'parking-lot.settings';
 /** Older single-value keys (before the settings menu): read once, as the starting values. */
 export const LEGACY_KEYS = { quality: 'parking-lot.quality', camera: 'parking-lot.camera', volume: 'parking-lot:volume' } as const;
 
-export type Action = 'up' | 'down' | 'left' | 'right' | 'handbrake' | 'horn' | 'camera' | 'pause' | 'shiftUp' | 'shiftDown' | 'retry';
+export type Action = 'up' | 'down' | 'left' | 'right' | 'handbrake' | 'horn' | 'camera' | 'pause' | 'shiftUp' | 'shiftDown' | 'retry' | 'hint';
 
 /** Every action in the order the controls tab lists them, with its label. */
 export const ACTIONS: { id: Action; label: string; manualOnly?: boolean }[] = [
@@ -31,6 +31,7 @@ export const ACTIONS: { id: Action; label: string; manualOnly?: boolean }[] = [
   { id: 'camera', label: 'Switch camera' },
   { id: 'pause', label: 'Pause' },
   { id: 'retry', label: 'Restart level' },
+  { id: 'hint', label: 'Hint (costs a star)' },
 ];
 
 export type Slot = 0 | 1;
@@ -44,10 +45,11 @@ export const DEFAULT_BINDINGS: Bindings = {
   handbrake: ['Space', null],
   shiftUp: ['KeyE', null],
   shiftDown: ['KeyQ', null],
-  horn: ['KeyH', null],
+  horn: ['KeyB', null],
   camera: ['KeyC', null],
   pause: ['KeyP', null],
   retry: ['KeyR', null],
+  hint: ['KeyH', null],
 };
 
 /** Keys that can never be bound: Esc belongs to the menus and the portal's fullscreen, Tab and Enter to the focus. */
@@ -93,7 +95,10 @@ const code = (v: unknown) => (typeof v === 'string' && /^[A-Za-z0-9]{1,24}$/.tes
 
 /** Saved bindings over the defaults; a key claimed twice keeps only its first claim (the save was edited or is from a bug). */
 export const sanitizeBindings = (v: unknown): Bindings => {
-  const src = obj(v);
+  const src = { ...obj(v) };
+  // A save from before the hint key had the horn on H by default: the horn moves to its new key so H can show the hint.
+  const horn = src.horn as unknown[] | undefined;
+  if (!Array.isArray(src.hint) && Array.isArray(horn) && horn[0] === 'KeyH' && !horn[1]) src.horn = DEFAULT_BINDINGS.horn;
   const out = {} as Bindings;
   const used = new Set<string>();
   for (const { id } of ACTIONS) {
