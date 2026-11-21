@@ -71,7 +71,7 @@ export interface Settings {
   camera: { mode: CameraMode; shake: boolean };
   graphics: { quality: QualitySetting; shadows: boolean; /** 0.5..1 of the tier's resolution. */ resolution: number; showFps: boolean };
   audio: { master: number; engine: number; effects: number; muted: boolean };
-  access: { reducedMotion: boolean; colorBlind: boolean; largeHud: boolean };
+  access: { reducedMotion: boolean; colorBlind: boolean; largeHud: boolean; /** The keyboard legends and keycaps (touch buttons always stay). */ showKeyHints: boolean };
 }
 
 export const DEFAULTS: Settings = {
@@ -79,7 +79,7 @@ export const DEFAULTS: Settings = {
   camera: { mode: 'park', shake: true },
   graphics: { quality: 'auto', shadows: true, resolution: 1, showFps: false },
   audio: { master: 0.8, engine: 0.7, effects: 0.8, muted: false },
-  access: { reducedMotion: false, colorBlind: false, largeHud: false },
+  access: { reducedMotion: false, colorBlind: false, largeHud: false, showKeyHints: true },
 };
 
 // ---------------------------------------------------------------------------
@@ -145,7 +145,7 @@ export const sanitize = (v: unknown): Settings => {
       effects: num(a.effects, D.audio.effects, 0, 1),
       muted: bool(a.muted, D.audio.muted),
     },
-    access: { reducedMotion: bool(x.reducedMotion, D.access.reducedMotion), colorBlind: bool(x.colorBlind, D.access.colorBlind), largeHud: bool(x.largeHud, D.access.largeHud) },
+    access: { reducedMotion: bool(x.reducedMotion, D.access.reducedMotion), colorBlind: bool(x.colorBlind, D.access.colorBlind), largeHud: bool(x.largeHud, D.access.largeHud), showKeyHints: bool(x.showKeyHints, D.access.showKeyHints) },
   };
 };
 

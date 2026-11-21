@@ -75,7 +75,7 @@ const Kbd = ({ children }: { children: React.ReactNode }) => (
 );
 
 /** The card on the start line: what this level is about and its three goals. Compact on a retry. */
-export const LevelIntro = ({ hud, touch, compact }: { hud: HudState; touch: boolean; compact: boolean }) => {
+export const LevelIntro = ({ hud, touch, compact, keyHints }: { hud: HudState; touch: boolean; compact: boolean; keyHints: boolean }) => {
   const lv = hud.campaign!;
   return (
     <div
@@ -93,7 +93,7 @@ export const LevelIntro = ({ hud, touch, compact }: { hud: HudState; touch: bool
         </div>
         <div className="bg-gold/15 border-gold/50 text-gold mt-1 border px-3 py-1.5 text-sm font-bold sm:text-base [@media(max-height:420px)]:py-0.5 [@media(max-height:420px)]:text-xs">{objectiveOf(lv)}</div>
         {!compact && <div className="text-cream/90 max-w-md text-sm sm:text-base [@media(max-height:420px)]:text-xs">{lv.teaches}</div>}
-        {(!compact || lv.n <= 2) && <ControlsLine touch={touch} />}
+        {(!compact || lv.n <= 2) && (touch || keyHints) && <ControlsLine touch={touch} />}
         <ul className={`mt-1 flex flex-col items-start gap-0.5 text-left text-xs sm:text-sm ${compact ? 'hidden sm:flex' : ''} [@media(max-height:420px)]:hidden`} aria-label="Star goals">
           <li className="text-lilac text-[11px] sm:text-xs">Each goal earns a star:</li>
           {lv.goals.map((g) => (

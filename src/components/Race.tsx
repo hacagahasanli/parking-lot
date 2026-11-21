@@ -305,7 +305,7 @@ const Stat = ({ label, value }: { label: string; value: string }) => (
   </div>
 );
 
-const Result = ({ hud, game, session, exit, support: Support, onMenu }: { hud: HudState; game: Game | null; session: Session; exit?: RaceProps['exit']; support?: SupportSlot; onMenu?: () => void }) => {
+const Result = ({ hud, game, session, exit, support: Support, onMenu, keyHints }: { keyHints: boolean; hud: HudState; game: Game | null; session: Session; exit?: RaceProps['exit']; support?: SupportSlot; onMenu?: () => void }) => {
   const r = hud.result!;
   const st = hud.stage;
   const unlockedNow = r.won && st.hasNext;
@@ -367,7 +367,7 @@ const Result = ({ hud, game, session, exit, support: Support, onMenu }: { hud: H
           )}
           {exit?.({ className: 'panel-cut bg-cream/10 font-display text-cream flex flex-1 items-center justify-center px-4 py-3 text-base transition hover:bg-cream/20 active:scale-95 sm:text-lg', label: 'Home' })}
         </div>
-        <p className="text-lilac mt-3 hidden text-xs sm:block"><Key k="Enter" /> {unlockedNow ? 'goes to the next stage' : 'tries again'}</p>
+        {keyHints && <p className="text-lilac mt-3 hidden text-xs sm:block"><Key k="Enter" /> {unlockedNow ? 'goes to the next stage' : 'tries again'}</p>}
         {Support && (
           <div className="mt-4">
             <Support variant="card" />
@@ -622,7 +622,7 @@ export const Race = ({ platform: given, flavour = 'studio', exit, support: given
   const showResult = !inMenu && !!hud?.result && hud.endedFor >= (hud.result.reason === 'pedestrian' || hud.result.reason === 'crash' ? 2.2 : 1.2);
   const showMeter = !inMenu && !!hud && hud.phase !== 'countdown' && (hud.inBay > 0 || hud.park > 0) && !hud.result;
   // The keys stay on screen the whole time you drive (a quiet strip at the foot), except while the park meter has that spot.
-  const showHint = !inMenu && !touch && !!hud && hud.phase !== 'done' && !hud.paused && !showMeter && !hud.result;
+  const showHint = !inMenu && !touch && settings.access.showKeyHints && !!hud && hud.phase !== 'done' && !hud.paused && !showMeter && !hud.result;
   const session = useSession(game, hud, platform, showResult, testBreaks ? { hintEvery: 10, freeHintAfter: 3 } : undefined);
 
   const lvHud = !inMenu ? (hud?.campaign ?? null) : null;
@@ -780,7 +780,7 @@ export const Race = ({ platform: given, flavour = 'studio', exit, support: given
             {!lvHud?.solo && hud.phase !== 'countdown' && <PlaceBadge hud={hud} />}
             {lvHud && <LevelBar hud={hud} touch={touch} />}
             {lvHud && hud.phase === 'race' && !hud.result && (
-              <HintButton hud={hud} touch={touch} onHint={() => gameRef.current?.useHint()} keyName={settings.controls.bindings.hint[0] ? keyLabel(settings.controls.bindings.hint[0]) : null} />
+              <HintButton hud={hud} touch={touch} onHint={() => gameRef.current?.useHint()} keyName={settings.access.showKeyHints && settings.controls.bindings.hint[0] ? keyLabel(settings.controls.bindings.hint[0]) : null} />
             )}
             {!lvHud && hud.stage.n > 0 && (
               <div className="panel-cut bg-ink-deep/75 font-display text-gold flex items-center px-2 text-xs tracking-wide whitespace-nowrap sm:px-3 sm:text-sm" aria-label={`Stage ${hud.stage.n} of ${hud.stage.total}: ${hud.stage.name}`}>
@@ -811,7 +811,7 @@ export const Race = ({ platform: given, flavour = 'studio', exit, support: given
             </div>
           )}
           {/* The card: through the countdown on a desktop (it sits to the side); on a phone only in the lead-in, so the 3-2-1 has the middle. */}
-          {hud.phase === 'countdown' && (!touch || hud.intro) && (lvHud ? <LevelIntro hud={hud} touch={touch} compact={!firstTry} /> : <Intro hud={hud} touch={touch} onboard={onboard} />)}
+          {hud.phase === 'countdown' && (!touch || hud.intro) && (lvHud ? <LevelIntro hud={hud} touch={touch} keyHints={settings.access.showKeyHints} compact={!firstTry} /> : <Intro hud={hud} touch={touch} onboard={onboard} />)}
           {hud.phase === 'race' && !hud.result && !lvHud?.solo && (
             // On a phone held upright the top edge has no room between the standings and the buttons: the board goes under the
             // stage and clock on the right (and the speed moves down to make way).
@@ -897,7 +897,7 @@ export const Race = ({ platform: given, flavour = 'studio', exit, support: given
             </div>
           )}
 
-          {!touch && (
+          {!touch && settings.access.showKeyHints && (
             <div className="text-lilac pointer-events-none absolute z-10 text-[11px]" style={{ top: 'calc(14px + env(safe-area-inset-top))', right: 'calc(14px + env(safe-area-inset-right))' }}>
               {escPause ? <Key k="Esc" /> : <BoundKeys b={settings.controls.bindings} a="pause" />} pause
               {lvHud && (
@@ -951,7 +951,7 @@ export const Race = ({ platform: given, flavour = 'studio', exit, support: given
               support={support}
             />
           )}
-          {showResult && !lvHud?.run && <Result hud={hud} game={gameRef.current} session={session} exit={exit} support={support} onMenu={menu ? () => (playWipe('menu'), gameRef.current?.enterMenu()) : openModes} />}
+          {showResult && !lvHud?.run && <Result keyHints={settings.access.showKeyHints} hud={hud} game={gameRef.current} session={session} exit={exit} support={support} onMenu={menu ? () => (playWipe('menu'), gameRef.current?.enterMenu()) : openModes} />}
           {session.inBreak && <BreakCover />}
         </>
       )}

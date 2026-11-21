@@ -222,6 +222,9 @@ const Access = ({ s, store }: { s: Settings; store: SettingsStore }) => (
     <Row label="Colour-blind friendly" hint="Good news turns blue instead of green, so nothing is told apart by red and green alone.">
       <Toggle label="Colour-blind friendly highlights" on={s.access.colorBlind} onChange={(v) => store.set('access', { colorBlind: v })} />
     </Row>
+    <Row label="Show key hints" hint="The key legends and the keys shown on buttons. Touch buttons stay.">
+      <Toggle label="Show key hints" on={s.access.showKeyHints} onChange={(v) => store.set('access', { showKeyHints: v })} />
+    </Row>
     <Row label="Larger text" hint="Bigger HUD and menu text.">
       <Toggle label="Larger HUD text" on={s.access.largeHud} onChange={(v) => store.set('access', { largeHud: v })} />
     </Row>

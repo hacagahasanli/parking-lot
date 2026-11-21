@@ -71,6 +71,16 @@ describe('settings: persistence', () => {
     expect(b.get().access.largeHud).toBe(true);
   });
 
+  it('shows key hints by default, keeps an old save on, and remembers turning them off', () => {
+    expect(DEFAULTS.access.showKeyHints).toBe(true);
+    const old = memory();
+    old.setItem(SETTINGS_KEY, JSON.stringify({ access: { largeHud: true } }));
+    expect(createSettingsStore(old).get().access).toEqual({ ...DEFAULTS.access, largeHud: true });
+    const kv = memory();
+    createSettingsStore(kv).set('access', { showKeyHints: false });
+    expect(createSettingsStore(kv).get().access.showKeyHints).toBe(false);
+  });
+
   it('migrates an old save that says manual to the automatic gearbox, unless the player chose manual themselves', () => {
     const old = memory();
     old.setItem(SETTINGS_KEY, JSON.stringify({ controls: { transmission: 'manual' } }));
