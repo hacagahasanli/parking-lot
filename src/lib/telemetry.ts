@@ -1,4 +1,4 @@
-// Vendored from nalbaki-stats client/telemetry.ts v1, sha256 6734843c9ad6a554a02bae8558560a72b03a4e70ae8ebd32afa16bcde2a41345. Do not edit here: change the source and run scripts/vendor.mjs.
+// Vendored from nalbaki-stats client/telemetry.ts v1, sha256 2cd2a3b99d44ea3124e02e56cf9e162addc690cc531d904ce30bb5c6906c31fd. Do not edit here: change the source and run scripts/vendor.mjs.
 /*
  * Nalbaki Games telemetry client, version 1. No dependencies, no endpoint baked in: nothing is sent until `init` is called with one.
  * Source of truth: nalbaki-stats/client/telemetry.ts. Each game holds a vendored copy (see scripts/vendor.mjs, scripts/check-copies.mjs).
@@ -25,7 +25,7 @@ export interface EventProps {
   load_fail: { stage?: string; msg?: string };
   menu_view: Record<never, never>;
   round_start: { mode: string; level?: number; stage?: number; character?: string; n_in_session: number };
-  round_end: { mode: string; level?: number; result: 'win' | 'lose' | 'quit' | 'crash' | 'timeout'; dur_s: number; placement?: number; of?: number; stars?: number; floor?: number; max_level: number };
+  round_end: { mode: string; level?: number; result: 'win' | 'lose' | 'quit' | 'crash' | 'timeout'; dur_s: number; placement?: number; of?: number; stars?: number; floor?: number; kos?: number; kos_against?: number; max_level: number };
   ping: { playing?: boolean };
   online_interest: { action?: 'open' | 'notify' | 'join' };
   js_error: { kind?: string; msg?: string };
