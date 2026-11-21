@@ -17,7 +17,7 @@ genre; nothing specific to any one of them is copied. Numbers below come from
 Home (four bots race behind the title) ──▶ /play, always at stage 1
         │
         ▼
-Intro card + countdown 5 s: "STAGE 2 OF 6 · P0 — Ground floor", one sentence on what is new, six progress
+Intro card + countdown 5 s: the stage's name ("P0 — Ground floor"), one sentence on what is new, six progress
         │  dots; a 2 s lead-in (the camera comes down onto your car; gas skips it, a retry starts after it), then start
         │  lights and a big 3-2-1-GO in the middle of the screen with pips (`Countdown.tsx`); four cars queued behind the closed entry barriers (the little
         │  FREE SPACES board is on the booth), handbrake held, steering and revving allowed
@@ -87,6 +87,37 @@ from the sky. Every stage starts at the entry gate, as before: stages 2 to 5 mea
 | Contact is out | any real contact between your car and another car (a racer, a parked car, the one pulling out, the van, the truck) or a hard fixed thing disqualifies the driver at fault. **Real** means a closing speed of 0.5 m/s or more at the contact point (a feather touch is nobody's fault). **At fault** means your own velocity at the contact drives into the other body at more than 0.25 m/s: the car that drives into the contact is out, both if both do, and a car that is hit while standing still is not at fault (so being rammed from behind never costs you the round). **Out**: posts, lamps, columns, cones, trolley corrals, ticket machines, the barrier arms and the stage barriers, the van and the truck. **Fine** (a scrape, a bump sound, nothing else): kerbs, planters and hedge strips, walls, ramp sides. Same flow as the pedestrian rule: the car stops where it is with its hazards on, the banner reads YOU HIT A CAR (and the name of the car), YOU HIT A PARKED CAR or YOU HIT A POST over DISQUALIFIED, the result card says what you hit, and the race goes on for the others | `CONTACT`, `resolve()` in `step.ts` |
 | Disqualified | a car (you or a bot) that hits a pedestrian at over 1 m/s stops where it is with its hazards on and cannot win; the race goes on for the others. If it was you, you get the result card with the reason; if every car is out, the round ends | `stepPeds()` in `ped.ts` |
 
+## Game modes
+
+Play opens **Game modes** (`Modes.tsx`): three big tiles over the live lot, for keyboard (arrows, Enter, 1 to 3, Esc), mouse,
+touch and gamepad, and a Back button.
+
+- **Campaign**: thirty solo parking levels on the map (`CAMPAIGN` in `campaign.ts`), four chapters opened by stars. No rivals.
+- **Race**: who parks first. Six races against one to three rivals (`RACES`), each opened by winning the one before; the
+  same stars (park first, par, touch nothing). Winning race 1 opens Endless.
+- **Endless**: the original race below, six stages, a random bay each round.
+
+Races used to sit inside the campaign (levels 8, 16, 24, 26, 27 and 30). A version 1 save is migrated on load: every record is
+kept, and every campaign level the old rules had open stays open (`unlocked`), though the campaign's star total no longer counts
+race stars (`v1Open`, tested).
+
+### Finding the bay: calm guidance
+
+The bay is visible on the ground when you are near, not from far away (`guidance.ts`). No light column, no edge arrow, no minimap
+ring. A solo level's outline fades in from 16 m and is full by 10 m, on the same deck only. If the bay is not found (you have been
+within 13 m of it) by `hintDelay` (12 s in chapter 1, 15, 19, then 24 s in chapter 4; races 12 s rising 2 s a race; endless 12 s),
+an arrow shows the way for 3 s and the outline pulses, then again every 10 s. **H** (rebindable; the horn moved to B) or the hint
+button beside the star bars fires a pulse at once: in a level the first use costs one star (never the finishing star), shown as
+−1★ beside the star bars and as a row on the result card. Endless has the automatic pulse only (its own ad hint stays).
+
+### The campaign's curve
+
+Level 1's bay is forty metres down the aisle you start in; level 2 is round a corner; then the far side of the lot, then
+other decks. Coned-off bays look like spaces from a distance (decoys) from level 8 on; vans hide gaps, cones narrow aisles and
+shoppers multiply. The tests check that decoys, obstacles and hint delays rise chapter by chapter, that level 1's bay is out of
+sight from the start, and that a driver who knows the way parks every level inside its limit. A solo clock starts at GO, so every
+solo par and limit is judged with 0.4 s on top (`GO_GRACE`).
+
 Details that matter in play:
 
 - While position and angle are right but the car still moves, the hold timer drains at half speed
@@ -95,8 +126,10 @@ Details that matter in play:
   first, disqualified cars marked OUT). Final places after the round: the winner, then by distance
   to the free bay, with disqualified cars last.
 - Nothing shows the bay while the round is on: no beam, no floating P, no green outline or fill, no
-  off-screen arrow, no minimap dot, no distance numbers, no "you are close" meter until some of your
-  car is inside the lines. After the round it is revealed for a few seconds (outline, beam, P, minimap dot).
+  minimap ring, no distance numbers, no "you are close" meter until some of your car is inside the lines. Its yellow
+  paint lights up only within about 15 m (`reveal.ts`). If you have not found it 12 s after GO, an arrow shows the way
+  for 3 s (over the bay, or at the screen edge in its direction), and again every 10 s until you find it (`guidance.ts`).
+  After the round it is revealed for a few seconds (outline, beam, P, minimap dot).
 - Candidate bays are only those a bot can really park in: the bay has an approach path (see
   "Approaches" below) that is reachable through the aisle graph without turning round at a
   junction and that a car, with 0.2 m to spare each side, can drive without touching anything,
