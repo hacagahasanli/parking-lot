@@ -122,7 +122,8 @@ export const createCrazyGamesPlatform = (sdk: CrazySdk, opts: { storage?: KeyVal
       playing = false;
       safe(() => sdk.game.gameplayStop());
     },
-    banners: !!sdk.banner,
+    // Only on CrazyGames itself: on localhost the SDK fills the slot with a demo banner, and on our own site there is no SDK.
+    banners: !!sdk.banner && sdk.environment === 'crazygames',
     requestBanner: async (id) => {
       try {
         if (!sdk.banner) return false;
