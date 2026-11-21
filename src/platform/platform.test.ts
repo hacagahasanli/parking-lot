@@ -85,9 +85,25 @@ describe('the web fallback', () => {
 });
 
 describe('the CrazyGames adapter', () => {
+  it('makes no ad or banner calls unless ads are turned on (Basic Launch rejects any)', async () => {
+    let calls = 0;
+    const p = createCrazyGamesPlatform(
+      fakeSdk({
+        ad: () => calls++,
+        banner: { requestResponsiveBanner: () => void calls++, clearBanner: () => void calls++ },
+      }).sdk,
+    );
+    expect(p.ads).toBe(false);
+    expect(p.banners).toBe(false);
+    expect(await p.rewardedBreak()).toBe('error');
+    expect(await p.requestBanner('b')).toBe(false);
+    p.clearBanner('b');
+    expect(calls).toBe(0);
+  });
+
   it('forwards gameplay start and stop only when they change', () => {
     const f = fakeSdk();
-    const p = createCrazyGamesPlatform(f.sdk);
+    const p = createCrazyGamesPlatform(f.sdk, { ads: true });
     p.gameplayStart();
     p.gameplayStart();
     p.gameplayStop();
@@ -111,14 +127,14 @@ describe('the CrazyGames adapter', () => {
         }, 5);
       },
     });
-    const p = createCrazyGamesPlatform(f.sdk);
+    const p = createCrazyGamesPlatform(f.sdk, { ads: true });
     const r = await p.rewardedBreak({ onStart: () => order.push('mute') });
     expect(r).toBe('shown');
     expect(order).toEqual(['request', 'mute', 'playing']);
   });
 
   it('turns ad errors, SDK exceptions and an ad that never starts into "error", and remembers why', async () => {
-    const unfilled = createCrazyGamesPlatform(fakeSdk({ ad: (_t, cb) => cb.adError?.({ code: 'unfilled' }) }).sdk);
+    const unfilled = createCrazyGamesPlatform(fakeSdk({ ad: (_t, cb) => cb.adError?.({ code: 'unfilled' }) }).sdk, { ads: true });
     expect(await unfilled.rewardedBreak()).toBe('error');
     expect(unfilled.lastBreakError()).toBe('unfilled');
     const throws = createCrazyGamesPlatform(
@@ -127,9 +143,10 @@ describe('the CrazyGames adapter', () => {
           throw new Error('boom');
         },
       }).sdk,
+      { ads: true },
     );
     expect(await throws.rewardedBreak()).toBe('error');
-    const silent = createCrazyGamesPlatform(fakeSdk({ ad: () => undefined }).sdk, { timeoutMs: 20 });
+    const silent = createCrazyGamesPlatform(fakeSdk({ ad: () => undefined }).sdk, { ads: true, timeoutMs: 20 });
     let muted = false;
     expect(await silent.rewardedBreak({ onStart: () => (muted = true) })).toBe('error');
     expect(muted).toBe(false);
@@ -137,13 +154,13 @@ describe('the CrazyGames adapter', () => {
   });
 
   it('has no midgame ads at all: the platform offers only rewarded breaks', () => {
-    const p = createCrazyGamesPlatform(fakeSdk().sdk);
+    const p = createCrazyGamesPlatform(fakeSdk().sdk, { ads: true });
     expect('commercialBreak' in p).toBe(false);
   });
 
   it('asks for a responsive banner in the given container and clears it', async () => {
     const f = fakeSdk();
-    const p = createCrazyGamesPlatform(f.sdk);
+    const p = createCrazyGamesPlatform(f.sdk, { ads: true });
     expect(p.banners).toBe(true);
     expect(await p.requestBanner('menu-banner')).toBe(true);
     p.clearBanner('menu-banner');
@@ -160,10 +177,11 @@ describe('the CrazyGames adapter', () => {
           },
         },
       }).sdk,
+      { ads: true },
     );
     expect(await refused.requestBanner('b')).toBe(false);
     expect(() => refused.clearBanner('b')).not.toThrow();
-    const none = createCrazyGamesPlatform(fakeSdk({ banner: null }).sdk);
+    const none = createCrazyGamesPlatform(fakeSdk({ banner: null }).sdk, { ads: true });
     expect(none.banners).toBe(false);
     expect(await none.requestBanner('b')).toBe(false);
   });
@@ -173,13 +191,13 @@ describe('the CrazyGames adapter', () => {
     f.sdk.game.gameplayStart = () => {
       throw new Error('sdk down');
     };
-    const p = createCrazyGamesPlatform(f.sdk);
+    const p = createCrazyGamesPlatform(f.sdk, { ads: true });
     expect(() => p.gameplayStart()).not.toThrow();
   });
 
   it("follows the portal's mute setting, reads the device type and saves through the data module", () => {
     const f = fakeSdk({ muted: true, device: 'tablet' });
-    const p = createCrazyGamesPlatform(f.sdk);
+    const p = createCrazyGamesPlatform(f.sdk, { ads: true });
     expect(p.muted()).toBe(true);
     const seen: boolean[] = [];
     const off = p.onMutedChange((m) => seen.push(m));

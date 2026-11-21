@@ -56,7 +56,14 @@ const safe = (fn: () => void) => {
   }
 };
 
-export const createCrazyGamesPlatform = (sdk: CrazySdk, opts: { storage?: KeyValue; timeoutMs?: number } = {}): Platform => {
+/**
+ * Ads stay off until Full Launch: CrazyGames rejects a Basic Launch build that touches any ad or banner call (even
+ * clearBanner). Build with VITE_CG_ADS=1 to turn the rewarded hint and the menu banner back on.
+ */
+const ADS_DEFAULT = (import.meta as unknown as { env?: Record<string, string | undefined> }).env?.VITE_CG_ADS === '1';
+
+export const createCrazyGamesPlatform = (sdk: CrazySdk, opts: { storage?: KeyValue; timeoutMs?: number; ads?: boolean } = {}): Platform => {
+  const ADS_ON = opts.ads ?? ADS_DEFAULT;
   let playing = false;
   let loading = false;
   let lastError: string | null = null;
@@ -100,7 +107,7 @@ export const createCrazyGamesPlatform = (sdk: CrazySdk, opts: { storage?: KeyVal
 
   return {
     id: 'crazygames',
-    ads: true,
+    ads: ADS_ON,
     init: async () => undefined,
     loadingStart: () => {
       if (loading) return;
@@ -123,18 +130,20 @@ export const createCrazyGamesPlatform = (sdk: CrazySdk, opts: { storage?: KeyVal
       safe(() => sdk.game.gameplayStop());
     },
     // Only on CrazyGames itself: on localhost the SDK fills the slot with a demo banner, and on our own site there is no SDK.
-    banners: !!sdk.banner && sdk.environment === 'crazygames',
+    banners: ADS_ON && !!sdk.banner && sdk.environment === 'crazygames',
     requestBanner: async (id) => {
       try {
-        if (!sdk.banner) return false;
+        if (!ADS_ON || !sdk.banner) return false;
         await sdk.banner.requestResponsiveBanner(id);
         return true;
       } catch {
         return false;
       }
     },
-    clearBanner: (id) => safe(() => sdk.banner?.clearBanner(id)),
-    rewardedBreak: (hooks) => request('rewarded', hooks),
+    clearBanner: (id) => {
+      if (ADS_ON) safe(() => sdk.banner?.clearBanner(id));
+    },
+    rewardedBreak: (hooks) => (ADS_ON ? request('rewarded', hooks) : Promise.resolve<BreakResult>('error')),
     lastBreakError: () => lastError,
     happytime: () => safe(() => sdk.game.happytime?.()),
     muted: () => {
