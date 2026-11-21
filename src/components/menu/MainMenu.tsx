@@ -18,6 +18,7 @@ import { SettingsPanel } from './SettingsPanel';
 import { Kbd, Panel, useMenuNav, usePadNav, useHoverSound } from './ui';
 
 import type { Tab } from './SettingsPanel';
+import type { SupportSlot } from '~/components/Race';
 import type { HudState } from '~/game/render/game';
 import type { Tier } from '~/game/render/quality';
 import type { Settings, SettingsStore } from '~/game/settings';
@@ -138,12 +139,14 @@ export interface MainMenuProps {
   platform?: Platform;
   /** The menu is really on screen (the loading screen has gone): the banner may be requested. */
   shown?: boolean;
+  /** Our own site's Support us pill under the menu (portals pass nothing: no outbound links). */
+  support?: SupportSlot;
   /** Start on a sub-view (the screenshot script). */
   initialView?: MenuView;
   initialTab?: Tab;
 }
 
-export const MainMenu = ({ hud, settings, store, touch, tier, portalMuted, logoSrc, onPlay, onSound, initialView = 'root', initialTab, campaign, platform, shown = true }: MainMenuProps) => {
+export const MainMenu = ({ hud, settings, store, touch, tier, portalMuted, logoSrc, onPlay, onSound, initialView = 'root', initialTab, campaign, platform, shown = true, support: Support }: MainMenuProps) => {
   const hover = useHoverSound(() => onSound('move'));
   const [view, setViewState] = useState<MenuView>(initialView);
   const root = useRef<HTMLDivElement>(null);
@@ -203,6 +206,12 @@ export const MainMenu = ({ hud, settings, store, touch, tier, portalMuted, logoS
               <Item id="credits" label="Credits" delay={0.26} onPick={open('credits')} />
             </ul>
           </nav>
+          {/* Our own site's support pill (never on a portal): under the menu, on a phone at the foot of the sheet. */}
+          {Support && (
+            <div className="mt-5 portrait:max-sm:bg-ink-deep/80 portrait:max-sm:-mx-6 portrait:max-sm:mt-0 portrait:max-sm:px-6 portrait:max-sm:pb-3" style={{ animation: 'menuIn 0.45s cubic-bezier(0.2,0.8,0.2,1) 0.32s both' }}>
+              <Support variant="menu" />
+            </div>
+          )}
           {/* The portal's banner (none on our own site): under the menu, on a phone at the foot of the sheet, collapsed when empty. */}
           {platform && (
             <div className="mt-4 portrait:max-sm:bg-ink-deep/80 portrait:max-sm:-mx-6 portrait:max-sm:mt-0 portrait:max-sm:px-6 portrait:max-sm:pb-2 empty:hidden">

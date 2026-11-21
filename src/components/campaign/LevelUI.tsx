@@ -267,7 +267,7 @@ export const LevelResult = ({
   onRetry: () => void;
   onMap: () => void;
   /** Our own site's support module as a card under the buttons (portals pass nothing). */
-  support?: ComponentType<{ variant?: 'pill' | 'card' }>;
+  support?: ComponentType<{ variant?: 'pill' | 'card' | 'menu' }>;
 }) => {
   const lv = hud.campaign!;
   const run = lv.run!;

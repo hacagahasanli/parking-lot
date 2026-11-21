@@ -27,6 +27,6 @@ export const Support = ({ variant, className = '' }: { variant: Variant; classNa
   </a>
 );
 
-/** What Race is handed by SiteRace: `pill` in the pause menu (one line), `card` on the result screens. */
-export const SupportLink = ({ variant = 'pill' }: { variant?: 'pill' | 'card' }) =>
-  variant === 'card' ? <Support variant="results" /> : <Support variant="pause" />;
+/** What Race is handed by SiteRace and the web build: `pill` in the pause menu (one line), `card` on the result screens, `menu` on the main menu. */
+export const SupportLink = ({ variant = 'pill' }: { variant?: 'pill' | 'card' | 'menu' }) =>
+  variant === 'card' ? <Support variant="results" /> : variant === 'menu' ? <Support variant="menu" /> : <Support variant="pause" />;

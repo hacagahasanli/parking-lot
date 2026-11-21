@@ -32,8 +32,8 @@ import type { Flavour } from '~/game/sim/flavour';
 import type { Platform } from '~/platform/types';
 
 
-/** The site's support module (SupportLink): `pill` is one line, `card` the result-screen card. */
-export type SupportSlot = ComponentType<{ variant?: 'pill' | 'card' }>;
+/** The site's support module (SupportLink): `pill` is one line, `card` the result-screen card, `menu` the main menu's pill. */
+export type SupportSlot = ComponentType<{ variant?: 'pill' | 'card' | 'menu' }>;
 
 export interface RaceProps {
   /** The page the game runs on (a portal SDK or the plain web). Default: the plain web, every call a no-op. */
@@ -517,7 +517,7 @@ const BoundKeys = ({ b, a }: { b: Bindings; a: keyof Bindings }) => (
 );
 
 /** The race: full-screen canvas, the HUD on top, touch controls on phones. */
-export const Race = ({ platform: given, flavour = 'studio', exit, support, credit, escPause = true, testBreaks = false, menu = false, logoSrc }: RaceProps) => {
+export const Race = ({ platform: given, flavour = 'studio', exit, support: givenSupport, credit, escPause = true, testBreaks = false, menu = false, logoSrc }: RaceProps) => {
   const canvas = useRef<HTMLCanvasElement>(null);
   const minimap = useRef<HTMLCanvasElement>(null);
   const pointer = useRef<HTMLDivElement>(null);
@@ -525,6 +525,8 @@ export const Race = ({ platform: given, flavour = 'studio', exit, support, credi
   const [game, setGame] = useState<Game | null>(null);
   const [hud, setHud] = useState<HudState | null>(null);
   const platform = useMemo(() => given ?? createWebPlatform(), [given]);
+  // Never an outbound link when the game runs on CrazyGames, whatever the page passed in.
+  const support = platform.id === 'crazygames' ? undefined : givenSupport;
   const touch = useTouch(platform.deviceType());
   const [settings, store] = useSettings(platform);
   const settingsRef = useRef(settings);
@@ -712,6 +714,7 @@ export const Race = ({ platform: given, flavour = 'studio', exit, support, credi
           campaign={campaign.progress}
           platform={platform}
           shown={loadGone}
+          support={support}
         />
       )}
 
