@@ -205,13 +205,13 @@ export const MainMenu = ({ hud, settings, store, touch, tier, portalMuted, logoS
               <Item id="how" label="How to play" delay={0.2} onPick={open('how')} />
               <Item id="credits" label="Credits" delay={0.26} onPick={open('credits')} />
             </ul>
+            {/* Our own site's support pill (never on a portal): under the menu items, inside the sheet on a phone. */}
+            {Support && (
+              <div className="mt-5 [@media(max-height:500px)]:mt-2 portrait:max-sm:mt-3" style={{ animation: 'menuIn 0.45s cubic-bezier(0.2,0.8,0.2,1) 0.32s both' }}>
+                <Support variant="menu" />
+              </div>
+            )}
           </nav>
-          {/* Our own site's support pill (never on a portal): under the menu, on a phone at the foot of the sheet. */}
-          {Support && (
-            <div className="mt-5 portrait:max-sm:bg-ink-deep/80 portrait:max-sm:-mx-6 portrait:max-sm:mt-0 portrait:max-sm:px-6 portrait:max-sm:pb-3" style={{ animation: 'menuIn 0.45s cubic-bezier(0.2,0.8,0.2,1) 0.32s both' }}>
-              <Support variant="menu" />
-            </div>
-          )}
           {/* The portal's banner (none on our own site): under the menu, on a phone at the foot of the sheet, collapsed when empty. */}
           {platform && (
             <div className="mt-4 portrait:max-sm:bg-ink-deep/80 portrait:max-sm:-mx-6 portrait:max-sm:mt-0 portrait:max-sm:px-6 portrait:max-sm:pb-2 empty:hidden">
