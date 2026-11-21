@@ -117,7 +117,7 @@ a { color: inherit; }
 .chip input:focus-visible + .chip-in::before { box-shadow: inset 0 0 0 3px var(--k-bone); }
 .chip:has(input:focus-visible) { outline: 3px solid var(--k-bone); outline-offset: 3px; }
 
-.chips.small .chip-in { display: flex; gap: 8px; min-height: 50px; padding: 8px 6px 10px; }
+.chips.small .chip-in { display: flex; justify-content: center; gap: 8px; min-height: 50px; padding: 8px 6px 10px; }
 .chips.small .chip b { font-size: 22px; }
 .chips.small .ico svg { width: 18px; height: 18px; }
 

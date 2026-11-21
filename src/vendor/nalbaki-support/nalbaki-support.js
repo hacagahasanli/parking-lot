@@ -325,7 +325,7 @@ export class NalbakiSupport extends HTMLElement {
     const own = this.shadowRoot.getElementById('own-amt');
     const n = parseAmount(raw);
     this._custom = n;
-    if (this._tier !== 'custom') this._check('custom', false);
+    if (this._tier !== 'custom') this._check('custom', true);
     const bad = raw.trim() !== '' && n == null;
     if (err) err.textContent = bad ? 'Use a whole number from 1 to 1000.' : '';
     if (bad) own.setAttribute('aria-invalid', 'true');
