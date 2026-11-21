@@ -18,7 +18,8 @@ Home (four bots race behind the title) ──▶ /play, always at stage 1
         │
         ▼
 Intro card + countdown 5 s: "STAGE 2 OF 6 · P0 — Ground floor", one sentence on what is new, six progress
-        │  dots, the number counting down under it; four cars queued behind the closed entry barriers (the little
+        │  dots; a 2 s lead-in (the camera comes down onto your car; gas skips it, a retry starts after it), then start
+        │  lights and a big 3-2-1-GO in the middle of the screen with pips (`Countdown.tsx`); four cars queued behind the closed entry barriers (the little
         │  FREE SPACES board is on the booth), handbrake held, steering and revving allowed
         │  GO: the barriers lift (0.9 s)
         ▼
@@ -59,7 +60,9 @@ from the sky. Every stage starts at the entry gate, as before: stages 2 to 5 mea
   nothing (Retry). Stage chips (1 to 6: current, open, or locked) are on the result card and in the pause menu; a locked chip does
   nothing; picking an open one starts that stage.
 - **Information**: the intro card before each countdown (stage number, name, what is new, dots for progress), a STAGE chip beside the
-  clock in the HUD, and the "how to play" on the home page. In stages 2 to 5 the board already says IN THE GARAGE from the start (the card told you), and from 32 s flickers between the free
+  clock in the HUD, your live place beside it (the place you would take by parking now; the standings list the parked cars in the
+  order they parked, never who is nearest the bay: `liveStandings`), the three stars of a campaign level with bars that drain
+  (limit, par, clean: `StarTrack`), and the "how to play" on the home page. In stages 2 to 5 the board already says IN THE GARAGE from the start (the card told you), and from 32 s flickers between the free
   bay's deck and one *open* deck (stage 2 has only one deck, so there is no flicker).
 - **A bay the bots could never see** (a van beside it on a one-way aisle hides it from every point a car may look from) is never the free bay in a stage (`spottable`
   in `visibility.ts`): it is a bay for people.
@@ -70,7 +73,7 @@ from the sky. Every stage starts at the entry gate, as before: stages 2 to 5 mea
 | Rule | Value | Source |
 | --- | --- | --- |
 | Cars | 4 (you plus 3 bots offline) | `RoundOptions.bots` in `step.ts` |
-| Countdown | 5 s (the title card and the board are on screen) | `RACE.countdown` |
+| Countdown | 5 s in every round, solo levels too: a 2 s lead-in (skippable), then 3-2-1 (`RACE.count`); the level clock starts at GO | `RACE.countdown`, `skipIntro` |
 | Free bay | 1 per round. First a zone (open lot 40 %, each of the four decks 15 %), then a candidate bay in it: angled and 90 degree bays a bot can really drive into (160 outdoors, 52 on the decks), never within 38 m of a start; that car is removed; **not marked in any way** | `pickTarget`, `Lot.candidates` |
 | Levels | a car, shopper or bay is on one level (P-1, P0, P1, P2, or the open lot, which is P0); things on different levels never touch, even straight over each other; a ramp joins two levels and your height follows your position on it. To win, you must be on the free bay's level | `levels.ts`, `step.ts` |
 | The board | "FREE SPACES: 1" from the start; from 12 s the part of the site (open lot or garage; from the start in stages 2 to 5); from 32 s, if the bay is in the garage and more than one deck is open, two decks flicker, one right and one a decoy (the first one flashed is no clue); when a car pulls out the count goes to 2. Shown on a small panel on the ticket booth, on the wall by the garage door and in the HUD, to the bots too | `hint.ts` |
