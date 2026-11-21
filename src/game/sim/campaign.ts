@@ -312,7 +312,7 @@ export interface Rules {
   slack: number;
   /** Radians. */
   maxAngle: number;
-  /** A touch closing at this speed (m/s) or more fails you; slower is a graze. */
+  /** A touch closing at this speed (m/s) or more fails you; slower is a graze (`Infinity`: a touch never fails). */
   failSpeed: number;
   /** Solo: no rivals, the bay is outlined, the clock starts on your first press. */
   solo: boolean;
@@ -320,12 +320,24 @@ export interface Rules {
 
 /** A solo level's touch: a graze below this closing speed (m/s), a hard hit from it. */
 export const GRAZE_SPEED = 0.8;
+/** Levels 5 to 8 are a little forgiving: a graze below this closing speed (m/s, 7 km/h). */
+export const EASY_GRAZE_SPEED = 2.0;
+/** The first four levels never fail on a touch: every one is a graze (a shopper still ends the round). */
+export const FORGIVEN_LEVELS = 4;
+
+/** The closing speed (m/s) at which a touch fails this level; `Infinity` when a touch never does. */
+export const failSpeedOf = (l: LevelDef): number => {
+  if (isRace(l)) return CONTACT.minSpeed;
+  if (l.n <= FORGIVEN_LEVELS) return Infinity;
+  if (l.n <= 8) return EASY_GRAZE_SPEED;
+  return GRAZE_SPEED;
+};
 
 export const rulesOf = (l: LevelDef): Rules => ({
   facing: l.facing,
   slack: l.slack ?? PARK.slack,
   maxAngle: ((l.maxAngleDeg ?? 22) * Math.PI) / 180,
-  failSpeed: isRace(l) ? CONTACT.minSpeed : GRAZE_SPEED,
+  failSpeed: failSpeedOf(l),
   solo: !isRace(l),
 });
 

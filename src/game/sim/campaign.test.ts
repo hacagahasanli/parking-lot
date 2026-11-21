@@ -9,6 +9,8 @@ import {
   CHAPTERS,
   CAMPAIGN_KEY,
   GO_GRACE,
+  GRAZE_SPEED,
+  failSpeedOf,
   continueLevel,
   emptyProgress,
   endlessOpen,
@@ -24,7 +26,7 @@ import {
   totalStars,
 } from './campaign';
 import { collide, nearShape } from './collide';
-import { DT, RACE } from './constants';
+import { CONTACT, DT, RACE } from './constants';
 import { levelY } from './levels';
 import { buildLot } from './lot';
 import { locate, shortestPath } from './nav';
@@ -344,7 +346,7 @@ describe('the rules of a level', () => {
     const vans = levelById('vans')!;
     for (const [speed, out] of [
       [0.5, false],
-      [2, true],
+      [3, true],
     ] as const) {
       const { state, world } = round(vans);
       const van = world.lot.bays[157];
@@ -359,6 +361,54 @@ describe('the rules of a level', () => {
       if (!out) expect(state.phase).toBe('race');
       else expect(state.phase).toBe('done');
     }
+  });
+
+  /** Drive level `l`'s car into the side of an ordinary parked car at `speed` m/s; returns what became of it. */
+  const bump = (l: LevelDef, speed: number) => {
+    const { state, world } = round(l);
+    const parked = world.lot.bays.find((b) => b.use === 'car' && !b.garage && b.type === 'perp' && b.variant === 0 && b.id !== state.target)!;
+    const me = state.cars[0];
+    state.phase = 'race';
+    state.t = 5;
+    const gap = 2.105 + 2.225 + 0.03;
+    Object.assign(me, { x: parked.x - parked.ax * gap, z: parked.z - parked.az * gap, h: parked.h, vx: parked.ax * speed, vz: parked.az * speed, w: 0 });
+    for (let i = 0; i < 60; i++) step(state, world, [press()]);
+    return { out: me.dq !== null, grazes: me.grazes, phase: state.phase };
+  };
+
+  it('levels 1 to 4 never fail on a touch: a 10 km/h and even a 20 km/h bump is only a graze', () => {
+    for (const l of CAMPAIGN.slice(0, 4)) {
+      for (const kmh of [10, 20]) {
+        const r = bump(l, kmh / 3.6);
+        expect(r.out, `level ${l.n} at ${kmh} km/h`).toBe(false);
+        expect(r.grazes, `level ${l.n} at ${kmh} km/h`).toBeGreaterThan(0);
+        expect(r.phase).toBe('race');
+      }
+    }
+  });
+
+  it('a graze costs the clean star but a park after it still earns two', () => {
+    const l = CAMPAIGN[0];
+    const g = { finished: true, time: l.par - 1, grazes: 1, precision: 95 };
+    expect(starsFor(l, g)).toBe(2);
+  });
+
+  it('levels 5 to 8 fail at 2.0 m/s (7 km/h) and forgive anything slower', () => {
+    expect(failSpeedOf(CAMPAIGN[4])).toBe(2);
+    expect(failSpeedOf(CAMPAIGN[7])).toBe(2);
+    for (const l of CAMPAIGN.slice(4, 8)) {
+      const soft = bump(l, 1.5);
+      expect(soft.out, `level ${l.n} at 1.5 m/s`).toBe(false);
+      expect(soft.grazes).toBeGreaterThan(0);
+      expect(bump(l, 2.6).out, `level ${l.n} at 2.6 m/s`).toBe(true);
+    }
+  });
+
+  it('level 9 on and every race keep their old rules', () => {
+    expect(failSpeedOf(CAMPAIGN[8])).toBe(GRAZE_SPEED);
+    expect(failSpeedOf(CAMPAIGN[29])).toBe(GRAZE_SPEED);
+    expect(failSpeedOf(RACES[0])).toBe(CONTACT.minSpeed);
+    expect(bump(CAMPAIGN[8], 1.5).out).toBe(true);
   });
 
   it('in a race any real touch still puts you out', () => {
@@ -544,5 +594,26 @@ describe('fine steering', () => {
     };
     expect(turned(true, 0)).toBeLessThan(turned(false, 0) * 0.7);
     expect(turned(true, 5)).toBeCloseTo(turned(false, 5), 5);
+  });
+});
+
+describe('one tap to drive: where Play and Next level go', () => {
+  const park = (p: ReturnType<typeof emptyProgress>, l: LevelDef, stars = 1) =>
+    recordRun(p, l, { finished: true, time: stars >= 2 ? l.par - 1 : l.limit - 1, grazes: stars >= 3 ? 0 : 1, precision: 100 });
+
+  it('a new player\'s Play starts level 1', () => {
+    expect(continueLevel(emptyProgress()).id).toBe(CAMPAIGN[0].id);
+  });
+
+  it('a returning player\'s Play starts the next level they have not finished', () => {
+    let p = park(emptyProgress(), CAMPAIGN[0], 3);
+    p = park(p, CAMPAIGN[1], 2);
+    expect(continueLevel(p).id).toBe(CAMPAIGN[2].id);
+  });
+
+  it('after a park, Next level is the very next level, open at once', () => {
+    const p = park(emptyProgress(), CAMPAIGN[0]);
+    expect(nextOpenLevel(p, CAMPAIGN[0])?.id).toBe(CAMPAIGN[1].id);
+    expect(nextOpenLevel(emptyProgress(), CAMPAIGN[0])).toBeNull();
   });
 });
